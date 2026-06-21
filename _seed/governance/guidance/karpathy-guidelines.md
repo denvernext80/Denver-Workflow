@@ -4,6 +4,7 @@ scope: engineering
 status: stable
 compiles-to: skill
 digest: full
+pin: top
 title: Karpathy 코딩 가이드라인 — LLM 코딩 실수 줄이기
 ---
 그출처: [Andrej Karpathy](https://x.com/karpathy/status/2015883857489522876) (MIT, karpathy-guidelines).
