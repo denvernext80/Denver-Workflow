@@ -1,0 +1,11 @@
+.venv/
+.claude/skills/
+.claude/agents/
+.claude/ssot-checks.json
+.claude/ssot-session-digest.md
+__pycache__/
+*.pyc
+.DS_Store
+/tmp-fixture/
+docs/superpowers/
+.impeccable/
