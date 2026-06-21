@@ -319,6 +319,10 @@ def build_session_digest(notes: list["Note"], scopes: set[str]) -> str:
     pinned = [n for n in guidance if str(n.meta.get("pin", "")).strip() == "top"]
     guidance = [n for n in guidance if str(n.meta.get("pin", "")).strip() != "top"]
 
+    # repo-map (프로젝트 토폴로지/라우팅) — axis-A 의 의도된 digest 예외(VAULT-STRUCTURE 문서화).
+    repo_maps = sorted((n for n in notes if n.type == "repo-map" and n.status == "stable"
+                        and in_scope(canonical_scope(n.scope))), key=lambda n: str(n.path))
+
     L: list[str] = [
         "# Denver AI Workflow — 세션 컨텍스트 (자동 주입, 이 프로젝트의 거버넌스 지식)",
         "> CC 스킬 body 는 자동 로드되지 않아 여기 직접 주입한다. 아래 **규율은 항상 적용**하고,",
@@ -328,6 +332,10 @@ def build_session_digest(notes: list["Note"], scopes: set[str]) -> str:
         L += ["", "## ⭐ 최우선 전제 — 모든 작업·모든 단계에 우선 적용"]
         for n in pinned:
             L += ["", f"### {str(n.meta.get('title', n.path.stem)).strip()}", n.body.strip(), ""]
+    if repo_maps:
+        L += ["", "## 레포 맵 (라우팅)"]
+        for n in repo_maps:
+            L += ["", n.body.strip(), ""]
     if guidance:
         L += ["", "## 항상 적용할 작업 규율 (guidance)"]
         for n in guidance:
