@@ -1,0 +1,11 @@
+{
+  "alwaysUpdateLinks": true,
+  "newLinkFormat": "shortest",
+  "useMarkdownLinks": false,
+  "newFileLocation": "current",
+  "showUnsupportedFiles": true,
+  "promptDelete": true,
+  "showFrontmatter": true,
+  "readableLineLength": true,
+  "strictLineBreaks": false
+}

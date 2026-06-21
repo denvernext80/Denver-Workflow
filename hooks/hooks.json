@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/ssot-session-context.py\"", "timeout": 15 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/ssot-worktree-guard.py\"", "timeout": 15 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/ssot-lint.py\"", "timeout": 15 },
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/ssot-vault-guard.py\"", "timeout": 15 },
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/ssot-artifact-guard.py\"", "timeout": 15 }
+        ]
+      }
+    ]
+  }
+}
