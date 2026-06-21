@@ -7,14 +7,14 @@
   },
   "metadata": {
     "description": "Denver Agent — SSOT 기반 Claude Code 거버넌스 엔진(vault·MCP·하네스·가드).",
-    "version": "1.3.3"
+    "version": "1.0.0"
   },
   "plugins": [
     {
       "name": "denver-agent",
       "source": "./",
       "description": "Obsidian vault SSOT 거버넌스: MCP(ssot-vault) + SessionStart 지식 주입 + worktree/lint/vault 가드 + 하네스·검증자·자동 비준.",
-      "version": "1.3.3",
+      "version": "1.0.0",
       "author": {
         "name": "denvernext80"
       },
