@@ -130,7 +130,7 @@ install-orchestrator: $(VENV)/.stamp  ## 이 워크스페이스 .claude 에 unio
 		--agents-out "$(TOOLS_ROOT)/.claude/agents" \
 		--digest-out "$(TOOLS_ROOT)/.claude/ssot-session-digest.md"
 	@echo "→ roster do-er/orchestrator verbatim cp (tools 보존, 컴파일러 무관)"
-	cp roster/backend-lead.md roster/senior-mobile-engineer.md roster/rust-chat-engineer.md roster/ssot-orchestrator.md .claude/agents/
+	cp roster/backend-lead.md roster/senior-mobile-engineer.md roster/rust-chat-engineer.md .claude/agents/
 	@echo "✓ 오케스트레이터 설치 완료 (.claude/{skills,agents,ssot-checks.json,ssot-session-digest.md})"
 
 doctor: $(VENV)/.stamp       ## 콜드스타트 헬스체크(venv·의존성·MCP 서버·설치 상태)

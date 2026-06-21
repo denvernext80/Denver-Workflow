@@ -40,6 +40,7 @@ REQUIRED = {
     "agent": ["type"],
     "decision": ["type"],
     "reference": ["type"],
+    "repo-map": ["type", "status", "title"],
 }
 # 에이전트가 stable 로 승격하면 '사람 비준 영역'이라 알릴 type
 HUMAN_RATIFIED = {"rule", "guidance"}

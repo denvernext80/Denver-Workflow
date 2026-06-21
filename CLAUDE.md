@@ -18,11 +18,8 @@
 
 ## 레포 맵
 
-| 레포 | 절대경로 | do-er | 스택 |
-|---|---|---|---|
-| Travel-One | `/Users/myeongseokyang/Desktop/Repository/Travel-One` | `backend-lead` | PHP/PostgreSQL BFF (프레임워크리스·PDO) |
-| Balipick-App | `/Users/myeongseokyang/Desktop/Repository/Balipick-App` | `senior-mobile-engineer` | Flutter |
-| balipick-chat | `/Users/myeongseokyang/Desktop/Repository/balipick-chat` | `rust-chat-engineer` | Rust (axum·sqlx·Redis, B-격리) |
+레포·절대경로·do-er·스택·checks 는 **세션 digest 의 "## 레포 맵 (라우팅)"**(vault `project/repo-map.md`
+정본)을 따른다. 여기 복제하지 않는다(단일 출처).
 
 ## 불변식 (디스패치·게이트)
 
