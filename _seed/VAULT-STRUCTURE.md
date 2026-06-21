@@ -28,6 +28,15 @@ title: vault 구성 원칙 (폴더 택소노미 + frontmatter 계약)
 | `project/specs/` | 계획·스펙·설계(`archive/` 포함) | `spec` | ❌ LIVE |
 | `project/memory/` | 에이전트 학습(날짜별, `archive/` 포함) | `memory` | ❌ LIVE |
 
+### 예외 — `repo-map` (프로젝트 토폴로지/설정)
+| 폴더 | 용도 | type | 컴파일 |
+|---|---|---|---|
+| `project/repo-map.md` | 멀티레포 라우팅 토폴로지(레포·do-er·스택·checks·CI) | `repo-map` | ✅ **digest 주입(예외)** |
+
+`repo-map` 은 axis-A(프로젝트 종속)지만 **digest 로 주입되는 유일한 예외**다 — "프로젝트 지식"이 아니라
+"프로젝트 설정/토폴로지"라 orchestrator 가 매 디스패치마다 always-on 으로 필요하기 때문. 다른 axis-A
+타입(spec/contract/memory/decision)은 비컴파일 원칙 유지. 생성은 `/denver-workflow` 0단계 대화식 부트스트랩.
+
 ## 분류 규칙 (신규 노트가 어디로)
 - 특정 기능/엔티티/계약에 종속 → **축 A**(spec/contract/decision/memory).
 - "다음에도 이렇게 일한다"는 절차·규칙·원칙 → **축 B**(procedure/rule/guidance).

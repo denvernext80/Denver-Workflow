@@ -1,7 +1,7 @@
-# balipick-workspace — 멀티레포 오케스트레이터 + denver-agent 도구·플러그인
+# denver-workflow 워크스페이스 — 멀티레포 오케스트레이터 + denver-agent 플러그인·빌드 도구
 
 이 디렉토리는 **단일 세션 멀티레포 오케스트레이터**이자 **denver-agent 플러그인·빌드 도구 본체**다.
-여기서 세션을 띄워 3개 레포를 가로질러 작업한다. **vault(SSOT) 콘텐츠는 분리돼
+여기서 세션을 띄워 여러 레포를 가로질러 작업한다. **vault(SSOT) 콘텐츠는 분리돼
 `~/denver-agent-vault`(고정 규약 경로)에 산다** — MCP 런처가 그 규약 경로를 자동 해석한다
 (`DENVER_VAULT_DIR` env > `~/denver-agent-vault` > 에러; Makefile `VAULT_DIR` 기본도 규약 경로).
 도구(`.venv`·`_build`·`hooks`)만 이 워크스페이스에 잔류.
