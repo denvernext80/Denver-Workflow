@@ -1,8 +1,5 @@
 .venv/
-.claude/skills/
-.claude/agents/
-.claude/ssot-checks.json
-.claude/ssot-session-digest.md
+.claude/
 __pycache__/
 *.pyc
 .DS_Store
