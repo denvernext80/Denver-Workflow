@@ -3,6 +3,7 @@ type: agent
 id: ssot-orchestrator
 install: always
 name: ssot-orchestrator
+title: SSOT 멀티레포 오케스트레이터
 description: |
   멀티레포 SSOT 거버넌스 오케스트레이터 — 단일 세션에서 여러 레포를 가로질러 작업을 분류하고,
   각 레포 전담 do-er 에게 repo-pinned 디스패치하며, 대상 레포의 결정론 검사 + 검증자로 완료를

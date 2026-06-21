@@ -556,8 +556,14 @@ def emit_agents(
             "위반을 발견하면 출처 규칙과 함께 구체적으로 보고한다.\n"
             if aid not in always else "\n"
         )
+        # Emit description as a YAML block scalar so multi-line descriptions
+        # (description: | blocks) produce valid YAML regardless of newlines.
+        desc_block = "\n".join(
+            ("  " + ln) if ln.strip() else ""
+            for ln in desc.splitlines()
+        )
         content = (
-            f"---\nname: {aid}\ndescription: {desc}\n---\n"
+            f"---\nname: {aid}\ndescription: |\n{desc_block}\n---\n"
             "<!-- 생성: vault agents/ 에서 컴파일. 직접 편집 금지. -->\n\n"
             f"{body}{appendix}"
         )
