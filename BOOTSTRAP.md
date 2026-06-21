@@ -1,7 +1,5 @@
 # AI-Native Workflow — 설계 & 아키텍처
 
-> 원래는 "Obsidian vault → `.claude/skills` 일방향 컴파일러" 부트스트랩 브리프였다.
-> 이후 **양방향 살아있는 SSOT**(에이전트가 직접 읽고/쓰고/갱신)로 진화했다.
 > 이 문서는 *무엇을, 왜*(설계·불변식)를, README 는 *어떻게*(운영·명령)를 다룬다.
 
 ## 목표 (한 문장)
@@ -28,7 +26,7 @@
 
 - **사람은 저작**한다(주로 규칙·원칙). **에이전트는 컴파일된 규칙에 복종**하고, 학습·계약·규칙을 기록·제안한다.
 - **비준은 자동**이다 — LIVE(memory/contract/spec)는 게이트가 없고, OBEY(rule/guidance/procedure)는
-  `ssot-ratify`(결정론) + `ssot-ratifier`(LLM 판단)가 비준한다. **사람은 더는 비준 바틀넥이 아니다.**
+  `ssot-ratify`(결정론) + `ssot-ratifier`(LLM 판단)가 비준한다.
 - 사람·기계를 잇는 유일한 계약면은 **frontmatter** 다.
 - vault = 소스. `.claude/skills` = 빌드 산출물(소스 → 바이너리). **산출물 직접 편집 금지.**
 
@@ -41,7 +39,7 @@
 | **협업** | `contracts` | 백엔드↔앱 에이전트 read/write, stable (게이트 없음) | ❌ 라이브 |
 | **설계** | `specs` | 계획·스펙·설계, 에이전트 작성, stable (worktree 휘발 방지) | ❌ 라이브 |
 
-핵심 교정: 메모리·계약은 **컴파일하지 않는다**. 에이전트가 vault 를 라이브로 읽고 쓴다.
+메모리·계약은 **컴파일하지 않는다**. 에이전트가 vault 를 라이브로 읽고 쓴다.
 읽기 도구는 status 를 안 거르므로 **LIVE 의 draft↔stable 구분은 무의미** — 그래서 MCP 가 LIVE 를
 바로 stable 로 쓴다(비준 게이트 제거). `draft` 는 OBEY(컴파일·강제 대상)에서만 의미를 가지며,
 `ssot-ratify` 가 안전성을 **경험적으로 검증**(check 패턴을 실제 코드에 돌려 오탐 0)한 뒤 자동 승격한다.
@@ -84,11 +82,7 @@
 3. **vault 가드**(백스톱) — raw `.md` 직접 쓰기의 frontmatter 계약·draft 게이트 검사.
 4. **서브에이전트**(판단) — grep 못 잡는 구조 규칙은 `enforced-by` 검증자(security-qa 등)가 리뷰.
 
-**중대 교정 — 스킬 body 는 자동 로드되지 않는다.** CC 스킬은 progressive disclosure(불변식 7):
-description 만 항상 컨텍스트에 있고, **body(규칙 전문·누적 지식 인덱스)는 스킬 활성화 시에만 로드**된다.
-세션이 실제로 관측됨 — 스킬 내용을 묻자 컨텍스트에 없어 파일을 직접 `Read` 했다. 이것이 "컴파일된
-가이던스를 세션이 무시"한 **근본 원인**이다: 규칙·지식이 body 에만 있어 자동으로 닿지 못했다.
-**해결 — SessionStart 다이제스트 주입(레이어 5).** `make install` 이 프로젝트별 다이제스트
+**스킬 body 는 자동 로드되지 않는다(progressive disclosure, 불변식 7)** — description 만 항상 컨텍스트에 있고, body(규칙 전문·누적 지식 인덱스)는 스킬 활성화 시에만 로드된다. 그래서 컴파일된 규칙·지식을 세션에 닿게 하려면 SessionStart 다이제스트 주입(레이어 5)이 필요하다. `make install` 이 프로젝트별 다이제스트
 (`.claude/ssot-session-digest.md`: 항상-적용 guidance + 강제 규칙 목록 + 누적 지식 인덱스)를 만들고,
 `ssot-session-context.py`(SessionStart 훅)가 이를 **세션 시작 시 컨텍스트에 직접 주입**한다 —
 additionalContext 는 body 와 달리 항상 주입된다(bkit 등 검증된 메커니즘). 전문은 `ssot_read`/스킬로 pull.
@@ -110,15 +104,3 @@ vault 를 stdio MCP 서버(`_build/ssot-mcp-server.py`)로 노출 → Claude Cod
 type 별 필수 필드·검사 필드(`check-*`)·라우팅 규칙은 **README 의 "Frontmatter 계약"** 참조.
 요지: `type` 이 라우팅 시작점, `compiles-to: skill`+`status: stable` 이어야 스킬에 포함,
 `rule` 은 `enforced-by` 필수.
-
-## 진화 기록 (초기 브리프 → 현재)
-
-- **초기**: vault → `.claude/skills` 일방향 컴파일러 + auth 샘플(수용 기준 통과).
-- **확장**: 실제 프로젝트 분석 → 규칙·검증자·결정론 린터.
-- **양방향**: 메모리·계약을 vault 라이브 read/write 로(비컴파일). draft 게이트.
-- **게이트웨이**: `ssot-vault` MCP 서버(8 도구) — CC 가 직접 읽고/쓰고/검색(라이브 검증 완료).
-- **일원화**: 계약 vault 단일 SSOT(repo 미러 제거), bkit·CC auto-memory 를 vault 로 수렴.
-- **MCP 선언 일원화**: MCP 를 `plugin.json` 의 `mcpServers` 에 단일 선언 — 플러그인이
-  `plugin:denver-agent:ssot-vault`(도구 `mcp__plugin_denver-agent_ssot-vault__*`)로 자동 제공.
-  루트 `.mcp.json` 의 bare 이중 등록은 제거(`{}`), roster 화이트리스트도 plugin prefix 로 정합.
-  계정별 `claude mcp add`(legacy `make register-mcp`) 불요.
