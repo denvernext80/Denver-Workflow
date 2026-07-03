@@ -59,7 +59,6 @@ seed-check: $(VENV)/.stamp  ## seed 자기충족 검증(strict 컴파일 + 사�
 	@n=$$(find $(SEED)/project -type f ! -name .gitkeep | wc -l | tr -d ' '); [ "$$n" = "0" ] && echo "  [ok] seed 에 사적 project 데이터 0" || { echo "  [!!] seed/project 에 사적 파일 $$n 개 — 제거 필요"; exit 1; }
 
 # 한 프로젝트에 스킬 + 결정론적 검사 매니페스트 + 린터 훅까지 설치.
-# 인자: $(1)=프로젝트경로 $(2)=scope목록
 # MCP 서버(절대경로 — CC/클라이언트가 다른 cwd 에서 spawn 하므로). 도구는 워크스페이스.
 MCP_PY     := $(TOOLS_ROOT)/$(VENV)/bin/python
 MCP_SERVER := $(TOOLS_ROOT)/_build/dw-mcp-server.py
@@ -76,6 +75,7 @@ plugin-scope-off:            ## 플러그인 비활성(계정 전역, P 주면 �
 
 install-project: $(VENV)/.stamp  ## 한 프로젝트에 설치: make install-project P=/절대경로 [SCOPES=engineering,...]
 	@test -n "$(P)" || { echo "사용법: make install-project P=/절대경로 [SCOPES=scope1,scope2]  (SCOPES 생략 = 전체 union)"; exit 1; }
+	@test -d "$(VAULT_DIR)/governance" || { echo "vault 없음: $(VAULT_DIR) — /dw-setup 으로 vault(팀 지식 폴더)를 먼저 준비하세요"; exit 1; }
 	$(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out "$(P)/.claude/skills" \
 		$(if $(SCOPES),--scopes $(SCOPES),) \
 		--checks-out "$(P)/.claude/dw-checks.json" \
