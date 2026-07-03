@@ -88,14 +88,37 @@ Windows 에서 gstack `./setup` 실패 시: "gstack 은 수동 설치가 필요�
 
 ## 레거시 정리 (구버전 산출물 마이그레이션)
 
-<!-- 주의: 아래 구(舊) 이름 리터럴은 감지 대상 표기다 — 이 파일에만 허용. -->
-대상 프로젝트 `.claude/` 에 구버전(1.x) 산출물이 있으면 삭제 후 재설치한다:
+<!-- 주의: 아래 구(舊) 이름 리터럴은 감지 대상 표기다 — 이 파일(과 dw-migrate-vault.py)에만 허용. -->
+
+**(a) 프로젝트 `.claude/` 산출물** — 있으면 삭제 후 재설치한다:
 `ssot-checks.json`, `ssot-session-digest.md`, `ssot-config.json`, `agents/ssot-governed.md`,
 `agents/ssot-orchestrator.md`, `agents/ssot-ratifier.md`, `skills/*/.ssot-manifest.json`,
-`agents/.ssot-agents.json`. `settings.local.json` 에 `"agent": "ssot-governed"` 또는
-`"agent": "ssot-orchestrator"` 가 있으면 `dw-governed`/`dw-orchestrator` 로 치환한다.
-구 vault 폴더 `~/denver-agent-vault` 가 있으면 사용자에게 두 가지를 제안:
-(1) `mv ~/denver-agent-vault ~/denver-workflow-vault` (권장) (2) `env.DW_VAULT_DIR` 로 기존 경로 유지.
+`agents/.ssot-agents.json`, 그리고 1.x 가 프로젝트에 복사해 둔 로컬 훅 4종
+`hooks/ssot-lint.py`·`hooks/ssot-session-context.py`·`hooks/ssot-vault-guard.py`·
+`hooks/ssot-worktree-guard.py` (지운 뒤 `hooks/` 가 비면 폴더도 제거 — 2.0 은 훅을 플러그인이
+전역 제공하므로 프로젝트 사본이 필요 없다). 다른 이름의 훅·에이전트 파일은 사용자 것 — 건드리지 않는다.
+
+**(b) settings 배선** — `settings.json`/`settings.local.json` 에서 (다른 설정은 유지):
+- `hooks` 항목 중 command 가 `/hooks/ssot-` 를 참조하는 배선만 제거.
+- `enabledMcpjsonServers` 배열의 `"ssot-vault"` 항목 제거.
+- `env.DENVER_VAULT_DIR` 는 삭제하고 `env.DW_VAULT_DIR` 로 대체(값은 아래 (c)의 경로 결정 결과).
+- `"agent": "ssot-governed"` / `"agent": "ssot-orchestrator"` → `dw-governed`/`dw-orchestrator`.
+
+**(c) 구 vault 감지·이전** — 구 vault 는 규약 경로 밖(커스텀 경로)에 있을 수 있다. 다음 순서로 찾는다:
+① `~/denver-agent-vault`(구 규약 경로) ② 전역·프로젝트 `settings.json` 의 `env.DENVER_VAULT_DIR`
+③ 프로젝트 `.claude/ssot-config.json` 의 `vault_root`. 찾으면 사용자에게 두 가지를 제안:
+(1) **새 이름으로 변경(권장)** — 같은 부모 폴더 안에서 `denver-workflow-vault` 로 이름만 바꾸고
+`env.DW_VAULT_DIR` 에 기록, Obsidian 재등록(`open "obsidian://open?path=<새 경로>"`).
+(2) **경로 그대로 유지** — `env.DW_VAULT_DIR` 에 기존 경로를 기록.
+
+**(d) vault 내용 치환** — 1.x vault 에 콘텐츠가 쌓여 있으면 노트 속 구 식별자(도구·에이전트·산출물
+이름)를 이전 스크립트로 새 체계로 바꾼다. 개념어 "SSOT" 와 기록 제목 속 일반 표현은 보존하고,
+파일명·위키링크 정합을 함께 유지한다. dry-run(미리보기)으로 변경 대상을 사용자에게 보여준 뒤 적용한다:
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-migrate-vault.py" --vault <vault 경로>          # 미리보기(쓰기 없음)
+python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-migrate-vault.py" --vault <vault 경로> --apply  # 적용(백업 tar.gz 자동)
+```
+적용 후 검증: `make -C "${CLAUDE_PLUGIN_ROOT}" dry-run` 이 에러 0 으로 통과해야 한다.
 
 ## 마무리 보고
 
