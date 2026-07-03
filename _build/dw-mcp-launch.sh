@@ -12,6 +12,11 @@ set -e
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(CDPATH= cd "$(dirname "$0")/.." && pwd)}"
 # vault 해석: 명시 env > 고정 규약 경로 > 에러 (cache ROOT 폴백 제거 — vault 필수)
 CONV="$HOME/denver-workflow-vault"
+# settings/env 의 리터럴 ~ / $HOME 접두 확장 (spec §3 — 절대경로 하드코딩 대신 홈 기반 값 허용)
+case "$DW_VAULT_DIR" in
+  '~/'*)      DW_VAULT_DIR="$HOME/${DW_VAULT_DIR#\~/}" ;;
+  '$HOME/'*)  DW_VAULT_DIR="$HOME/${DW_VAULT_DIR#\$HOME/}" ;;
+esac
 if [ -n "$DW_VAULT_DIR" ] && [ -d "$DW_VAULT_DIR" ]; then
   VAULT="$DW_VAULT_DIR"
 else

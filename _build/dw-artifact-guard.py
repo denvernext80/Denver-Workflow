@@ -38,8 +38,10 @@ def _vault_root(project: Path) -> Path | None:
             pass
     # stored vault_root 부재/stale(이동된 경로) 자가치유 — 런처와 동일 규약(env > ~/denver-workflow-vault)
     env = os.environ.get("DW_VAULT_DIR")
-    if env and Path(env).is_dir():
-        return Path(env)
+    if env:
+        env = os.path.expandvars(os.path.expanduser(env))
+        if Path(env).is_dir():
+            return Path(env)
     conv = Path.home() / "denver-workflow-vault"
     if conv.is_dir():
         return conv
