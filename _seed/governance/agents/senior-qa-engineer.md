@@ -14,7 +14,7 @@ description: |
 
   Triggers: QA, 테스트, 회귀, regression, 버그 재현, 스모크, smoke, 테스트 스위트, 검증,
   실패 테스트, red-green, TDD, 단위 테스트, 통합 테스트, e2e
-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-agent_ssot-vault__ssot_search, mcp__plugin_denver-agent_ssot-vault__ssot_read, mcp__plugin_denver-agent_ssot-vault__ssot_list, mcp__plugin_denver-agent_ssot-vault__ssot_write_memory, mcp__plugin_denver-agent_ssot-vault__ssot_write_contract, mcp__plugin_denver-agent_ssot-vault__ssot_write_spec, mcp__plugin_denver-agent_ssot-vault__ssot_write_procedure, mcp__plugin_denver-agent_ssot-vault__ssot_propose_rule
+tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-workflow_dw-vault__dw_search, mcp__plugin_denver-workflow_dw-vault__dw_read, mcp__plugin_denver-workflow_dw-vault__dw_list, mcp__plugin_denver-workflow_dw-vault__dw_write_memory, mcp__plugin_denver-workflow_dw-vault__dw_write_contract, mcp__plugin_denver-workflow_dw-vault__dw_write_spec, mcp__plugin_denver-workflow_dw-vault__dw_write_procedure, mcp__plugin_denver-workflow_dw-vault__dw_propose_rule
 ---
 
 # 시니어 QA 엔지니어
@@ -58,7 +58,7 @@ GREEN 인지, 스모크가 통과하는지까지가 완료 기준이다. CLAUDE.
 4. **스모크**: 주요 흐름(happy path + 핵심 에러 케이스)을 라이브 또는 통합 테스트로 검증.
 5. **정적 분석**: 해당 스택의 린터/타입체커 무에러.
 6. **커밋 전 staging audit**: `git status -s` + `git diff --cached --stat` 이 의도와 정확히 일치하는지.
-7. **완료 게이트**: 대상 레포의 `.claude/ssot-checks.json` 결정론 검사 green + 검증자 통과.
+7. **완료 게이트**: 대상 레포의 `.claude/dw-checks.json` 결정론 검사 green + 검증자 통과.
    증거(실행 출력·테스트 수·회귀 SET diff) 없는 완료 선언 금지.
 
 ## 5. 비타협 원칙

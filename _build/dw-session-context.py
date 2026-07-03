@@ -6,7 +6,7 @@ CC 스킬 body 는 progressive disclosure 라 자동 로드되지 않는다(desc
 ('worktree 가이던스 무시'의 근본 원인). SessionStart 의 additionalContext 는 body 와 달리
 **항상 주입**되므로(검증됨), 컴파일러가 만든 다이제스트를 세션 시작 시 직접 컨텍스트에 넣는다.
 
-다이제스트: `$CLAUDE_PROJECT_DIR/.claude/ssot-session-digest.md` (make install 이 생성).
+다이제스트: `$CLAUDE_PROJECT_DIR/.claude/dw-session-digest.md` (make install 이 생성).
 표준 라이브러리만 사용. 출력: SessionStart additionalContext JSON. 없으면 조용히 통과.
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ def _plugin_version(project: Path) -> str:
     root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if root:
         candidates.append(Path(root) / ".claude-plugin" / "plugin.json")
-    cfg = project / ".claude" / "ssot-config.json"
+    cfg = project / ".claude" / "dw-config.json"
     if cfg.exists():
         try:
             vr = json.loads(cfg.read_text(encoding="utf-8")).get("vault_root")
@@ -50,7 +50,7 @@ def main() -> int:
         return 0
 
     project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd())
-    digest = project / ".claude" / "ssot-session-digest.md"
+    digest = project / ".claude" / "dw-session-digest.md"
     if not digest.exists():
         return 0
     try:
@@ -63,10 +63,10 @@ def main() -> int:
     # 발화 가시화: additionalContext 는 모델 컨텍스트에만 주입(UI 비가시)이라,
     # systemMessage 로 사용자에게 '주입됨' 한 줄을 보여 발화 여부 + 활성 플러그인 버전을 확인하게 한다.
     g = text.count("\n- **")       # guidance/규칙 항목 수 근사
-    idx = text.count("ssot_read(")  # 지식 인덱스 항목 수
+    idx = text.count("dw_read(")  # 지식 인덱스 항목 수
     ver = _plugin_version(project)
     vtag = f" v{ver}" if ver else ""
-    sysmsg = f"🔒 Denver AI Workflow{vtag} — 규율·규칙 {g} · 지식 인덱스 {idx}건 (전문은 ssot_read)"
+    sysmsg = f"🔒 Denver AI Workflow{vtag} — 규율·규칙 {g} · 지식 인덱스 {idx}건 (전문은 dw_read)"
 
     out = {
         "systemMessage": sysmsg,

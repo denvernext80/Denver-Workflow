@@ -10,9 +10,9 @@ CC 는 `claude plugin install` 시 플러그인을 계정 전역에 설치하고
 
 read-merge-write(기존 설정 보존). 표준 라이브러리만.
 usage:
-  ssot-plugin-scope.py user                         [--plugin ID] [--account-dir DIR]
-  ssot-plugin-scope.py project <project_dir>         [--plugin ID] [--account-dir DIR]
-  ssot-plugin-scope.py off     [<project_dir>]       [--plugin ID] [--account-dir DIR]
+  dw-plugin-scope.py user                         [--plugin ID] [--account-dir DIR]
+  dw-plugin-scope.py project <project_dir>         [--plugin ID] [--account-dir DIR]
+  dw-plugin-scope.py off     [<project_dir>]       [--plugin ID] [--account-dir DIR]
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ import json
 import os
 from pathlib import Path
 
-DEFAULT_PLUGIN = "denver-agent@denver-agent"
+DEFAULT_PLUGIN = "denver-workflow@denver-workflow"
 
 
 def load(p: Path) -> dict:

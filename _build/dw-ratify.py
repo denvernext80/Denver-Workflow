@@ -16,7 +16,7 @@ OBEY(rule/guidance/procedure) draft 를 검증해 **안전한 것만** 자동 st
 승격 후 `compile --dry-run --strict` 로 검증한다. 깨지면 그 승격을 되돌린다(안전).
 이 스크립트는 status 만 바꾼다 — 실제 컴파일·설치(make install)는 호출자(make ratify)가 한다.
 
-usage: ssot-ratify.py --vault . [--project PATH ...] [--dry-run]
+usage: dw-ratify.py --vault . [--project PATH ...] [--dry-run]
 """
 from __future__ import annotations
 
@@ -204,7 +204,7 @@ def main() -> int:
     # 승격분 검증 — 컴파일 깨지면 롤백
     rolled_back = False
     if promoted and not args.dry_run:
-        r = subprocess.run([sys.executable, str(vault / "_build" / "ssot-compile.py"),
+        r = subprocess.run([sys.executable, str(vault / "_build" / "dw-compile.py"),
                             "--vault", str(vault), "--out", str(vault / ".claude" / "skills"),
                             "--dry-run", "--strict"], capture_output=True, text=True)
         if r.returncode != 0:

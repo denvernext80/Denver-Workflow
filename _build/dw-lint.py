@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SSOT 결정론적 린터 — Claude Code PostToolUse 훅.
 
-편집/생성된 파일을 vault 에서 컴파일된 검사 매니페스트(.claude/ssot-checks.json)에 비추어
+편집/생성된 파일을 vault 에서 컴파일된 검사 매니페스트(.claude/dw-checks.json)에 비추어
 검사한다. 위반이 있으면 PostToolUse 의 additionalContext 로 모델에 피드백한다(차단하지 않음 —
 PostToolUse 는 이미 실행된 뒤이고, BOOTSTRAP 불변식상 검증자는 단독 게이트가 아니다).
 
@@ -21,7 +21,7 @@ import re
 import sys
 from pathlib import Path
 
-CHECKS_REL = ".claude/ssot-checks.json"
+CHECKS_REL = ".claude/dw-checks.json"
 MAX_BYTES = 2_000_000  # 대용량/바이너리 파일 회피
 
 

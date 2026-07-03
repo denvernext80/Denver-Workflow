@@ -30,7 +30,7 @@ READONLY = {
     "code-review", "design-review", "security-qa", "code-analyzer",
     "design-validator", "gap-detector", "qa-strategist", "qa-test-planner",
     "report-generator", "statusline-setup", "claude-code-guide",
-    "ssot-governed",  # 하네스 자신은 spawn 대상이 아니라 세션 에이전트
+    "dw-governed",  # 하네스 자신은 spawn 대상이 아니라 세션 에이전트
 }
 # prompt 본문에서 워크트리 작업 증거로 인정할 마커(수동 워크트리 관행 수용).
 WT_MARKERS = re.compile(r"worktree|워크트리|/worktrees", re.IGNORECASE)

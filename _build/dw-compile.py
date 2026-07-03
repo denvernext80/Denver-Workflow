@@ -12,7 +12,7 @@
   - scope = skill 묶음 단위. status:stable 만 통과.
 
 CLI:
-  python _build/ssot-compile.py --vault . --out .claude/skills [--dry-run] [--strict]
+  python _build/dw-compile.py --vault . --out .claude/skills [--dry-run] [--strict]
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ except ModuleNotFoundError:  # pragma: no cover - Makefile 의 .venv 가 보장
     )
     raise
 
-MANIFEST_NAME = ".ssot-manifest.json"
+MANIFEST_NAME = ".dw-manifest.json"
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 
 # scope 어휘 정규화 — 에이전트가 freeform/skill-이름을 scope 로 쓴 것을 canonical skill scope 로 매핑.
@@ -266,8 +266,8 @@ def _gist(body: str) -> str:
 
 
 def build_knowledge_index(notes: list["Note"], scope: str, manifest_scopes: set[str]) -> list[str]:
-    """이 scope 의 stable LIVE 지식(memory/contract/spec) 인덱스 — 제목+요지+ssot_read.
-    pull-only 였던 LIVE 를 자동로드 스킬에 '카탈로그'로 노출(전문은 1-step ssot_read).
+    """이 scope 의 stable LIVE 지식(memory/contract/spec) 인덱스 — 제목+요지+dw_read.
+    pull-only 였던 LIVE 를 자동로드 스킬에 '카탈로그'로 노출(전문은 1-step dw_read).
     engineering scope 스킬엔 canonical scope 가 어떤 매니페스트에도 안 맞는 orphan 도 흡수(무엇도 안 잃게)."""
     is_eng = scope == "engineering"
     picked: list["Note"] = []
@@ -283,15 +283,15 @@ def build_knowledge_index(notes: list["Note"], scope: str, manifest_scopes: set[
         return []
     picked.sort(key=lambda n: str(n.meta.get("date", "")), reverse=True)
     capped = picked[:INDEX_CAP]
-    lines = ["", "## 이 scope 누적 학습 (LIVE — 전문은 `ssot_read(name)`)",
-             "> 자동 생성 인덱스. 작업과 관련되면 해당 노트를 `ssot_read` 로 펼쳐 본다."]
+    lines = ["", "## 이 scope 누적 학습 (LIVE — 전문은 `dw_read(name)`)",
+             "> 자동 생성 인덱스. 작업과 관련되면 해당 노트를 `dw_read` 로 펼쳐 본다."]
     for n in capped:
         kind = LIVE_TYPES[n.type]
         title = str(n.meta.get("title", n.path.stem)).strip()
         g = _gist(n.body)
-        lines.append(f"- [{kind}] **{title}** — {g}  ·  `ssot_read({n.path.stem})`")
+        lines.append(f"- [{kind}] **{title}** — {g}  ·  `dw_read({n.path.stem})`")
     if len(picked) > INDEX_CAP:
-        lines.append(f"- … 외 {len(picked) - INDEX_CAP}건 — `ssot_list` / `ssot_search` 로 더 찾기")
+        lines.append(f"- … 외 {len(picked) - INDEX_CAP}건 — `dw_list` / `dw_search` 로 더 찾기")
     return lines
 
 
@@ -322,7 +322,7 @@ def build_session_digest(notes: list["Note"], scopes: set[str]) -> str:
     L: list[str] = [
         "# Denver AI Workflow — 세션 컨텍스트 (자동 주입, 이 프로젝트의 거버넌스 지식)",
         "> CC 스킬 body 는 자동 로드되지 않아 여기 직접 주입한다. 아래 **규율은 항상 적용**하고,",
-        "> 누적 지식은 관련 작업 시 `ssot_read(name)` 로 전문을 펼친다(전체 규칙·계약은 스킬/MCP).",
+        "> 누적 지식은 관련 작업 시 `dw_read(name)` 로 전문을 펼친다(전체 규칙·계약은 스킬/MCP).",
     ]
     if pinned:
         L += ["", "## ⭐ 최우선 전제 — 모든 작업·모든 단계에 우선 적용"]
@@ -348,19 +348,19 @@ def build_session_digest(notes: list["Note"], scopes: set[str]) -> str:
             L.append(f"- **{str(n.meta.get('title', n.path.stem)).strip()}**"
                      + (f"  ·  enforced-by: {eb}" if eb else ""))
     def row(n):
-        return f"- [{LIVE_TYPES[n.type]}] {str(n.meta.get('title', n.path.stem)).strip()}  ·  `ssot_read({n.path.stem})`"
+        return f"- [{LIVE_TYPES[n.type]}] {str(n.meta.get('title', n.path.stem)).strip()}  ·  `dw_read({n.path.stem})`"
     mem = [n for n in live if n.type == "memory"]          # 학습 — 전체 항상 노출
     other = [n for n in live if n.type != "memory"]        # 계약·스펙 — 최근 N (date desc 정렬 유지)
     if mem:
-        L += ["", f"## 누적 학습 (memory {len(mem)}건 — 제목 전체 항상 노출, 전문은 `ssot_read`)"]
+        L += ["", f"## 누적 학습 (memory {len(mem)}건 — 제목 전체 항상 노출, 전문은 `dw_read`)"]
         L += [row(n) for n in mem[:DIGEST_CAP]]
         if len(mem) > DIGEST_CAP:
-            L.append(f"- … 외 {len(mem) - DIGEST_CAP}건 — `ssot_search`/`ssot_list`")
+            L.append(f"- … 외 {len(mem) - DIGEST_CAP}건 — `dw_search`/`dw_list`")
     if other:
-        L += ["", f"## 계약·스펙 (최근 {min(len(other), DIGEST_OTHER_CAP)}건 — 작업 관련 건은 `ssot_read`/`ssot_search`)"]
+        L += ["", f"## 계약·스펙 (최근 {min(len(other), DIGEST_OTHER_CAP)}건 — 작업 관련 건은 `dw_read`/`dw_search`)"]
         L += [row(n) for n in other[:DIGEST_OTHER_CAP]]
         if len(other) > DIGEST_OTHER_CAP:
-            L.append(f"- … 계약·스펙 외 {len(other) - DIGEST_OTHER_CAP}건 — `ssot_search`/`ssot_list` 로 찾기")
+            L.append(f"- … 계약·스펙 외 {len(other) - DIGEST_OTHER_CAP}건 — `dw_search`/`dw_list` 로 찾기")
     return "\n".join(L).rstrip() + "\n"
 
 
@@ -512,7 +512,7 @@ def collect_checks(
 # ---------------------------------------------------------------------------
 # 서브에이전트 emit — enforced-by 가 가리키는 agent 를 CC 서브에이전트로 설치.
 # ---------------------------------------------------------------------------
-AGENTS_MANIFEST = ".ssot-agents.json"
+AGENTS_MANIFEST = ".dw-agents.json"
 
 
 def emit_agents(
@@ -522,7 +522,7 @@ def emit_agents(
     """설치된 scope 의 규칙이 enforced-by 로 참조하는 agent 만 CC 서브에이전트로 emit.
 
     대상 .claude/agents/ 의 기존 외부 에이전트(예: backend-lead)는 건드리지 않는다 —
-    이전에 우리가 쓴 것(.ssot-agents.json)만 stale 정리.
+    이전에 우리가 쓴 것(.dw-agents.json)만 stale 정리.
     """
     referenced: set[str] = set()
     for n in notes:

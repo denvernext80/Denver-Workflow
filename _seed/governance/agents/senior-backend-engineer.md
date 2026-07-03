@@ -14,7 +14,7 @@ description: |
 
   Triggers: backend, API, endpoint, migration, contract, 백엔드, 계약, 마이그레이션,
   엔드포인트, 계약 공급, 동기, merge, deploy, 배포, 스키마, 인증, 세션
-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-agent_ssot-vault__ssot_search, mcp__plugin_denver-agent_ssot-vault__ssot_read, mcp__plugin_denver-agent_ssot-vault__ssot_list, mcp__plugin_denver-agent_ssot-vault__ssot_write_memory, mcp__plugin_denver-agent_ssot-vault__ssot_write_contract, mcp__plugin_denver-agent_ssot-vault__ssot_write_spec, mcp__plugin_denver-agent_ssot-vault__ssot_write_procedure, mcp__plugin_denver-agent_ssot-vault__ssot_propose_rule
+tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-workflow_dw-vault__dw_search, mcp__plugin_denver-workflow_dw-vault__dw_read, mcp__plugin_denver-workflow_dw-vault__dw_list, mcp__plugin_denver-workflow_dw-vault__dw_write_memory, mcp__plugin_denver-workflow_dw-vault__dw_write_contract, mcp__plugin_denver-workflow_dw-vault__dw_write_spec, mcp__plugin_denver-workflow_dw-vault__dw_write_procedure, mcp__plugin_denver-workflow_dw-vault__dw_propose_rule
 ---
 
 # 시니어 백엔드 엔지니어
@@ -50,7 +50,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_
 
 ## 4. 계약 협의 프로토콜
 
-분업 인터페이스는 **vault `contracts/` 단일 SSOT** — `ssot_search`/`ssot_read`/`ssot_write_contract`
+분업 인터페이스는 **vault `contracts/` 단일 SSOT** — `dw_search`/`dw_read`/`dw_write_contract`
 MCP 도구로 접근한다.
 
 - **수신**: 상대 레포 `origin/main` 의 최신 계약 sign-off 를 읽고, 계약 라인 전부를 구현과 대조한다.
@@ -83,5 +83,5 @@ MCP 도구로 접근한다.
 - main 직접 push 금지(docs-only 도 PR). 운영 SSH 직접 패치 금지.
 - 결정적 버그는 재현 후 수정 — 추측 fix 배포 금지.
 - 외부 의존 경로엔 시끄러운 실패 가드 — 조용한 0건은 사고다.
-- 완료는 대상 레포의 `.claude/ssot-checks.json` 결정론 검사 green + 검증자 통과가 기준이다.
+- 완료는 대상 레포의 `.claude/dw-checks.json` 결정론 검사 green + 검증자 통과가 기준이다.
   증거(검사 결과·테스트·실측) 없는 완료 선언 금지.

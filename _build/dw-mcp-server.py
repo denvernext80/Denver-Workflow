@@ -4,13 +4,13 @@
 vault = SSOT. 에이전트는 raw 파일이 아니라 타입 도구로 읽고 쓴다(status 파라미터 없음 = validate-by-construction).
 비준 모델(사람 비준은 제거됨):
   - LIVE(memory/contract/spec): status:stable 직행 — 읽기가 status 무관이라 게이트 무의미.
-  - OBEY(procedure/rule): status:draft 제안 → ssot-ratify(결정론)가 검증 후 자동 stable 승격,
-    판단 필요분만 ssot-ratifier(LLM)로 에스컬레이션. 사람 비준 불요.
+  - OBEY(procedure/rule): status:draft 제안 → dw-ratify(결정론)가 검증 후 자동 stable 승격,
+    판단 필요분만 dw-ratifier(LLM)로 에스컬레이션. 사람 비준 불요.
   scope 는 _canonical_scope 로 쓰기 시 정규화(orphan 방지).
 
 vault 경로는 --vault arg 로 받는다(클라이언트가 env 를 제한할 수 있으므로 env/cwd 의존 금지).
 stdio MCP 서버. 의존성: mcp(FastMCP), pyyaml.
-usage(클라이언트가 spawn): <venv>/bin/python ssot-mcp-server.py --vault /abs/path/to/vault
+usage(클라이언트가 spawn): <venv>/bin/python dw-mcp-server.py --vault /abs/path/to/vault
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ DIRECTIONS = {"backend-to-app", "app-to-backend", "shared"}
 KINDS = {"request", "reply", "signoff", "contract", "notice"}
 SPEC_KINDS = {"plan", "spec", "design"}
 
-mcp = FastMCP("ssot-vault")
+mcp = FastMCP("dw-vault")
 
 
 # --- helpers ---------------------------------------------------------------
@@ -44,7 +44,7 @@ def _iter_notes():
         base = VAULT / d
         if base.is_dir():
             for p in sorted(base.rglob("*.md")):
-                # 아카이브된 옛 계약은 활성 검색·목록에서 제외(경로로 직접 ssot_read 는 가능).
+                # 아카이브된 옛 계약은 활성 검색·목록에서 제외(경로로 직접 dw_read 는 가능).
                 if "archive" in p.relative_to(base).parts:
                     continue
                 # CC auto-memory 인덱스는 콘텐츠가 아니므로 제외.
@@ -122,7 +122,7 @@ def _emit(folder: str, fname: str, fm: dict, body: str) -> str:
 
 # --- read tools ------------------------------------------------------------
 @mcp.tool()
-def ssot_search(query: str, limit: int = 20) -> list[dict]:
+def dw_search(query: str, limit: int = 20) -> list[dict]:
     """SSOT vault(규칙·원칙·메모리·계약)에서 query 를 검색한다. 작업 전 관련 학습·규칙·계약을 찾을 때 쓴다."""
     q = query.lower()
     out: list[dict] = []
@@ -147,7 +147,7 @@ def ssot_search(query: str, limit: int = 20) -> list[dict]:
 
 
 @mcp.tool()
-def ssot_read(name: str) -> str:
+def dw_read(name: str) -> str:
     """SSOT vault 노트 하나의 전체 내용을 읽는다. name=상대경로 또는 파일명 stem."""
     target = (VAULT / name) if name.endswith(".md") else None
     if target and target.is_file():
@@ -160,7 +160,7 @@ def ssot_read(name: str) -> str:
 
 
 @mcp.tool()
-def ssot_list(note_type: str = "") -> list[dict]:
+def dw_list(note_type: str = "") -> list[dict]:
     """SSOT vault 노트 목록(선택: note_type=rule|guidance|memory|contract|decision 으로 필터). 둘러볼 때 쓴다."""
     out = []
     for p in _iter_notes():
@@ -177,7 +177,7 @@ def ssot_list(note_type: str = "") -> list[dict]:
 
 # --- write tools (전부 하드 draft 게이트) ----------------------------------
 @mcp.tool()
-def ssot_write_memory(scope: str, title: str, learning: str,
+def dw_write_memory(scope: str, title: str, learning: str,
                       evidence: str = "", apply: str = "", agent: str = "") -> str:
     """에이전트 학습을 vault memory/ 에 기록한다(status:stable — LIVE 콘텐츠는 즉시 사용 가능).
     비자명한 학습만 — 레포·git 기록은 중복 금지. memory 는 비컴파일 LIVE 라 강제되지 않으므로 사람 비준 불요.
@@ -191,11 +191,11 @@ def ssot_write_memory(scope: str, title: str, learning: str,
     if apply.strip():
         body += f"\n\n**적용:** {apply.strip()}"
     path = _emit("project/memory", f"{today}-{_slugify(title)}.md", fm, body)
-    return f"기록됨: {path} — LIVE 메모리라 ssot_search 로 즉시 검색됩니다(비준 불요)."
+    return f"기록됨: {path} — LIVE 메모리라 dw_search 로 즉시 검색됩니다(비준 불요)."
 
 
 @mcp.tool()
-def ssot_write_contract(direction: str, kind: str, title: str, body: str, scope: str = "") -> str:
+def dw_write_contract(direction: str, kind: str, title: str, body: str, scope: str = "") -> str:
     """백엔드↔앱 계약(요청/회신/sign-off)을 vault contracts/ 에 기록한다(status:stable — LIVE 라 즉시 사용 가능).
     direction=backend-to-app|app-to-backend|shared, kind=request|reply|signoff|contract|notice.
     계약은 비컴파일 LIVE SSOT 라 사람 비준 불요. 완결분만 contracts/archive/ 로 옮긴다(활성 검색 제외)."""
@@ -208,11 +208,11 @@ def ssot_write_contract(direction: str, kind: str, title: str, body: str, scope:
     fm = {"type": "contract", "status": "stable", "scope": scope or "api-contract",
           "date": today, "direction": direction, "kind": kind, "title": title}
     path = _emit("project/contracts", f"{today}-{side}-{kind}-{_slugify(title)}.md", fm, body)
-    return f"기록됨: {path} — LIVE 계약이라 ssot_search 로 즉시 검색됩니다(비준 불요)."
+    return f"기록됨: {path} — LIVE 계약이라 dw_search 로 즉시 검색됩니다(비준 불요)."
 
 
 @mcp.tool()
-def ssot_write_spec(scope: str, title: str, body: str, kind: str = "spec") -> str:
+def dw_write_spec(scope: str, title: str, body: str, kind: str = "spec") -> str:
     """기능 구현 계획·스펙·설계를 vault specs/ 에 기록한다(status:stable — LIVE 라 즉시 사용 가능).
 
     스펙·계획은 vault SSOT 에 둔다 — repo/worktree 에 두면 worktree 청소 시 휘발된다.
@@ -224,15 +224,15 @@ def ssot_write_spec(scope: str, title: str, body: str, kind: str = "spec") -> st
     fm = {"type": "spec", "status": "stable", "scope": scope or "general",
           "date": today, "kind": kind, "title": title}
     path = _emit("project/specs", f"{today}-{_slugify(title)}.md", fm, body)
-    return f"기록됨: {path} — vault SSOT 에 보존(worktree 휘발 방지). LIVE 라 ssot_search 로 즉시 검색."
+    return f"기록됨: {path} — vault SSOT 에 보존(worktree 휘발 방지). LIVE 라 dw_search 로 즉시 검색."
 
 
 @mcp.tool()
-def ssot_write_procedure(scope: str, title: str, steps: str) -> str:
+def dw_write_procedure(scope: str, title: str, steps: str) -> str:
     """재사용 가능한 절차(playbook/how-to)를 vault procedures/ 에 기록한다(항상 status:draft).
 
     비자명한 작업을 풀어낸 뒤 "다음에 또 이걸 어떻게 하지"를 절차로 남긴다(Hermes 식 자동 스킬 생성을
-    Denver 거버넌스로 감싼 것). draft 로 제안하면 ssot-ratifier 가 검증 후 자동 stable·컴파일한다.
+    Denver 거버넌스로 감싼 것). draft 로 제안하면 dw-ratifier 가 검증 후 자동 stable·컴파일한다.
     rule(강제)이 아니라 reusable how-to 다 — enforced-by 없음. steps 는 번호 단계로.
     """
     today = datetime.date.today().isoformat()
@@ -241,13 +241,13 @@ def ssot_write_procedure(scope: str, title: str, steps: str) -> str:
           "compiles-to": "skill", "date": today, "title": title}
     path = _emit("governance/procedures", f"{_slugify(title)}.md", fm, steps)
     return (f"제안됨(draft): {path} {note}— draft 라 아직 컴파일 안 됨. "
-            "ssot-ratifier 가 검증 통과 시 자동 stable·`make install` 합니다(사람 불요).")
+            "dw-ratifier 가 검증 통과 시 자동 stable·`make install` 합니다(사람 불요).")
 
 
 @mcp.tool()
-def ssot_propose_rule(scope: str, title: str, rule: str, enforced_by: str) -> str:
+def dw_propose_rule(scope: str, title: str, rule: str, enforced_by: str) -> str:
     """규칙 변경을 vault rules/ 에 제안한다(항상 status:draft — 절대 stable 아님).
-    draft 규칙은 컴파일되지 않아 강제되지 않는다. ssot-ratifier 가 검증(스키마·enforced-by 실재·충돌 없음·
+    draft 규칙은 컴파일되지 않아 강제되지 않는다. dw-ratifier 가 검증(스키마·enforced-by 실재·충돌 없음·
     check 패턴을 실제 코드에 돌려 오탐 0)을 통과시키면 자동 stable·컴파일한다 — 탈락 시 draft 유지·사유 주석.
     enforced_by 는 실재 검증자(security-qa|code-review|design-review|perf-tester)여야 한다."""
     scope, note = _canonical_scope(scope)
@@ -255,9 +255,9 @@ def ssot_propose_rule(scope: str, title: str, rule: str, enforced_by: str) -> st
           "compiles-to": "skill", "title": title}
     path = _emit("governance/rules", f"{_slugify(title)}.md", fm, rule)
     return (f"제안됨(draft): {path} {note}— draft 라 아직 강제되지 않습니다. "
-            "ssot-ratifier 가 검증 통과 시 자동 stable·`make install` 합니다(사람 불요).")
+            "dw-ratifier 가 검증 통과 시 자동 stable·`make install` 합니다(사람 불요).")
 
 
 if __name__ == "__main__":
-    sys.stderr.write(f"[ssot-vault mcp] vault={VAULT}\n")
+    sys.stderr.write(f"[dw-vault mcp] vault={VAULT}\n")
     mcp.run()

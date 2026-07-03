@@ -11,18 +11,18 @@ TOOLS_ROOT := $(shell pwd)
 
 # 설치 대상 프로젝트 경로 + 각 프로젝트가 받을 scope 묶음.
 # vault=소스(Obsidian-Vault, 외부화), 각 프로젝트의 .claude/skills=빌드 산출물(직접 편집 금지).
-# vault 콘텐츠 위치(프로젝트 워크스페이스에서 분리). DENVER_VAULT_DIR 우선, 기본 ~/denver-agent-vault.
+# vault 콘텐츠 위치(프로젝트 워크스페이스에서 분리). DW_VAULT_DIR 우선, 기본 ~/denver-workflow-vault.
 # 도구(.venv·_build·hooks)는 이 워크스페이스에 잔류 — vault 만 외부화.
-VAULT_DIR      := $(if $(DENVER_VAULT_DIR),$(DENVER_VAULT_DIR),$(HOME)/denver-agent-vault)
+VAULT_DIR      := $(if $(DW_VAULT_DIR),$(DW_VAULT_DIR),$(HOME)/denver-workflow-vault)
 # 컴파일러는 상대 --out 을 vault 기준으로 해석하므로(out=vault/out), 워크스페이스 산출물엔 절대경로 사용.
-COMPILE := $(VPY) _build/ssot-compile.py --vault "$(VAULT_DIR)" --out "$(TOOLS_ROOT)/.claude/skills"
+COMPILE := $(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out "$(TOOLS_ROOT)/.claude/skills"
 
 # 플러그인이 들고 있는 제네릭 vault seed(콜드스타트 스캐폴드). 설치 시 빈 vault 로 복사.
 # 제네릭화 = '선별'(byte-동일 유지 가능한 프로젝트 무관 노트만) — 손편집 금지(update-seed 가 되돌림).
 # 사적 데이터(project/*) 는 seed 에 절대 없음.
 SEED          := _seed
 SEED_GUIDANCE := karpathy-guidelines tdd-iron-law regression-by-set-diff residual-only delegation-ownership pr-merge-discipline artifact-locations
-SEED_AGENTS   := code-review security-qa ssot-governed ssot-ratifier
+SEED_AGENTS   := code-review security-qa dw-governed dw-ratifier
 
 .PHONY: build dry-run clean distclean help doctor review ratify
 
@@ -55,45 +55,45 @@ update-seed: $(VENV)/.stamp  ## live vault 의 제네릭 축-B 노트를 _seed �
 	@$(MAKE) -s seed-check
 
 seed-check: $(VENV)/.stamp  ## seed 자기충족 검증(strict 컴파일 + 사적 데이터 0)
-	@$(VPY) _build/ssot-compile.py --vault $(SEED) --out /tmp/seed-skills --dry-run --strict >/dev/null 2>&1 && echo "  [ok] seed strict 컴파일(자기충족·위키링크 폐쇄)" || { echo "  [!!] seed 컴파일 실패 -> .venv/bin/python _build/ssot-compile.py --vault $(SEED) --dry-run --strict"; exit 1; }
+	@$(VPY) _build/dw-compile.py --vault $(SEED) --out /tmp/seed-skills --dry-run --strict >/dev/null 2>&1 && echo "  [ok] seed strict 컴파일(자기충족·위키링크 폐쇄)" || { echo "  [!!] seed 컴파일 실패 -> .venv/bin/python _build/dw-compile.py --vault $(SEED) --dry-run --strict"; exit 1; }
 	@n=$$(find $(SEED)/project -type f ! -name .gitkeep | wc -l | tr -d ' '); [ "$$n" = "0" ] && echo "  [ok] seed 에 사적 project 데이터 0" || { echo "  [!!] seed/project 에 사적 파일 $$n 개 — 제거 필요"; exit 1; }
 
 # 한 프로젝트에 스킬 + 결정론적 검사 매니페스트 + 린터 훅까지 설치.
 # 인자: $(1)=프로젝트경로 $(2)=scope목록
 # MCP 서버(절대경로 — CC/클라이언트가 다른 cwd 에서 spawn 하므로). 도구는 워크스페이스.
 MCP_PY     := $(TOOLS_ROOT)/$(VENV)/bin/python
-MCP_SERVER := $(TOOLS_ROOT)/_build/ssot-mcp-server.py
-MCP_NAME   := ssot-vault
+MCP_SERVER := $(TOOLS_ROOT)/_build/dw-mcp-server.py
+MCP_NAME   := dw-vault
 
 define INSTALL_PROJECT
-	$(VPY) _build/ssot-compile.py --vault "$(VAULT_DIR)" --out "$(1)/.claude/skills" \
-		--scopes $(2) --checks-out "$(1)/.claude/ssot-checks.json" \
+	$(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out "$(1)/.claude/skills" \
+		--scopes $(2) --checks-out "$(1)/.claude/dw-checks.json" \
 		--agents-out "$(1)/.claude/agents" \
-		--digest-out "$(1)/.claude/ssot-session-digest.md"
+		--digest-out "$(1)/.claude/dw-session-digest.md"
 	$(VPY) _build/wire-hook.py "$(1)" "$(VAULT_DIR)" --config-only
 endef
 
 # 권한 확대는 민감한 자기수정이라 install 과 분리 — 사용자가 명시적으로 실행.
 .PHONY: plugin-scope-user plugin-scope-project plugin-scope-off
 plugin-scope-user:           ## 플러그인을 사용자 전역 활성(모든 프로젝트). CLAUDE_CONFIG_DIR 계정 기준.
-	$(VPY) _build/ssot-plugin-scope.py user
+	$(VPY) _build/dw-plugin-scope.py user
 plugin-scope-project:        ## 플러그인을 이 프로젝트만 활성. 사용: make plugin-scope-project P=/path/to/project
-	$(VPY) _build/ssot-plugin-scope.py project "$(P)"
+	$(VPY) _build/dw-plugin-scope.py project "$(P)"
 plugin-scope-off:            ## 플러그인 비활성(계정 전역, P 주면 프로젝트도)
-	$(VPY) _build/ssot-plugin-scope.py off "$(P)"
+	$(VPY) _build/dw-plugin-scope.py off "$(P)"
 
 .PHONY: plugin-update
 plugin-update:               ## 플러그인 한 방 업데이트(클론 pull + 버전기반 update). ⚠️ plugin.json version 을 먼저 올려야 갱신됨.
 	@echo "→ 마켓플레이스 최신화 + plugin update (CC 는 version 기반 — install 은 already-installed no-op)"
 	@echo "  ⚠️ plugin.json/marketplace.json version 을 올리지 않으면 'already latest' 로 갱신 안 됨."
-	claude plugin marketplace update denver-agent
-	claude plugin update denver-agent@denver-agent
+	claude plugin marketplace update denver-workflow
+	claude plugin update denver-workflow@denver-workflow
 	@echo "✓ 새 세션부터 반영. (스케줄로 자동화하려면 cron/launchd 에 이 타깃 등록)"
 
 doctor: $(VENV)/.stamp       ## 콜드스타트 헬스체크(venv·의존성·MCP 서버·설치 상태)
 	@echo "== SSOT 헬스체크 =="
 	@$(VPY) -c "import yaml, mcp" 2>/dev/null && echo "  [ok] venv deps: pyyaml + mcp" || echo "  [!!] venv 의존성 누락 -> make build"
-	@$(VPY) _build/ssot-compile.py --vault "$(VAULT_DIR)" --out .claude/skills --dry-run --strict >/dev/null 2>&1 && echo "  [ok] 컴파일러 strict 통과" || echo "  [!!] 컴파일 실패 -> make dry-run"
+	@$(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out .claude/skills --dry-run --strict >/dev/null 2>&1 && echo "  [ok] 컴파일러 strict 통과" || echo "  [!!] 컴파일 실패 -> make dry-run"
 	@test -f "$(MCP_SERVER)" && echo "  [ok] MCP 서버 존재" || echo "  [!!] MCP 서버 없음"
 	@test -d "$(VAULT_DIR)/governance" && test -d "$(VAULT_DIR)/project" && echo "  [ok] vault 구조(축 A/B): $(VAULT_DIR)" || echo "  [..] vault 비었거나 구조 없음 -> make scaffold-vault"
 	@echo "  CC 등록 확인: claude mcp list | grep $(MCP_NAME)"
@@ -107,7 +107,7 @@ review: $(VENV)/.stamp       ## OBEY draft 큐(자동 비준 대상/hold) + 헬�
 # (스케줄 권장: cron/launchd/CC schedule 로 주기 실행하면 사람·수동 compile 모두 불요.)
 # install 은 항상 돌려 에이전트 승격분 + 사람이 Obsidian 에서 고친 stable 변경까지 컴파일한다(멱등).
 ratify: $(VENV)/.stamp       ## (스케줄 권장) draft OBEY 자동 비준 → 항상 compile+install
-	-$(VPY) _build/ssot-ratify.py --vault "$(VAULT_DIR)"
+	-$(VPY) _build/dw-ratify.py --vault "$(VAULT_DIR)"
 	@echo ""
 	@echo "→ 컴파일·설치(승격분 + 사람 편집 stable 반영, 멱등)"
 	@echo "→ 설치 반영은 /dw-install (프로젝트별) 로 실행"

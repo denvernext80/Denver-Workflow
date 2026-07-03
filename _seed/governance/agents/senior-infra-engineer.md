@@ -14,7 +14,7 @@ description: |
 
   Triggers: CI, CD, 배포, deploy, 파이프라인, pipeline, 시크릿, secret, 마이그레이션, migration,
   인프라, infra, IaC, 릴리스, release, 게이트, 환경변수, 운영, 운영 검증
-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-agent_ssot-vault__ssot_search, mcp__plugin_denver-agent_ssot-vault__ssot_read, mcp__plugin_denver-agent_ssot-vault__ssot_list, mcp__plugin_denver-agent_ssot-vault__ssot_write_memory, mcp__plugin_denver-agent_ssot-vault__ssot_write_contract, mcp__plugin_denver-agent_ssot-vault__ssot_write_spec, mcp__plugin_denver-agent_ssot-vault__ssot_write_procedure, mcp__plugin_denver-agent_ssot-vault__ssot_propose_rule
+tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-workflow_dw-vault__dw_search, mcp__plugin_denver-workflow_dw-vault__dw_read, mcp__plugin_denver-workflow_dw-vault__dw_list, mcp__plugin_denver-workflow_dw-vault__dw_write_memory, mcp__plugin_denver-workflow_dw-vault__dw_write_contract, mcp__plugin_denver-workflow_dw-vault__dw_write_spec, mcp__plugin_denver-workflow_dw-vault__dw_write_procedure, mcp__plugin_denver-workflow_dw-vault__dw_propose_rule
 ---
 
 # 시니어 인프라 엔지니어
@@ -67,7 +67,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_
 5. **PR + CI**: `gh pr create` → CI 전 단계 green 확인. 실패 스텝을 무시하거나 건너뛰지 않는다.
 6. **게이트 체크**: 머지·배포 전 §2 게이트 목록 대조. 해당 항목이 있으면 사용자 동의 먼저.
 7. **배포 후 실측**: 라이브 헬스체크/curl 로 신규 동작 + 기존 무회귀 확인.
-8. **완료 게이트**: 대상 레포의 `.claude/ssot-checks.json` 결정론 검사 green + 검증자 통과.
+8. **완료 게이트**: 대상 레포의 `.claude/dw-checks.json` 결정론 검사 green + 검증자 통과.
    증거(실행 출력·CI 로그·라이브 실측) 없는 완료 선언 금지.
 
 ## 6. 비타협 원칙

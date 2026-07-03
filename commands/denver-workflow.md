@@ -3,7 +3,7 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
 ---
 신규 기능을 **요구사항 → 배포**까지 11단계로 진행한다. 이 워크스페이스는 **멀티레포
 오케스트레이터**이므로 원본의 "FE/BE worktree 2개"(한 레포 안)가 아니라 **레포별 do-er
-디스패치**로 분기한다. 엔진은 `ssot-orchestrator` roster(분류·순차 디스패치·게이트·계약 흐름)고,
+디스패치**로 분기한다. 엔진은 `dw-orchestrator` roster(분류·순차 디스패치·게이트·계약 흐름)고,
 이 커맨드는 그 위의 **단계 순서 + 단계별 도구**다. 중복 규율은 vault 정본을 참조한다.
 
 > **🟡 Karpathy 코딩 원칙은 모든 단계의 전제** — 가정 명시·단순함 우선·외과적 변경·목표주도
@@ -29,11 +29,11 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
    - **do-er 배정(자유 입력 아님 — 메뉴)**: 스택→do-er 자동 매핑 후 확인받는다. 후보 = 탑재된 제네릭
      do-er `senior-front-engineer`(프론트/UI)·`senior-backend-engineer`(API/DB/서비스)·
      `senior-qa-engineer`(테스트/QA)·`senior-infra-engineer`(CI/배포) + 이미 설치된 프로젝트 특화 do-er.
-   - checks 경로: 기본 `<레포>/.claude/ssot-checks.json`(설명: "완료 검사 규칙 파일 위치", 비숙련자는
+   - checks 경로: 기본 `<레포>/.claude/dw-checks.json`(설명: "완료 검사 규칙 파일 위치", 비숙련자는
      기본값 그대로). CI/배포 규율: 자유 한 줄(모르면 비워둠 — 기본 "레포 표준").
    - 교차레포 순서(멀티레포 시): 기본 "계약 먼저 → 공급측 → 소비측". 배포 게이트: 기본 "마이그레이션·
      시크릿·authz·데이터 손실은 사용자 동의".
-3. **작성**: vault 경로 해석(`DENVER_VAULT_DIR` > `~/denver-agent-vault`) →
+3. **작성**: vault 경로 해석(`DW_VAULT_DIR` > `~/denver-workflow-vault`) →
    `<vault>/project/repo-map.md` 를 `_seed/_templates/repo-map.md` 골격으로 채워 **Write**
    (`type: repo-map`, `status: stable`).
 4. **빌드**: `make install`(또는 워크스페이스면 `make install-orchestrator`)로 digest 재생성 → "## 레포 맵" 주입.
@@ -56,7 +56,7 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
               │ NO
    ┌── 설계(Plan) ──────────────────────────────────────────┐
    │ ①  요구사항 분석   superpowers:brainstorming + ★advisor │
-   │     └▶ vault specs/ (ssot_write_spec, kind=spec)        │
+   │     └▶ vault specs/ (dw_write_spec, kind=spec)        │
    │ ②  상세 기획       superpowers:writing-plans            │
    │     └▶ 영향 레포별 plan (vault specs/ kind=plan)        │
    │ ③  UI/UX 시안(앱) impeccable + gstack:design-consultation│
@@ -73,7 +73,7 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
    └────────────────────────────┬───────────────────────────┘
    ┌── 검증(Check) ──────────────▼───────────────────────────┐
    │ ⑥  PR + 리뷰 + CI  레포별 워크플로우(아래 "레포별 CI")   │
-   │     완료 게이트 = 대상 레포 ssot-checks.json(§4)         │
+   │     완료 게이트 = 대상 레포 dw-checks.json(§4)         │
    │ ⑦  기획↔구현 비교  ★advisor + 수동 체크리스트            │
    │ ⑦.5 디자인 QA      gstack:design-review + gstack:browse  │
    │ ⑧  기능 QA         gstack:qa + browse(앱/웹 스모크)      │
@@ -92,7 +92,7 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
 | 3 | UI/UX 시안(앱) | `impeccable` + `gstack:design-consultation` | 시안·critique |
 | 3.5 | 디자인 HTML | `gstack:design-html` + advisor | HTML/CSS 목업(레퍼런스) |
 | 4 | 업무 배분 + 브랜치 | `superpowers:using-git-worktrees`(do-er 가 자기 레포에서) | do-er별 worktree |
-| 🔒 | **GATE: BFF 계약** | vault `contracts/` + advisor 합의 | `ssot_write_contract` |
+| 🔒 | **GATE: BFF 계약** | vault `contracts/` + advisor 합의 | `dw_write_contract` |
 | 5 | 구현 + 회귀가드 | `superpowers:subagent-driven-development`(순차) + advisor | 구현 + 회귀가드 |
 | 6 | PR + 리뷰 + CI | `gh pr create` → 레포별 CI | PR + 대상 레포 checks green |
 | 7 | 기획↔구현 비교 | advisor + 수동 체크리스트 | PR diff vs plan |
@@ -114,7 +114,7 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
 ## 레포별 CI/배포 (보편 보장 아님 — 레포마다 다름)
 
 각 레포의 CI/배포 규율은 **레포 맵의 "CI/배포" 열**에 적힌다. do-er 에게 **자기 레포 워크플로우를
-따르게** 하고, 완료 검증은 항상 그 레포의 `<repo>/.claude/ssot-checks.json` + `enforced-by` 검증자로
+따르게** 하고, 완료 검증은 항상 그 레포의 `<repo>/.claude/dw-checks.json` + `enforced-by` 검증자로
 한다(orchestrator §4). 머지·배포 게이트(마이그레이션·시크릿·authz·데이터 손실)는 사용자 동의.
 
 ## advisor 에스컬레이션 트리거
@@ -161,8 +161,8 @@ git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.cl
 ```
 
 - **advisor**: 빌트인(이 하네스 제공) — 별도 설치 불요.
-- **denver-agent(ssot-vault)**: 이 워크스페이스 자체 — `make install-orchestrator` 로 설치.
+- **denver-workflow(dw-vault)**: 이 워크스페이스 자체 — `make install-orchestrator` 로 설치.
 - 미설치 플러그인의 단계는 **건너뛰지 말고** 사용자에게 설치 안내 후 진행(검증 전 완료 선언 금지).
 
-_관련: orchestrator roster `roster/ssot-orchestrator.md` · 정본 가이던스 `governance/guidance/`
+_관련: orchestrator roster `roster/dw-orchestrator.md` · 정본 가이던스 `governance/guidance/`
 (karpathy·pr-merge-discipline·worktree-isolation·tdd-iron-law) · 계약 SSOT vault `contracts/`._

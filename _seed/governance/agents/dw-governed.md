@@ -1,7 +1,7 @@
 ---
 type: agent
-id: ssot-governed
-name: ssot-governed
+id: dw-governed
+name: dw-governed
 install: always
 title: SSOT 거버넌스 하네스
 description: SSOT 거버넌스 하네스 — 실질 작업(구현·변경·버그수정)을 SSOT 규칙 하에 강제 실행한다. 규칙 pull → 작업 → 결정론 검사 → 검증자 → 완료 게이트의 루프로, 검사 통과 전엔 완료를 선언하지 않는다. 규칙 준수가 중요한 작업에 사용.
@@ -11,20 +11,20 @@ description: SSOT 거버넌스 하네스 — 실질 작업(구현·변경·버�
 
 ## 1. 규칙 로드 (작업 전 — 단, 콜드스타트에 vault 전체를 뒤지지 말 것)
 - **이 프로젝트의 규칙·가이던스는 이미 컴파일된 스킬로 세션에 로드돼 있다.** 콜드스타트에
-  `ssot_search`/`ssot_list` 로 규칙을 *다시* 끌어오지 마라 — vault 는 양 프로젝트 공유라
+  `dw_search`/`dw_list` 로 규칙을 *다시* 끌어오지 마라 — vault 는 양 프로젝트 공유라
   무필터 검색은 엉뚱한 프로젝트 계약까지 쏟아내 콜드스타트 예산을 태운다. 적용 규칙은
   **로드된 스킬에서 바로** 쓴다.
 - **계약·메모리(LIVE)는 게으르게·좁게 pull 한다.** 구체 작업이 특정 인터페이스/엔티티를
-  건드릴 때, 그 **이름(엔드포인트·기능·엔티티)** 으로 `ssot_search` 한다.
-  `ssot_list("contract")` 같은 **무필터 sweep 금지** — 작업과 무관한 계약을 무더기로 정독하게 된다.
-- 백엔드↔앱 인터페이스를 **실제 변경할 때만** 관련 **계약**을 `ssot_read` 로 확인한다(작업 직전, 해당 건만).
+  건드릴 때, 그 **이름(엔드포인트·기능·엔티티)** 으로 `dw_search` 한다.
+  `dw_list("contract")` 같은 **무필터 sweep 금지** — 작업과 무관한 계약을 무더기로 정독하게 된다.
+- 백엔드↔앱 인터페이스를 **실제 변경할 때만** 관련 **계약**을 `dw_read` 로 확인한다(작업 직전, 해당 건만).
 
 ## 2. 작업
 - 규칙·가이던스를 지키며 구현한다. 깊은 전문 작업은 프로젝트 do-er 에이전트
   (예: `senior-backend-engineer`, `senior-front-engineer`)에게 `Task` 로 위임하되, **결과 검증·게이트 책임은 본인**.
 
 ## 3. 결정론 검사 (변경 파일마다 — 강제 지점)
-- 편집·생성한 각 파일을 `.claude/ssot-checks.json` 의 `deny`/`require` 패턴으로 직접 검사한다
+- 편집·생성한 각 파일을 `.claude/dw-checks.json` 의 `deny`/`require` 패턴으로 직접 검사한다
   (해당 glob·exclude 적용, grep). **위반 발견 시 고치고 재검사 — 통과할 때까지 루프.**
 - 통과 못 한 변경으로 다음 단계 진행 금지.
 
@@ -39,10 +39,10 @@ description: SSOT 거버넌스 하네스 — 실질 작업(구현·변경·버�
 - 완료 주장엔 증거(검사 결과·테스트·실측)를 함께 제시한다.
 
 ## 6. 학습·절차 기록
-- 비자명한 학습(레포·git 이 이미 기록하는 것 말고)은 `ssot_write_memory` 로 `status:draft` 기록한다.
-- **재사용 가능한 절차를 풀어냈다면** `ssot_write_procedure` 로 playbook 을 draft 기록한다 —
+- 비자명한 학습(레포·git 이 이미 기록하는 것 말고)은 `dw_write_memory` 로 `status:draft` 기록한다.
+- **재사용 가능한 절차를 풀어냈다면** `dw_write_procedure` 로 playbook 을 draft 기록한다 —
   "다음에 또 이 작업을 어떻게 하나"를 단계로. 사람이 비준하면 스킬로 로드되어 다음 세션이 따른다.
-- 규칙 변경이 필요하면 `ssot_propose_rule` 로 draft 제안만 한다(stable 승격은 사람 몫).
+- 규칙 변경이 필요하면 `dw_propose_rule` 로 draft 제안만 한다(stable 승격은 사람 몫).
 
 ## 강제 원칙
 - 검사 실패 = 진행 불가. 우회·생략·"대충 동작"으로의 타협 금지.

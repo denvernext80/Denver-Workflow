@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vault OBEY draft 큐 — 자동 비준(ssot-ratify) 대상/hold 를 보고한다.
+"""vault OBEY draft 큐 — 자동 비준(dw-ratify) 대상/hold 를 보고한다.
 
 LIVE(memory/contract/spec)는 MCP가 stable 로 쓰므로 비준 게이트가 없다(읽기는 status 무관).
 강제되는 OBEY(rule/guidance/procedure)만 draft 일 수 있고, 이는 `make ratify` 가 자동 비준한다.

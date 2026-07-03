@@ -14,7 +14,7 @@ description: |
 
   Triggers: frontend, UI, 화면 구현, 기능 개발, 후속 작업, 계약 배선, 컴포넌트 테스트,
   디자인 폴리시, PR, 머지, 백엔드 회신, sign-off, 상태관리, 라우팅
-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-agent_ssot-vault__ssot_search, mcp__plugin_denver-agent_ssot-vault__ssot_read, mcp__plugin_denver-agent_ssot-vault__ssot_list, mcp__plugin_denver-agent_ssot-vault__ssot_write_memory, mcp__plugin_denver-agent_ssot-vault__ssot_write_contract, mcp__plugin_denver-agent_ssot-vault__ssot_write_spec, mcp__plugin_denver-agent_ssot-vault__ssot_write_procedure, mcp__plugin_denver-agent_ssot-vault__ssot_propose_rule
+tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-workflow_dw-vault__dw_search, mcp__plugin_denver-workflow_dw-vault__dw_read, mcp__plugin_denver-workflow_dw-vault__dw_list, mcp__plugin_denver-workflow_dw-vault__dw_write_memory, mcp__plugin_denver-workflow_dw-vault__dw_write_contract, mcp__plugin_denver-workflow_dw-vault__dw_write_spec, mcp__plugin_denver-workflow_dw-vault__dw_write_procedure, mcp__plugin_denver-workflow_dw-vault__dw_propose_rule
 ---
 
 # 시니어 프론트엔드 엔지니어
@@ -34,7 +34,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_
 
 ## 백엔드 계약
 
-- **계약 SSOT = vault `contracts/`** — `ssot_search`/`ssot_read`/`ssot_write_contract` MCP 도구로 접근한다.
+- **계약 SSOT = vault `contracts/`** — `dw_search`/`dw_read`/`dw_write_contract` MCP 도구로 접근한다.
 - **응답 shape 추정 금지.** 계약이 모호하면 백엔드의 **실 코드를 직접 읽어** 필드·타입을 확정한다.
 - 새 응답 소스는 방어 파싱 + 미지 키 무시(전방호환). 비로그인 curl 은 shape 검증이 안 된다 — 인증 curl 사용.
 - 작업 종료 시 vault 에 **프론트 sign-off**(`contracts/YYYY-MM-DD-front-signoff-*.md`, frontmatter `type: contract`)를
@@ -60,7 +60,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_
 2. **전체** 테스트 스위트. 실패가 있으면 **클린 origin/main 에서 동일 재현되는지 비교**해 사전실패/회귀를
    분리 — 회귀 0 증명.
 3. UI 변경은 **라이브 실측**: 브라우저/디바이스로 직접 확인. 스크린샷 캡처.
-4. 완료는 대상 레포의 `.claude/ssot-checks.json` 결정론 검사 green + 검증자 통과가 기준이다.
+4. 완료는 대상 레포의 `.claude/dw-checks.json` 결정론 검사 green + 검증자 통과가 기준이다.
 
 ## PR / 머지
 

@@ -12,8 +12,8 @@ additionalContext 로 피드백한다.
   - draft 는 '가시성'이 아니라 '컴파일'을 게이트한다. 진짜 비준 게이트는 `make install` 을
     돌리며 draft→stable 로 올리는 사람이다.
 
-vault 위치: $CLAUDE_PROJECT_DIR/.claude/ssot-config.json 의 vault_root, 없으면 프로젝트가
-_build/ssot-compile.py 를 가지면 그 프로젝트를 vault 로 본다. 표준 라이브러리만 사용.
+vault 위치: $CLAUDE_PROJECT_DIR/.claude/dw-config.json 의 vault_root, 없으면 프로젝트가
+_build/dw-compile.py 를 가지면 그 프로젝트를 vault 로 본다. 표준 라이브러리만 사용.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ HUMAN_RATIFIED = {"rule", "guidance"}
 
 
 def _vault_root(project: Path) -> Path | None:
-    cfg = project / ".claude" / "ssot-config.json"
+    cfg = project / ".claude" / "dw-config.json"
     if cfg.exists():
         try:
             v = json.loads(cfg.read_text(encoding="utf-8")).get("vault_root")
@@ -55,14 +55,14 @@ def _vault_root(project: Path) -> Path | None:
                 return Path(v)
         except (json.JSONDecodeError, OSError):
             pass
-    # stored vault_root 부재/stale(이동된 경로) 자가치유 — 런처와 동일 규약(env > ~/denver-agent-vault)
-    env = os.environ.get("DENVER_VAULT_DIR")
+    # stored vault_root 부재/stale(이동된 경로) 자가치유 — 런처와 동일 규약(env > ~/denver-workflow-vault)
+    env = os.environ.get("DW_VAULT_DIR")
     if env and Path(env).is_dir():
         return Path(env)
-    conv = Path.home() / "denver-agent-vault"
+    conv = Path.home() / "denver-workflow-vault"
     if conv.is_dir():
         return conv
-    if (project / "_build" / "ssot-compile.py").exists():
+    if (project / "_build" / "dw-compile.py").exists():
         return project
     return None
 

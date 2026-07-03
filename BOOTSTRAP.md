@@ -17,7 +17,7 @@
         │  rules · guidance   →  [컴파일] → .claude/skills  (복종, stable만) │
         │  memory · contracts →  라이브(비컴파일)                            │  ← 에이전트가
         └──────────────┬───────────────────────────────┬───────────────┘     read/write(draft)
-                       │ make install                  │ ssot-vault MCP 서버
+                       │ make install                  │ dw-vault MCP 서버
             프로젝트 스킬·검사·훅·에이전트       (8 도구; LIVE stable 직행·OBEY draft)
                        │                               │
                        ▼                               ▼
@@ -26,7 +26,7 @@
 
 - **사람은 저작**한다(주로 규칙·원칙). **에이전트는 컴파일된 규칙에 복종**하고, 학습·계약·규칙을 기록·제안한다.
 - **비준은 자동**이다 — LIVE(memory/contract/spec)는 게이트가 없고, OBEY(rule/guidance/procedure)는
-  `ssot-ratify`(결정론) + `ssot-ratifier`(LLM 판단)가 비준한다.
+  `dw-ratify`(결정론) + `dw-ratifier`(LLM 판단)가 비준한다.
 - 사람·기계를 잇는 유일한 계약면은 **frontmatter** 다.
 - vault = 소스. `.claude/skills` = 빌드 산출물(소스 → 바이너리). **산출물 직접 편집 금지.**
 
@@ -42,7 +42,7 @@
 메모리·계약은 **컴파일하지 않는다**. 에이전트가 vault 를 라이브로 읽고 쓴다.
 읽기 도구는 status 를 안 거르므로 **LIVE 의 draft↔stable 구분은 무의미** — 그래서 MCP 가 LIVE 를
 바로 stable 로 쓴다(비준 게이트 제거). `draft` 는 OBEY(컴파일·강제 대상)에서만 의미를 가지며,
-`ssot-ratify` 가 안전성을 **경험적으로 검증**(check 패턴을 실제 코드에 돌려 오탐 0)한 뒤 자동 승격한다.
+`dw-ratify` 가 안전성을 **경험적으로 검증**(check 패턴을 실제 코드에 돌려 오탐 0)한 뒤 자동 승격한다.
 
 ## 절대 불변식 (하나라도 깨지면 잘못된 것)
 
@@ -59,8 +59,8 @@
    (구현은 프로젝트마다 다르다.)
 9. **비준은 자동, 강제 입법만 검증된다.** LIVE(memory/contract/spec)는 MCP가 stable 로 바로 쓴다
    (읽기가 status 무관 → 게이트 무의미). OBEY(rule/guidance/procedure)는 status:draft 로 제안되고,
-   `ssot-ratify`(결정론: 스키마·enforced-by 실재·check 패턴 코드 0매치)가 **안전한 것만** 자동 stable
-   승격한다. 판단 필요 건(check 가 기존 코드에 매치)만 `ssot-ratifier`(LLM)로 에스컬레이션 — 사람은 불요.
+   `dw-ratify`(결정론: 스키마·enforced-by 실재·check 패턴 코드 0매치)가 **안전한 것만** 자동 stable
+   승격한다. 판단 필요 건(check 가 기존 코드에 매치)만 `dw-ratifier`(LLM)로 에스컬레이션 — 사람은 불요.
    **불변식의 핵심은 "사람 비준"이 아니라 "강제되는 규칙은 발효 전 경험적으로 검증된다"** 이다.
 
 ## 강제 — 능동 하네스 + 게이트 레이어
@@ -68,14 +68,14 @@
 게이트 레이어(1-4)는 그 자체로 *권고*다 — 컴파일된 규칙은 ambient("안다"), 훅은 피드백,
 서브에이전트는 on-demand. 협조에 의존하므로 "안다 ≠ 못 어긴다". 진짜 강제성은 **능동 하네스**에서 나온다.
 
-**`ssot-governed` 하네스 에이전트**(`agents/ssot-governed.md`, `install: always`)가 게이트를
+**`dw-governed` 하네스 에이전트**(`agents/dw-governed.md`, `install: always`)가 게이트를
 *빠져나갈 수 없는 루프*로 묶는다: 규칙 pull → 작업 → 결정론 검사 → 검증자 → **통과까지 루프** → 완료 게이트.
-프로젝트 `settings.local.json` 의 `agent: ssot-governed` 로 모든 세션이 하네스로 시작한다(항상 강제).
+프로젝트 `settings.local.json` 의 `agent: dw-governed` 로 모든 세션이 하네스로 시작한다(항상 강제).
 
 게이트 레이어:
 0. **자동 비준**(`make ratify`, 스케줄) — OBEY draft 를 결정론적으로 검증해 안전분 자동 stable·
-   compile·install. 사람·수동 make 제거. 판단 필요 건만 `ssot-ratifier`(LLM)로 넘긴다.
-1. **MCP 도구**(주 경로) — `ssot_write_*` 가 frontmatter 를 *구성*한다. LIVE 는 stable 직행,
+   compile·install. 사람·수동 make 제거. 판단 필요 건만 `dw-ratifier`(LLM)로 넘긴다.
+1. **MCP 도구**(주 경로) — `dw_write_*` 가 frontmatter 를 *구성*한다. LIVE 는 stable 직행,
    OBEY(rule/procedure)는 draft 제안(status 파라미터 없음 → validate-by-construction).
 2. **결정론적 린터**(자동) — 규칙의 `check-deny`/`check-require` 를 PostToolUse 훅이 검사,
    위반을 `additionalContext` 로 피드백(차단이 아니라 self-correct 유도).
@@ -83,18 +83,18 @@
 4. **서브에이전트**(판단) — grep 못 잡는 구조 규칙은 `enforced-by` 검증자(security-qa 등)가 리뷰.
 
 **스킬 body 는 자동 로드되지 않는다(progressive disclosure, 불변식 7)** — description 만 항상 컨텍스트에 있고, body(규칙 전문·누적 지식 인덱스)는 스킬 활성화 시에만 로드된다. 그래서 컴파일된 규칙·지식을 세션에 닿게 하려면 SessionStart 다이제스트 주입(레이어 5)이 필요하다. `make install` 이 프로젝트별 다이제스트
-(`.claude/ssot-session-digest.md`: 항상-적용 guidance + 강제 규칙 목록 + 누적 지식 인덱스)를 만들고,
-`ssot-session-context.py`(SessionStart 훅)가 이를 **세션 시작 시 컨텍스트에 직접 주입**한다 —
-additionalContext 는 body 와 달리 항상 주입된다(bkit 등 검증된 메커니즘). 전문은 `ssot_read`/스킬로 pull.
+(`.claude/dw-session-digest.md`: 항상-적용 guidance + 강제 규칙 목록 + 누적 지식 인덱스)를 만들고,
+`dw-session-context.py`(SessionStart 훅)가 이를 **세션 시작 시 컨텍스트에 직접 주입**한다 —
+additionalContext 는 body 와 달리 항상 주입된다(bkit 등 검증된 메커니즘). 전문은 `dw_read`/스킬로 pull.
 
-## MCP 게이트웨이 — `ssot-vault`
+## MCP 게이트웨이 — `dw-vault`
 
-vault 를 stdio MCP 서버(`_build/ssot-mcp-server.py`)로 노출 → Claude Code(및 모든 MCP
+vault 를 stdio MCP 서버(`_build/dw-mcp-server.py`)로 노출 → Claude Code(및 모든 MCP
 클라이언트)가 타입 도구로 접근. 쓰기 도구에 status 파라미터 없음(validate-by-construction):
 
-- **읽기**: `ssot_search` · `ssot_read` · `ssot_list` (status 무관 — draft·stable 모두 검색)
-- **쓰기·LIVE(stable 직행)**: `ssot_write_memory` · `ssot_write_contract` · `ssot_write_spec`
-- **쓰기·OBEY(draft 제안 → ssot-ratify 자동 비준)**: `ssot_write_procedure` · `ssot_propose_rule`
+- **읽기**: `dw_search` · `dw_read` · `dw_list` (status 무관 — draft·stable 모두 검색)
+- **쓰기·LIVE(stable 직행)**: `dw_write_memory` · `dw_write_contract` · `dw_write_spec`
+- **쓰기·OBEY(draft 제안 → dw-ratify 자동 비준)**: `dw_write_procedure` · `dw_propose_rule`
 
 메모리는 **CC auto-memory(`autoMemoryDirectory`)도 vault 로 funnel**되어, 자동 캡처·큐레이션
 모두 vault 단일 SSOT 로 모인다(가드·도구가 CC 포맷·vault 포맷 둘 다 수용).

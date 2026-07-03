@@ -3,7 +3,7 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/ssot-session-context.py\"", "timeout": 15 }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-session-context.py\"", "timeout": 15 }
         ]
       }
     ],
@@ -11,7 +11,7 @@
       {
         "matcher": "Agent|Task",
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/ssot-worktree-guard.py\"", "timeout": 15 }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-worktree-guard.py\"", "timeout": 15 }
         ]
       }
     ],
@@ -19,9 +19,9 @@
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/ssot-lint.py\"", "timeout": 15 },
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/ssot-vault-guard.py\"", "timeout": 15 },
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/ssot-artifact-guard.py\"", "timeout": 15 }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-lint.py\"", "timeout": 15 },
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-vault-guard.py\"", "timeout": 15 },
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-artifact-guard.py\"", "timeout": 15 }
         ]
       }
     ]

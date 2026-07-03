@@ -2,11 +2,11 @@
 """SSOT 산출물 위치 가드 — Claude Code PostToolUse 훅(Write|Edit).
 
 durable 분석/스펙/계획/설계 문서를 product repo 의 docs/ 등에만 두면 worktree 청소·브랜치 삭제 시
-휘발한다. 이 워크스페이스 규율은 'durable 한 건 전부 vault SSOT'(specs/ via ssot_write_spec,
-학습은 memory/ via ssot_write_memory). vault-guard 는 vault *내부* .md 만 보므로, 이 가드는
+휘발한다. 이 워크스페이스 규율은 'durable 한 건 전부 vault SSOT'(specs/ via dw_write_spec,
+학습은 memory/ via dw_write_memory). vault-guard 는 vault *내부* .md 만 보므로, 이 가드는
 vault *밖*(product repo)의 durable 문서 쓰기를 잡아 vault 로 유도한다(차단 아님 — additionalContext).
 
-발화 조건: Denver-governed 프로젝트(.claude/ssot-config.json 존재)에서, vault 밖 .md 를 쓰는데
+발화 조건: Denver-governed 프로젝트(.claude/dw-config.json 존재)에서, vault 밖 .md 를 쓰는데
 경로/이름이 durable 문서로 보일 때. README·CHANGELOG·코드인접 문서는 제외(오탐 방지).
 표준 라이브러리만.
 """
@@ -28,7 +28,7 @@ EXCLUDE = re.compile(r"(^|/)(README|CHANGELOG|LICENSE|NOTICE|CONTRIBUTING|CODEOW
 
 
 def _vault_root(project: Path) -> Path | None:
-    cfg = project / ".claude" / "ssot-config.json"
+    cfg = project / ".claude" / "dw-config.json"
     if cfg.exists():
         try:
             v = json.loads(cfg.read_text(encoding="utf-8")).get("vault_root")
@@ -36,11 +36,11 @@ def _vault_root(project: Path) -> Path | None:
                 return Path(v)
         except (json.JSONDecodeError, OSError):
             pass
-    # stored vault_root 부재/stale(이동된 경로) 자가치유 — 런처와 동일 규약(env > ~/denver-agent-vault)
-    env = os.environ.get("DENVER_VAULT_DIR")
+    # stored vault_root 부재/stale(이동된 경로) 자가치유 — 런처와 동일 규약(env > ~/denver-workflow-vault)
+    env = os.environ.get("DW_VAULT_DIR")
     if env and Path(env).is_dir():
         return Path(env)
-    conv = Path.home() / "denver-agent-vault"
+    conv = Path.home() / "denver-workflow-vault"
     if conv.is_dir():
         return conv
     return None
@@ -78,7 +78,7 @@ def main() -> int:
     out = {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
            f"SSOT 산출물 가드: '{rel}' 는 durable 분석/스펙/계획 문서로 보입니다. "
            "repo docs/ 는 worktree 청소·브랜치 삭제 시 휘발합니다 — 이 워크스페이스 규율상 durable 한 건 "
-           "**vault SSOT** 가 단일 출처입니다. `ssot_write_spec`(계획·스펙·설계) 또는 `ssot_write_memory`"
+           "**vault SSOT** 가 단일 출처입니다. `dw_write_spec`(계획·스펙·설계) 또는 `dw_write_memory`"
            "(학습)로 vault 에 기록하세요. repo 사본은 코드 경로 링크용으로만 두고, 정본은 vault 에 둡니다."}}
     print(json.dumps(out, ensure_ascii=False))
     return 0

@@ -5,7 +5,7 @@ title: vault 구성 원칙 (폴더 택소노미 + frontmatter 계약)
 
 # 이 vault 의 구성 원칙
 
-> denver-agent SSOT vault. **폴더는 사람용 정리, frontmatter `type` 은 기계용 라우팅.**
+> denver-workflow SSOT vault. **폴더는 사람용 정리, frontmatter `type` 은 기계용 라우팅.**
 > 컴파일러는 `*.md` 를 전부 훑고 frontmatter 로만 라우팅하므로 폴더 위치는 안전하지만,
 > 아래 두 축으로 정리해 탐색·관리·배포(공개/사적)를 가른다.
 
