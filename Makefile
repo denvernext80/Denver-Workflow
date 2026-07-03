@@ -24,7 +24,7 @@ SEED          := _seed
 SEED_GUIDANCE := karpathy-guidelines tdd-iron-law regression-by-set-diff residual-only delegation-ownership pr-merge-discipline artifact-locations
 SEED_AGENTS   := code-review security-qa dw-governed dw-ratifier
 
-.PHONY: build dry-run clean distclean help doctor review ratify
+.PHONY: build dry-run clean distclean help doctor review ratify install-project
 
 $(VENV)/.stamp:
 	$(PY) -m venv $(VENV)
@@ -65,14 +65,6 @@ MCP_PY     := $(TOOLS_ROOT)/$(VENV)/bin/python
 MCP_SERVER := $(TOOLS_ROOT)/_build/dw-mcp-server.py
 MCP_NAME   := dw-vault
 
-define INSTALL_PROJECT
-	$(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out "$(1)/.claude/skills" \
-		--scopes $(2) --checks-out "$(1)/.claude/dw-checks.json" \
-		--agents-out "$(1)/.claude/agents" \
-		--digest-out "$(1)/.claude/dw-session-digest.md"
-	$(VPY) _build/wire-hook.py "$(1)" "$(VAULT_DIR)" --config-only
-endef
-
 # 권한 확대는 민감한 자기수정이라 install 과 분리 — 사용자가 명시적으로 실행.
 .PHONY: plugin-scope-user plugin-scope-project plugin-scope-off
 plugin-scope-user:           ## 플러그인을 사용자 전역 활성(모든 프로젝트). CLAUDE_CONFIG_DIR 계정 기준.
@@ -82,6 +74,16 @@ plugin-scope-project:        ## 플러그인을 이 프로젝트만 활성. 사�
 plugin-scope-off:            ## 플러그인 비활성(계정 전역, P 주면 프로젝트도)
 	$(VPY) _build/dw-plugin-scope.py off "$(P)"
 
+install-project: $(VENV)/.stamp  ## 한 프로젝트에 설치: make install-project P=/절대경로 [SCOPES=engineering,...]
+	@test -n "$(P)" || { echo "사용법: make install-project P=/절대경로 [SCOPES=scope1,scope2]  (SCOPES 생략 = 전체 union)"; exit 1; }
+	$(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out "$(P)/.claude/skills" \
+		$(if $(SCOPES),--scopes $(SCOPES),) \
+		--checks-out "$(P)/.claude/dw-checks.json" \
+		--agents-out "$(P)/.claude/agents" \
+		--digest-out "$(P)/.claude/dw-session-digest.md"
+	$(VPY) _build/wire-hook.py "$(P)" "$(VAULT_DIR)" --config-only
+	@echo "✓ 설치 완료: $(P)/.claude/{skills,agents,dw-checks.json,dw-session-digest.md}"
+
 .PHONY: plugin-update
 plugin-update:               ## 플러그인 한 방 업데이트(클론 pull + 버전기반 update). ⚠️ plugin.json version 을 먼저 올려야 갱신됨.
 	@echo "→ 마켓플레이스 최신화 + plugin update (CC 는 version 기반 — install 은 already-installed no-op)"
@@ -90,13 +92,13 @@ plugin-update:               ## 플러그인 한 방 업데이트(클론 pull + 
 	claude plugin update denver-workflow@denver-workflow
 	@echo "✓ 새 세션부터 반영. (스케줄로 자동화하려면 cron/launchd 에 이 타깃 등록)"
 
-doctor: $(VENV)/.stamp       ## 콜드스타트 헬스체크(venv·의존성·MCP 서버·설치 상태)
-	@echo "== SSOT 헬스체크 =="
+doctor: $(VENV)/.stamp       ## 콜드스타트 헬스체크(venv·컴파일러·MCP·vault·외부 의존)
+	@echo "== denver-workflow 헬스체크 =="
 	@$(VPY) -c "import yaml, mcp" 2>/dev/null && echo "  [ok] venv deps: pyyaml + mcp" || echo "  [!!] venv 의존성 누락 -> make build"
-	@$(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out .claude/skills --dry-run --strict >/dev/null 2>&1 && echo "  [ok] 컴파일러 strict 통과" || echo "  [!!] 컴파일 실패 -> make dry-run"
+	@$(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out /tmp/dw-doctor-skills --dry-run --strict >/dev/null 2>&1 && echo "  [ok] 컴파일러 strict 통과" || echo "  [..] vault 컴파일 실패/vault 없음 -> make dry-run 으로 확인"
 	@test -f "$(MCP_SERVER)" && echo "  [ok] MCP 서버 존재" || echo "  [!!] MCP 서버 없음"
-	@test -d "$(VAULT_DIR)/governance" && test -d "$(VAULT_DIR)/project" && echo "  [ok] vault 구조(축 A/B): $(VAULT_DIR)" || echo "  [..] vault 비었거나 구조 없음 -> make scaffold-vault"
-	@echo "  CC 등록 확인: claude mcp list | grep $(MCP_NAME)"
+	@test -d "$(VAULT_DIR)/governance" && echo "  [ok] vault 구조: $(VAULT_DIR)" || echo "  [..] vault 없음 -> /dw-setup 또는 make scaffold-vault"
+	@test -f _build/dw-doctor.py && $(VPY) _build/dw-doctor.py || true
 
 review: $(VENV)/.stamp       ## OBEY draft 큐(자동 비준 대상/hold) + 헬스체크
 	@$(VPY) _build/review-queue.py --vault "$(VAULT_DIR)"
