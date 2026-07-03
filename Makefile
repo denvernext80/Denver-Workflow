@@ -13,7 +13,9 @@ TOOLS_ROOT := $(shell pwd)
 # vault=소스(Obsidian-Vault, 외부화), 각 프로젝트의 .claude/skills=빌드 산출물(직접 편집 금지).
 # vault 콘텐츠 위치(프로젝트 워크스페이스에서 분리). DW_VAULT_DIR 우선, 기본 ~/denver-workflow-vault.
 # 도구(.venv·_build·hooks)는 이 워크스페이스에 잔류 — vault 만 외부화.
-VAULT_DIR      := $(if $(DW_VAULT_DIR),$(DW_VAULT_DIR),$(HOME)/denver-workflow-vault)
+# 주의: DW_VAULT_DIR 값에 리터럴 `$HOME`/`~` 가 올 수 있다(settings.json env 규약) —
+#       Python 런처(expanduser+expandvars)와 동일하게 shell eval 로 확장한다(make 는 $H 로 오해석).
+VAULT_DIR      := $(shell eval echo "$${DW_VAULT_DIR:-$$HOME/denver-workflow-vault}")
 # 컴파일러는 상대 --out 을 vault 기준으로 해석하므로(out=vault/out), 워크스페이스 산출물엔 절대경로 사용.
 COMPILE := $(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out "$(TOOLS_ROOT)/.claude/skills"
 
@@ -95,7 +97,7 @@ plugin-update:               ## 플러그인 한 방 업데이트(클론 pull + 
 doctor: $(VENV)/.stamp       ## 콜드스타트 헬스체크(venv·컴파일러·MCP·vault·외부 의존)
 	@echo "== denver-workflow 헬스체크 =="
 	@$(VPY) -c "import yaml, mcp" 2>/dev/null && echo "  [ok] venv deps: pyyaml + mcp" || echo "  [!!] venv 의존성 누락 -> make build"
-	@$(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out /tmp/dw-doctor-skills --dry-run --strict >/dev/null 2>&1 && echo "  [ok] 컴파일러 strict 통과" || echo "  [..] vault 컴파일 실패/vault 없음 -> make dry-run 으로 확인"
+	@test -d "$(VAULT_DIR)/governance" && $(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out /tmp/dw-doctor-skills --dry-run --strict >/dev/null 2>&1 && echo "  [ok] 컴파일러 strict 통과" || echo "  [..] vault 컴파일 실패/vault 없음 -> make dry-run 으로 확인"
 	@test -f "$(MCP_SERVER)" && echo "  [ok] MCP 서버 존재" || echo "  [!!] MCP 서버 없음"
 	@test -d "$(VAULT_DIR)/governance" && echo "  [ok] vault 구조: $(VAULT_DIR)" || echo "  [..] vault 없음 -> /dw-setup 또는 make scaffold-vault"
 	@test -f _build/dw-doctor.py && $(VPY) _build/dw-doctor.py || true
