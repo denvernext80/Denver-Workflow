@@ -10,8 +10,8 @@ worktree 격리는 '파일을 어떻게 썼나'(내용)가 아니라 '서브에�
 언급(.claude/worktrees·worktree·워크트리 — 수동 워크트리 관행 수용). 둘 다 없으면 공유
 체크아웃 작업으로 보고 ask(차단 아님 — 단일세션·머지 등 공유 체크아웃이 정당한 경우 사람이 승인).
 
-근거: 2026-06-14 cross-repo near-miss — Travel-One general-purpose 에이전트들이 공유
-체크아웃 feature 브랜치에서 작업, 커밋이 main 에 잠깐 올라갔다 reset --hard 로 복구.
+근거: 2026-06-14 cross-repo near-miss — 공유 체크아웃 main 커밋 near-miss(general-purpose
+에이전트들이 공유 체크아웃 feature 브랜치에서 작업, 커밋이 main 에 잠깐 올라갔다 reset --hard 로 복구).
 출처 vault: memory/2026-06-14-...isolationworktree-필수..., guidance/worktree-isolation.md
 
 차단이 아니라 ask 다(어드바이저 반영): 우리 시스템의 비-MCP 레이어는 'feedback not block'.
@@ -66,7 +66,7 @@ def main() -> int:
         f"worktree 격리 미확인: subagent_type='{label}' 는 파일을 변경/커밋할 수 있는데 "
         "isolation:'worktree' 파라미터도, prompt 내 워크트리 경로 지시도 없습니다 → 공유 체크아웃 작업으로 보입니다. "
         "공유 체크아웃에서 브랜치 작업은 동시성·브랜치-튐으로 main 오염 위험입니다"
-        "(2026-06-14 Travel-One near-miss: 커밋이 main 에 올라갔다 reset --hard 복구). "
+        "(2026-06-14 공유 체크아웃 main 커밋 near-miss: 커밋이 main 에 올라갔다 reset --hard 복구). "
         "권장: Agent 를 isolation:'worktree' 로 재호출하거나, prompt 에 격리 워크트리 경로를 명시하세요. "
         "단일 세션·머지 등 공유 체크아웃이 의도된 작업이면 승인하세요. "
         "출처: vault guidance/worktree-isolation.md"

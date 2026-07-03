@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """대상 프로젝트 .claude/settings.local.json 에 vault 접근 권한을 멱등 병합.
 
-에이전트가 (Travel-One/Balipick 세션에서) SSOT vault 를 직접 읽고, 콘텐츠 폴더에
+에이전트가 (대상 프로젝트 세션에서) SSOT vault 를 직접 읽고, 콘텐츠 폴더에
 쓰도록 권한을 사전 승인한다 — 권한 프롬프트로 살아있는 루프가 막히지 않게.
 "전부 draft 경유로 쓰기 가능" 설계에 맞춰 콘텐츠 폴더(memory/contracts/rules/guidance/
 decisions)에 Write/Edit 을 허용한다. 빌드 도구(_build/.claude/Makefile)는 제외.

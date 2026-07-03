@@ -44,10 +44,6 @@ SCOPE_ALIASES = {
     "dev-engineering-charter": "engineering", "workspace": "engineering",
     "workflow": "engineering", "general": "engineering", "infra": "engineering",
     "orchestration": "engineering",
-    "balipick-design": "design-system",
-    "balipick-mobile": "mobile-flutter", "balipick-app": "mobile-flutter",
-    "balipick-ios-release": "mobile-flutter", "ios": "mobile-flutter",
-    "balipick-api-contract": "api-contract", "chat": "api-contract",
 }
 
 

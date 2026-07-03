@@ -6,3 +6,4 @@ __pycache__/
 /tmp-fixture/
 docs/superpowers/
 .impeccable/
+_build/.claude/

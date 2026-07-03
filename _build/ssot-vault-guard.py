@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SSOT vault 가드 — Claude Code PostToolUse 훅.
 
-에이전트가 (Travel-One/Balipick 세션에서든 vault 세션에서든) Obsidian vault 의 `.md` 를
+에이전트가 (대상 프로젝트 세션에서든 vault 세션에서든) Obsidian vault 의 `.md` 를
 편집할 때 frontmatter 계약을 검사하고, '복종 경로'(rule/guidance)를 에이전트가 stable 로
 승격하려 하면 알린다. 차단하지 않는다(PostToolUse 한계 + 검증자는 단독 게이트 아님) —
 additionalContext 로 피드백한다.
@@ -110,7 +110,7 @@ def main() -> int:
     if vault is None:
         return 0
     # vault 자신의 세션 = 사람 큐레이션 → draft 게이트(stable 알림) 끔.
-    # 타깃 repo(Travel-One/Balipick)에서 에이전트가 vault 로 쓸 때만 게이트 적용.
+    # 타깃 repo(대상 프로젝트)에서 에이전트가 vault 로 쓸 때만 게이트 적용.
     is_vault_session = project.resolve() == vault.resolve()
     try:
         rel = file_path.resolve().relative_to(vault.resolve())
