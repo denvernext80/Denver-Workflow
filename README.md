@@ -18,6 +18,20 @@ Claude Code 에이전트가 **읽고 복종하고, 학습을 되써서 갱신**�
 
 > 설계·불변식은 [BOOTSTRAP.md](./BOOTSTRAP.md). 이 문서는 **운영·사용법**.
 
+## 🚀 빠른 시작 (개발자가 아니어도 3단계)
+
+1. **플러그인 설치** — 터미널에서 Claude Code 를 열고 아래 두 줄을 붙여넣으세요:
+   ```
+   claude plugin marketplace add https://github.com/denvernext80/Denver-Workflow
+   claude plugin install denver-workflow@denver-workflow
+   ```
+2. **초기 설정** — Claude Code 세션에서 `/dw-setup` 을 입력하세요.
+   설정 도우미가 필요한 프로그램(Obsidian 등) 설치, vault(팀 지식 폴더) 준비, 프로젝트 연결까지
+   대신해 드립니다. 새 프로젝트든, 이미 진행 중인 프로젝트든, 여러 저장소를 함께 쓰는 경우든
+   도우미가 알아서 판단해 안내합니다.
+3. **사용 시작** — `/denver-workflow` 를 입력하면 기능 개발 전체 과정(요구사항 → 배포)을
+   단계별로 안내합니다.
+
 ## 플러그인으로 설치 (repo-as-plugin)
 
 이 repo 자체가 Claude Code 플러그인이다(`.claude-plugin/plugin.json`·`hooks/`·`commands/`). 한 번에
@@ -38,12 +52,13 @@ claude plugin install denver-workflow@denver-workflow
 SSOT vault 콘텐츠는 플러그인에 포함되지 않는다(사적 프로젝트 데이터 분리). 플러그인은 **제네릭 seed**
 (`_seed/` = 축-B 운영체계 거버넌스 + 폴더 구조 + `VAULT-STRUCTURE.md`)만 들고 있다가 설치 시 빈 vault 로 복사한다.
 
-1. **Obsidian 설치**: https://obsidian.md/download
+1. **Obsidian 설치**: https://obsidian.md/download (또는 `/dw-setup` 한 번)
 2. **vault scaffold**: `make scaffold-vault` — `$(VAULT_DIR)`(기본 `~/denver-workflow-vault`)가 비었으면 seed 를
    **no-clobber** 복사(기존 콘텐츠 보존). 폴더 구성원칙(축 A/B)이 구조·`VAULT-STRUCTURE.md` 로 박힌다.
 3. Obsidian 에서 그 폴더를 **Open folder as vault** 로 열어 사적 콘텐츠(rules·contracts·specs…)를 저작한다.
-4. `make build` / `make install`. **이미 vault 가 있으면** scaffold 불요 — vault 를 `~/denver-workflow-vault`
-   로 이동하거나, 다른 위치면 `DW_VAULT_DIR` 로 그 경로를 가리키면 된다.
+4. `make build` / `/dw-install`(프로젝트에 스킬·검사·훅·다이제스트 설치). **이미 vault 가 있으면**
+   scaffold 불요 — vault 를 `~/denver-workflow-vault` 로 이동하거나, 다른 위치면 `DW_VAULT_DIR` 로
+   그 경로를 가리키면 된다.
 
 > seed 는 제네릭 축-B 만(엔지니어링 작업 규율 + 검증자·하네스). 프로젝트 특화 rule·계약·스펙은 사용자가 작성.
 > 유지보수: live vault 의 제네릭 분 갱신은 `make update-seed`(화이트리스트 verbatim, 사적 데이터 미포함).
@@ -52,21 +67,22 @@ SSOT vault 콘텐츠는 플러그인에 포함되지 않는다(사적 프로젝�
   가 첫 실행 시 `.venv`(pyyaml·mcp)를 만들고 서버를 vault 경로(규약 해석 결과)로 띄운다(설치 직후 첫 MCP 호출만 느림).
 - **vault 위치**: vault 콘텐츠는 이 repo 가 아니라 **별도 폴더**(기본 `~/denver-workflow-vault`)에 있다.
   사람은 그 폴더를 Obsidian 으로 열어 편집, 에이전트는 MCP 를 통해 read/write. 이 repo 는
-  빌드·플러그인 도구만. `make build|install|ratify` 는 **이 워크스페이스에서** 돌리되 `VAULT_DIR` 로 그 vault 를 읽는다.
+  빌드·플러그인 도구만. `make build|install-project|ratify` 는 **이 워크스페이스에서** 돌리되 `VAULT_DIR` 로 그 vault 를 읽는다.
 - **에이전트**: `agents/*.md` 가 CC 서브에이전트로 로드(`name:` 추가로 Denver·CC 양립). 하네스를 항상-on
   하려면 프로젝트 `settings.local.json` 에 `"agent": "dw-governed"` 를 둔다(플러그인이 강제하진 않음).
 - **커맨드**: `/dw-build` · `/dw-ratify` · `/dw-review` · `/dw-install`(프로젝트에 스킬·검사·훅·다이제스트 적용) (make 타깃 래핑).
 - **외부 의존 플러그인·스킬(번들 아님)**: Denver 워크플로우가 쓰는 외부 스킬은 **번들하지 않는다** —
   사용자가 직접 설치한다(아래 〈외부 의존〉 참조). 중복·라이선스·버전 드리프트를 피한다.
 - **한계**: 훅·MCP·에이전트는 전역으로 제공되지만, **프로젝트별 스킬·검사·다이제스트는 여전히
-  `make install`(아래)로 생성**한다 — 플러그인은 엔진, 프로젝트별 컴파일은 별도. Makefile 의
-  `TRAVEL_ONE`/`BALIPICK` 경로는 이 머신 기준(개인 SSOT 용).
+  `/dw-install`(또는 `make install-project`, 아래)로 생성**한다 — 플러그인은 엔진, 프로젝트별 컴파일은 별도.
 
-### 필수/권장 외부 의존 (사용자가 직접 설치)
+### 외부 의존 — /dw-setup 이 대신 설치 (수동 설치 경로 병기)
+
+아래는 `/dw-setup` 이 자동으로 설치를 대행한다. 수동으로 설치하려면 표의 명령을 쓰면 된다.
 
 | 의존 | 용도 | 요구 | 설치 |
 |---|---|---|---|
-| **Obsidian** | vault(SSOT) 편집 — 사람이 rules·contracts·specs 저작 | 필수(vault 운영) | https://obsidian.md/download → "Open folder as vault" 로 vault 폴더 열기 |
+| **Obsidian** | vault(SSOT) 편집 — 사람이 rules·contracts·specs 저작 | 필수(vault 운영) | https://obsidian.md/download → "Open folder as vault" 로 vault 폴더 열기. macOS: `brew install --cask obsidian` / Windows: `winget install Obsidian.Obsidian` |
 | **superpowers** | brainstorming·writing-plans·TDD·디버깅 워크플로우(①②④⑤단계) | 권장 | `claude plugin marketplace add anthropics/claude-plugins-official`<br>`claude plugin install superpowers@claude-plugins-official` |
 | **impeccable** | 프론트엔드 디자인 critique·폴리시(③단계, 프론트 do-er 가 호출) | UI 작업 시 필수 | `claude plugin marketplace add pbakaus/impeccable`<br>`claude plugin install impeccable@impeccable` |
 | **gstack** | design-consultation·design-html·design-review·browse·qa(③③.5⑦.5⑧단계) | 디자인/QA 시 권장 | `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` |
@@ -75,7 +91,8 @@ SSOT vault 콘텐츠는 플러그인에 포함되지 않는다(사적 프로젝�
 
 Denver 는 **자기 영역(SSOT·거버넌스·MCP·가드·하네스)만** 번들한다. do-er 에이전트의 워크플로우가
 호출하는 외부 플러그인·스킬은 **각 마켓플레이스에서 사용자가 직접 설치**한다(복사본 번들 금지 —
-중복·라이선스·버전 드리프트 회피). do-er 들은 이 스킬이 **이미 설치돼 있다고 가정**한다.
+중복·라이선스·버전 드리프트 회피). 실행 중 미설치가 발견되면 그 자리에서 설치한다(자가치유 —
+guidance `dw-dependencies`).
 
 - **설치 확인**: `claude plugin list` 에 노출돼야 한다(예: `impeccable@impeccable 3.1.1`,
   `superpowers@claude-plugins-official`). 미설치 시 디자인 게이트(impeccable critique)를 통과시킬 수 없다.
@@ -117,15 +134,14 @@ make clean      # 산출물 제거    /  make distclean  # 산출물 + .venv 제
 | ----- | -------------- | ---------------------------------------------------------------------- |
 | **1** | 매 새 CC 세션(평상시) | 없음 — SessionStart 훅이 다이제스트(규율·규칙·지식 인덱스)를 컨텍스트에 주입(`🔒 SSOT … 주입됨` 표시). 스킬·훅·서브에이전트·MCP 자동 로드. 점검 `claude mcp list \| grep dw-vault`(→ `plugin:denver-workflow:dw-vault … Connected`) |
 | **2** | 재부팅 후          | 동일(절대경로 + `.venv` 영속). `make doctor`                                   |
-| **3** | 새 머신/재클론       | 플러그인 설치(위 〈플러그인으로 설치〉)면 MCP 자동. vault scaffold 후 `make install` 로 프로젝트별 산출물 생성 |
+| **3** | 새 머신/재클론       | `/dw-setup` 한 번으로 의존 설치·vault scaffold·프로젝트 설치까지 처리(권장). 수동으로 하려면 아래 블록 |
 
 ```bash
-# Tier 3 — 풀 부트스트랩
-# 0) Makefile 상단 경로(REPO_ROOT/TRAVEL_ONE/BALIPICK 등)를 본인 레포에 맞게 수정
-make build          # .venv(pyyaml·mcp) + 컴파일
-make install        # 양 프로젝트에 스킬·검사·훅·에이전트 설치
-make grant-access   # (선택) vault 쓰기 권한 사전 승인
-make doctor         # 전체 [ok] 확인
+# Tier 3 — 풀 부트스트랩(수동. 보통은 /dw-setup 이 대신한다)
+make build                         # .venv(pyyaml·mcp) + 컴파일
+make install-project P=<절대경로>   # 대상 프로젝트에 스킬·검사·훅·에이전트 설치
+python3 _build/grant-vault-access.py <프로젝트> <vault>   # (선택) vault 쓰기 권한 사전 승인
+make doctor                        # 전체 [ok] 확인
 # MCP 는 플러그인(plugin.json)이 plugin:denver-workflow:dw-vault 로 자동 제공 — 별도 등록 불요.
 ```
 
@@ -137,23 +153,23 @@ make doctor         # 전체 [ok] 확인
 
 ## 대상 프로젝트에 설치
 
-`make install-*` 은 그 프로젝트의 `.claude/` 에 **관련 scope 의 스킬 + 결정론적 검사 + 훅 4종
-(린터·vault 가드·worktree 가드·SessionStart 컨텍스트) + 서브에이전트 + 세션 다이제스트**를 설치한다
-(계약은 vault 단일 SSOT 라 미러하지 않는다).
+`install-project`(단일 진입점, `/dw-install` 이 감싼다)는 그 프로젝트의 `.claude/` 에 **관련 scope 의
+스킬 + 결정론적 검사 + 훅 4종(린터·vault 가드·worktree 가드·SessionStart 컨텍스트) + 서브에이전트 +
+세션 다이제스트**를 설치한다(계약은 vault 단일 SSOT 라 미러하지 않는다).
 
 ```bash
-make install                # 모든 대상 프로젝트
-make install-travel-one     # 예시 타깃 — Makefile 상단 경로/scope 를 본인 레포에 맞게 수정
-make install-balipick       # 예시 타깃 — Makefile 상단 경로/scope 를 본인 레포에 맞게 수정
+make install-project P=/절대/경로/프로젝트                    # 전체 scope union
+make install-project P=/절대/경로/프로젝트 SCOPES=engineering  # scope 지정(콤마 구분)
 ```
 
-> `install-travel-one`/`install-balipick` 은 **예시 어댑터 타깃**이다. Makefile 상단의
-> `TRAVEL_ONE`/`BALIPICK` 경로와 `TRAVEL_SCOPES`/`BALIPICK_SCOPES` 를 본인 레포에 맞게 수정해 사용한다.
+멀티레포(여러 저장소를 함께 쓰는 경우)는 레포 맵(vault `project/repo-map.md`)에 등록된 각 절대경로에
+대해 위 명령을 순회 실행한다 — 대화식으로 하려면 `/dw-install` 을 쓰면 세션 digest 의 레포 맵을 읽어
+자동으로 순회한다.
 
-- scope→프로젝트 매핑은 `Makefile` 상단(`TRAVEL_SCOPES`/`BALIPICK_SCOPES`).
+- scope→프로젝트 매핑은 레포 맵(vault `project/repo-map.md`)의 scope 열을 따른다.
 - **부분 빌드**: 각 프로젝트의 `.dw-manifest.json`/`.dw-agents.json` 기준으로 우리 산출물만
   정리하므로 대상 repo 의 **기존 스킬·에이전트(예: denver-workflow)는 보존**된다.
-- 설치된 산출물은 **직접 편집 금지** — vault 를 고친 뒤 `make install-*` 재실행.
+- 설치된 산출물은 **직접 편집 금지** — vault 를 고친 뒤 `make install-project`(또는 `/dw-install`) 재실행.
 
 ## 강제 — 능동 하네스가 게이트를 돌린다
 
@@ -216,7 +232,7 @@ vault 폴더가 없으면 런처는 기동하지 않는다 — 플러그인 루�
 export DW_VAULT_DIR="$HOME/My Vaults/denver"   # CC 시작 전 export
 ```
 
-**coherence**: 컴파일·비준은 같은 vault 를 읽어야 한다. `make build|install|ratify` 는 **이 워크스페이스에서**
+**coherence**: 컴파일·비준은 같은 vault 를 읽어야 한다. `make build|install-project|ratify` 는 **이 워크스페이스에서**
 실행하되, Makefile 의 `VAULT_DIR`(= `DW_VAULT_DIR` 우선, 기본 `~/denver-workflow-vault`)로 그 vault 를 읽는다
 (`--out` 산출물은 `TOOLS_ROOT` = 워크스페이스 절대경로). 도구·`.venv` 는 워크스페이스, vault 콘텐츠는 별도 폴더.
 
@@ -227,7 +243,7 @@ export DW_VAULT_DIR="$HOME/My Vaults/denver"   # CC 시작 전 export
   vault 단일 SSOT 로 수렴(가드·도구가 CC 포맷 `name/metadata.type` 과 vault 포맷 `type:memory` 둘 다 수용).
 - **계약**(`contracts/`): 라이브, 비컴파일, **repo 미러 없음**. `dw_write_contract` 로 작성(stable).
   완결분은 `contracts/archive/`(활성 검색 제외, 경로 직접 읽기 가능).
-- **자동 노출(읽기 절반)**: 스킬 body 는 자동 로드되지 않으므로(description 만), `make install` 이 프로젝트별 **다이제스트**
+- **자동 노출(읽기 절반)**: 스킬 body 는 자동 로드되지 않으므로(description 만), `/dw-install`(`make install-project`)이 프로젝트별 **다이제스트**
   (`.claude/dw-session-digest.md`: 항상-적용 guidance + 강제 규칙 목록 + 누적 지식 인덱스)를 만들고,
   `dw-session-context.py`(**SessionStart 훅**)가 세션 시작 시 컨텍스트에 직접 주입한다. 전문은 `dw_read`.
   scope 어휘는 `SCOPE_ALIASES` 로 정규화(freeform·skill-이름 흡수), orphan 은 `engineering` 인덱스로 흡수.
@@ -254,7 +270,7 @@ export DW_VAULT_DIR="$HOME/My Vaults/denver"   # CC 시작 전 export
 
 **Obsidian 으로 열기**: 이 폴더 자체가 볼트(`.obsidian/` 포함). 명령 팔레트 → *Insert template* 로
 `rule`/`guidance`/`memory`/`contract`/`agent`/`skill-manifest`/`decision` frontmatter 를 채워 시작.
-위키링크 `[[노트]]` 는 컴파일러가 평탄화. 저작 후 `make build`/`make install`.
+위키링크 `[[노트]]` 는 컴파일러가 평탄화. 저작 후 `make build`/`/dw-install`.
 
 ## Frontmatter 계약
 

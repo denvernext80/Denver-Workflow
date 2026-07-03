@@ -36,7 +36,7 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
 3. **작성**: vault 경로 해석(`DW_VAULT_DIR` > `~/denver-workflow-vault`) →
    `<vault>/project/repo-map.md` 를 `_seed/_templates/repo-map.md` 골격으로 채워 **Write**
    (`type: repo-map`, `status: stable`).
-4. **빌드**: `make install`(또는 워크스페이스면 `make install-orchestrator`)로 digest 재생성 → "## 레포 맵" 주입.
+4. **빌드**: `/dw-install`(또는 `make install-project P=<이 워크스페이스 절대경로>`)로 digest 재생성 → "## 레포 맵" 주입.
 5. **현재 세션 반영**: 방금 쓴 repo-map 본문을 읽어 당 세션 라우팅에 즉시 사용(차기 세션부턴 digest 자동).
 
 > 11단계 진행 중 사용자에게 닿는 프롬프트(요구사항 확인·디자인 승인·머지/배포 동의 등)는 **평이한
@@ -56,7 +56,7 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
               │ NO
    ┌── 설계(Plan) ──────────────────────────────────────────┐
    │ ①  요구사항 분석   superpowers:brainstorming + ★advisor │
-   │     └▶ vault specs/ (dw_write_spec, kind=spec)        │
+   │     └▶ vault specs/ (dw_write_spec, kind=spec)          │
    │ ②  상세 기획       superpowers:writing-plans            │
    │     └▶ 영향 레포별 plan (vault specs/ kind=plan)        │
    │ ③  UI/UX 시안(앱) impeccable + gstack:design-consultation│
@@ -73,7 +73,7 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
    └────────────────────────────┬───────────────────────────┘
    ┌── 검증(Check) ──────────────▼───────────────────────────┐
    │ ⑥  PR + 리뷰 + CI  레포별 워크플로우(아래 "레포별 CI")   │
-   │     완료 게이트 = 대상 레포 dw-checks.json(§4)         │
+   │     완료 게이트 = 대상 레포 dw-checks.json(§4)           │
    │ ⑦  기획↔구현 비교  ★advisor + 수동 체크리스트            │
    │ ⑦.5 디자인 QA      gstack:design-review + gstack:browse  │
    │ ⑧  기능 QA         gstack:qa + browse(앱/웹 스모크)      │
@@ -138,9 +138,10 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
 | gap-detector 로 ⑦ | 포맷 불일치 — 수동 체크리스트 |
 | union checks 로 완료 게이트 | 대상 레포 checks 로(§4) — 오적용 방지 |
 
-## 외부 플러그인 의존 (미설치 시 사용자에게 설치 안내)
+## 외부 플러그인 의존 (미설치 시 그 자리에서 설치 — 자가치유)
 
-이 워크플로우가 호출하는 외부 플러그인. 세션에 없으면 해당 단계 전에 사용자에게 설치를 안내한다.
+이 워크플로우가 호출하는 외부 플러그인. 단계 진입 시 세션에 없으면 **사용자에게 알린 뒤 아래
+명령으로 직접 설치하고 계속한다** (guidance `dw-dependencies` — 실패 시에만 수동 안내).
 **주의: gstack 은 CC 플러그인이 아니라 git clone + setup 으로 설치**(나머지는 플러그인 마켓플레이스).
 
 ```bash
@@ -161,7 +162,7 @@ git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.cl
 ```
 
 - **advisor**: 빌트인(이 하네스 제공) — 별도 설치 불요.
-- **denver-workflow(dw-vault)**: 이 워크스페이스 자체 — `make install-orchestrator` 로 설치.
+- **denver-workflow(dw-vault)**: 이 플러그인 자체 — `/dw-setup` 으로 설치.
 - 미설치 플러그인의 단계는 **건너뛰지 말고** 사용자에게 설치 안내 후 진행(검증 전 완료 선언 금지).
 
 _관련: orchestrator roster `roster/dw-orchestrator.md` · 정본 가이던스 `governance/guidance/`
