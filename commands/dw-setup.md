@@ -142,6 +142,25 @@ python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-migrate-vault.py" --project <레포1> -
 > vault 의 규칙·레포맵이 그 do-er 를 디스패치 대상으로 참조한다면, **정본을 vault 소스로 추가**해
 > 컴파일·재설치 흐름에 편입시켜야 근본 해소된다.
 
+## (선택) graphify 시멘틱 그래프 MCP 등록
+
+`graphify`(코드/지식을 그래프로 인덱싱하는 외부 도구)가 설치돼 있고 대상 프로젝트에 그래프가
+빌드돼 있으면(`graphify-out/graph.json`), 프로젝트 `.mcp.json` 에 graphify MCP 서버를 등록해
+`query_graph`·`shortest_path`·`get_neighbors` 등 **네이티브 그래프 도구**를 세션에 노출할 수 있다.
+graphify 는 optional — 감지될 때만 사용자에게 등록을 제안한다(전역 plugin.json 미포함).
+
+1. 감지·미리보기(쓰기 없음):
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-graphify-register.py" --project "$(pwd)"
+   ```
+   "등록 스킵"이면 graphify/graph.json 이 없는 것 — 이 단계 건너뛴다.
+2. 경로가 출력되면 사용자에게 **등록할지 확인**한 뒤 적용(mcp SDK 없으면 `pipx inject` 자동):
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-graphify-register.py" --project "$(pwd)" --apply
+   ```
+   (그래프가 vault 등 다른 위치면 `--graph <graph.json 절대경로>` 를 붙인다.)
+3. 새 세션에서 확인: `claude mcp list | grep graphify` (→ graphify … Connected).
+
 ## 마무리 보고
 
 설치·설정된 항목을 표로 요약하고, 다음 행동을 안내한다:
