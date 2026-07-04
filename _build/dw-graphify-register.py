@@ -109,11 +109,56 @@ def _ensure_mcp(graphify_py: str) -> bool:
     return subprocess.run([graphify_py, "-c", "import mcp"], capture_output=True).returncode == 0
 
 
+_GITIGNORE_LINE = "graphify-out/"
+
+_GRAPHIFYIGNORE = {
+    "flutter": "# graphify: 네이티브/벤더 SDK 제외 — god-node 오염 방지\nios/\nandroid/\nbuild/\n.dart_tool/\nnode_modules/\n",
+    "node": "# graphify: 벤더/빌드 산출물 제외\nnode_modules/\ndist/\nbuild/\n",
+}
+
+
+def _add_gitignore(project: Path) -> bool:
+    """<project>/.gitignore 에 graphify-out/ additive 추가(멱등). 추가했으면 True, 이미 있으면 False."""
+    p = project / ".gitignore"
+    lines = p.read_text(encoding="utf-8").splitlines() if p.exists() else []
+    if any(l.strip().rstrip("/") == "graphify-out" for l in lines):
+        return False
+    prefix = "" if (not lines or lines[-1] == "") else "\n"
+    with p.open("a", encoding="utf-8") as f:
+        f.write(f"{prefix}{_GITIGNORE_LINE}\n")
+    return True
+
+
+def _native_mixed(project: Path) -> str | None:
+    """네이티브/벤더 혼재 감지 — .graphifyignore 권장 여부. 'flutter'|'node'|None."""
+    if (project / "pubspec.yaml").is_file():
+        return "flutter"
+    if (project / "package.json").is_file():
+        return "node"
+    return None
+
+
+def _graphifyignore_scaffold(label: str) -> str:
+    """label 별 .graphifyignore 스캐폴드 내용."""
+    return _GRAPHIFYIGNORE.get(label, _GRAPHIFYIGNORE["node"])
+
+
+def _write_graphifyignore(project: Path, content: str) -> bool:
+    """.graphifyignore 기록 — 기존 파일 있으면 보존(False), 없을 때만 기록(True)."""
+    p = project / ".graphifyignore"
+    if p.exists():
+        return False
+    p.write_text(content, encoding="utf-8")
+    return True
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="graphify MCP 서버를 프로젝트 .mcp.json 에 등록")
     ap.add_argument("--project", required=True)
     ap.add_argument("--graph", default="")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--graphifyignore", action="store_true",
+                    help="네이티브 혼재 레포에 .graphifyignore 스캐폴드 기록(옵트인)")
     args = ap.parse_args()
 
     project = Path(args.project).expanduser().resolve()
@@ -133,6 +178,18 @@ def main() -> int:
     data = merge_mcp_json(project, py, graph)
     (project / ".mcp.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print("\n등록 완료. 새 세션부터 graphify 도구 노출 — 확인: claude mcp list | grep graphify")
+    # git 위생: graphify-out/ 산출물 커밋 방지(additive·멱등)
+    if _add_gitignore(project):
+        print(f".gitignore 에 {_GITIGNORE_LINE} 추가.")
+    # 네이티브 혼재: .graphifyignore 제안(옵트인 기록)
+    label = _native_mixed(project)
+    if label:
+        if args.graphifyignore and _write_graphifyignore(project, _graphifyignore_scaffold(label)):
+            print(f".graphifyignore 스캐폴드 기록({label}).")
+        elif not args.graphifyignore:
+            print(f"\n[제안] {label} 네이티브 혼재 감지 — god-node 오염 방지용 .graphifyignore 권장:")
+            print(_graphifyignore_scaffold(label).rstrip())
+            print("기록하려면 --graphifyignore 로 재실행.")
     return 0
 
 
