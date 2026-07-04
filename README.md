@@ -1,4 +1,4 @@
-# AI Native Workflow — SSOT 기반 에이전트 거버넌스
+# Denver AI Workflow — SSOT 기반 에이전트 거버넌스
 
 **Obsidian vault 를 단일 진실 원천(SSOT)** 으로 두고, 규칙·원칙·메모리·계약·스펙을 한 곳에 모아
 Claude Code 에이전트가 **읽고 복종하고, 학습을 되써서 갱신**하게 하는 시스템. **사람은 비준·컴파일
@@ -12,7 +12,7 @@ Claude Code 에이전트가 **읽고 복종하고, 학습을 되써서 갱신**�
      LIVE  memory·contracts·specs ──── MCP 가 stable 직행(게이트 없음) ←─ 에이전트 read/write
              │ make ratify (비준+compile+install, 스케줄)        │ dw-vault MCP (8 도구)
              ▼                                                  ▼
-   세션 시작: SessionStart 훅이 다이제스트(규율·규칙·지식 인덱스) 주입 → 복종·강제
+   세션 시작: SessionStart 훅이 다이제스트(규율·규칙·지식 인덱스, +graphify 활성 시 🕸 탐색 안내) 주입 → 복종·강제
      대상 프로젝트 세션              ·      Claude Code
 ```
 
@@ -71,7 +71,7 @@ SSOT vault 콘텐츠는 플러그인에 포함되지 않는다(사적 프로젝�
 - **에이전트**: `agents/*.md` 가 CC 서브에이전트로 로드(`name:` 추가로 Denver·CC 양립). 하네스를 항상-on
   하려면 프로젝트 `settings.local.json` 에 `"agent": "dw-governed"` 를 둔다(플러그인이 강제하진 않음).
 - **커맨드**: `/dw-build` · `/dw-ratify` · `/dw-review` · `/dw-install`(프로젝트에 스킬·검사·훅·다이제스트 적용) (make 타깃 래핑).
-- **선택적 graphify 연동**: `graphify`(시멘틱 코드/지식 그래프)가 구축돼 있으면(CLI + `graphify-out/graph.json`) 세션에 의미 기반 탐색(`graphify explain`/`path`)을 안내하고, 없으면 무시한다.
+- **선택적 graphify 연동**: `graphify`(시멘틱 코드/지식 그래프)가 구축돼 있으면(CLI + `graphify-out/graph.json`) SessionStart 시 세션에 의미 기반 탐색(`graphify explain`/`path`)을 안내하고(systemMessage `🕸 graphify` 표시), **서브에이전트 디스패치에도 relay** 한다(do-er 컨텍스트엔 SessionStart 안내가 안 닿으므로 디스패처가 graph.json 경로와 함께 넘김). 미구축이면 완전히 무시 — SessionStart 훅이 CLI+graph.json 을 감지할 때만 활성.
 - **외부 의존 플러그인·스킬(번들 아님)**: Denver 워크플로우가 쓰는 외부 스킬은 **번들하지 않는다** —
   사용자가 직접 설치한다(아래 〈외부 의존〉 참조). 중복·라이선스·버전 드리프트를 피한다.
 - **한계**: 훅·MCP·에이전트는 전역으로 제공되지만, **프로젝트별 스킬·검사·다이제스트는 여전히
@@ -95,7 +95,7 @@ Denver 는 **자기 영역(SSOT·거버넌스·MCP·가드·하네스)만** 번�
 중복·라이선스·버전 드리프트 회피). 실행 중 미설치가 발견되면 그 자리에서 설치한다(자가치유 —
 guidance `dw-dependencies`).
 
-- **설치 확인**: `claude plugin list` 에 노출돼야 한다(예: `impeccable@impeccable 3.1.1`,
+- **설치 확인**: `claude plugin list` 에 노출돼야 한다(예: `impeccable@impeccable`,
   `superpowers@claude-plugins-official`). 미설치 시 디자인 게이트(impeccable critique)를 통과시킬 수 없다.
 - **신규 외부 의존 추가 규율**: do-er 에이전트가 새 외부 스킬을 요구하게 되면 — **복사(벤더링) 금지.**
   이 표에 한 줄(용도·요구 수준·설치 명령)을 추가하고, 해당 do-er(`roster/*.md`)에 "○○ 스킬 필수"를 명시한다.
@@ -112,8 +112,8 @@ guidance `dw-dependencies`).
   ```
 - 단발 세션만: `claude --advisor opus`.
 
-제약: Anthropic API 필요(Bedrock/Vertex/Foundry 미지원), CC v2.1.98+, 메인 모델 Opus4.6+/Sonnet4.6/
-Haiku4.5/Fable5, advisor 는 메인 이상 역량. 미설정 시 11단계 advisor 단계는 기본 동작으로 진행한다.
+제약: Anthropic API 필요(Bedrock/Vertex/Foundry 미지원), CC v2.1.98+, 메인 모델 Opus 4.8/Sonnet 5/
+Haiku 4.5/Fable 5, advisor 는 메인 이상 역량. 미설정 시 11단계 advisor 단계는 기본 동작으로 진행한다.
 
 `pyyaml`·`mcp` 가 유일한 외부 의존성이며, PEP 668 환경을 깨지 않도록 `make` 가 전역이 아닌
 프로젝트-로컬 `.venv` 에 자동 설치한다(수동 설치 불요).
