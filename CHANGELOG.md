@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0 — 2026-07-04
+
+### 추가
+- **멀티레포 graphify 1급(옵셔널) 반영.** graphify 감지 시: (A) 지식=vault 기본 그래프 / 코드=레포
+  `project_path` 라우팅 명문화(서버가 project_path 네이티브 지원), (B) `dw-graphify-register --apply` 가
+  대상 레포 `.gitignore` 에 `graphify-out/` 자동 추가(additive·멱등) + 네이티브 혼재(Flutter/node) 시
+  `.graphifyignore` 스캐폴드 제안(옵트인 `--graphifyignore`), (C) guidance 에 지식/코드 라우팅·AST-전용·
+  INFERRED 근거인용 금지·global 신뢰 금지 명시, (D) graphify 자체 installer 의 CLAUDE.md 블록 관련 안내.
+- **불변식**: graphify 미설치/그래프 미빌드 시 100% 무영향 — MCP 미등록·레포 파일 무변경·에러 0.
+  모든 동작은 감지 게이트(`detect()`) 아래.
+
 ## 2.3.1 — 2026-07-04
 
 ### 추가
