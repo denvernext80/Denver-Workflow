@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -61,6 +62,47 @@ def _doctor_notice() -> str:
     )
 
 
+_GRAPHIFY_BLOCK = """\
+## 🕸 graphify 시멘틱 그래프 (이 환경에서 활성 — 자료 탐색 보강)
+vault·코드 지식을 찾을 때 substring 매칭인 dw_search 에만 의존하지 말고 의미 기반 탐색을 우선한다:
+- 개념/노드 이해:  graphify explain "<개념>" --graph {graph}
+- 두 개념 연결경로: graphify path "A" "B" --graph {graph}
+graph.json: {graph}
+graphify 실패·노드 부재 시 dw_search 로 폴백한다."""
+
+
+def _graphify_graph_path(project: Path):
+    """감지된 graph.json 절대경로(Path) 또는 None. 프로젝트 로컬 우선, 그다음 vault_root."""
+    local = project / "graphify-out" / "graph.json"
+    if local.is_file():
+        return local
+    cfg = project / ".claude" / "dw-config.json"
+    if cfg.exists():
+        try:
+            vr = json.loads(cfg.read_text(encoding="utf-8")).get("vault_root")
+        except (OSError, json.JSONDecodeError):
+            vr = None
+        if vr:
+            vault_graph = Path(vr) / "graphify-out" / "graph.json"
+            if vault_graph.is_file():
+                return vault_graph
+    return None
+
+
+def _graphify_notice(project: Path) -> str:
+    """graphify 환경(CLI + graph.json)이 있으면 탐색 보강 안내 블록, 없으면 "". 실패는 조용히 "".
+    훅 시점 subprocess 없음 — which + 파일 존재만."""
+    try:
+        if not shutil.which("graphify"):
+            return ""
+        graph = _graphify_graph_path(project)
+        if graph is None:
+            return ""
+        return _GRAPHIFY_BLOCK.format(graph=graph)
+    except Exception:
+        return ""
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -78,10 +120,13 @@ def main() -> int:
         except OSError:
             text = ""
     notice = _doctor_notice()
-    if not text and not notice:
+    gnotice = _graphify_notice(project)
+    if not text and not notice and not gnotice:
         return 0
     if notice:
         text = (notice + "\n\n" + text).strip()
+    if gnotice:
+        text = (text + "\n\n" + gnotice).strip()
 
     # 발화 가시화: additionalContext 는 모델 컨텍스트에만 주입(UI 비가시)이라,
     # systemMessage 로 사용자에게 '주입됨' 한 줄을 보여 발화 여부 + 활성 플러그인 버전을 확인하게 한다.
@@ -90,7 +135,8 @@ def main() -> int:
     ver = _plugin_version(project)
     vtag = f" v{ver}" if ver else ""
     setup_tag = " · ⚠️ /dw-setup 필요" if notice else ""
-    sysmsg = f"🔒 Denver Workflow{vtag} — 규율·규칙 {g} · 지식 인덱스 {idx}건 (전문은 dw_read){setup_tag}"
+    graph_tag = " · 🕸 graphify" if gnotice else ""
+    sysmsg = f"🔒 Denver Workflow{vtag} — 규율·규칙 {g} · 지식 인덱스 {idx}건 (전문은 dw_read){setup_tag}{graph_tag}"
 
     out = {
         "systemMessage": sysmsg,
