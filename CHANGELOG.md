@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.3.0 — 2026-07-04
+
+### 변경
+- **graphify 통합을 CLI-안내(2.2.x) → MCP 서버 등록으로 전환.** graphify 는 CLI 조회뿐 아니라 MCP
+  stdio 서버(`graphify.serve`)를 제공한다 — 이를 프로젝트 `.mcp.json` 에 등록하면 `query_graph`·
+  `shortest_path`·`get_neighbors` 등 **네이티브 그래프 도구**가 세션에 노출돼, 2.2.x 의 SessionStart
+  CLI-안내 주입(`explain`/`path`)보다 깔끔하고 풍부하다.
+- 제거: `dw-session-context.py` 의 graphify 감지·주입, `dispatch-discipline`/`dw-orchestrator §3` 의
+  graphify relay 항목(2.2.0/2.2.1).
+
+### 추가
+- `/dw-setup` 옵인 단계 + `_build/dw-graphify-register.py` — graphify 감지 시 프로젝트별 `.mcp.json` 에
+  등록(mcp SDK 는 `pipx inject` 로 확보, 기존 mcpServers 키 보존 병합). optional 이라 전역 plugin.json
+  미포함, 미구축 환경엔 무영향.
+
 ## 2.2.1 — 2026-07-04
 
 ### 추가
