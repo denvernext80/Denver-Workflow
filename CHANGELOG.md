@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.1 — 2026-07-04
+
+### 추가
+- **graphify 안내를 서브에이전트 디스패치에 전파** — SessionStart 주입은 메인 세션에만 닿고 Task 로
+  디스패치된 do-er 컨텍스트엔 안 닿는다. graphify 가 활성인 세션이면(`🕸 graphify` 블록 존재)
+  디스패처가 디스패치 프롬프트에 "자료 탐색 시 `graphify explain`/`path` 를 `dw_search` 보다 우선"을
+  graph.json 경로와 함께 relay 하도록, `dispatch-discipline` guidance 와 `dw-orchestrator` §3 에
+  조건부 항목 추가. graphify 미활성 환경이면 조건이 거짓이라 무영향.
+
 ## 2.2.0 — 2026-07-04
 
 ### 추가

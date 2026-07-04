@@ -50,6 +50,10 @@ tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_
   ⑤ **마감 기록** — "비자명한 학습·재사용 절차·계약 변경을 §6 대로 vault 에 기록하고(do-er 는 직접
      `dw_write_*` 도구를 가짐), **무엇을 기록했는지 회신하라**." (do-er 컨텍스트는 회신 후 버려지므로,
      기록하지 않으면 학습이 사라진다.)
+  ⑥ **graphify (활성 시)** — 세션 컨텍스트에 `🕸 graphify` 블록이 있으면(이 환경에 시멘틱 그래프
+     존재), do-er 에게도 "자료 탐색 시 `graphify explain "<개념>"`·`graphify path "A" "B"`(graph.json
+     경로 포함)를 substring `dw_search` 보다 우선하라"고 **relay** 한다. do-er 는 SessionStart 안내를
+     못 받으므로 디스패처가 그래프 경로와 함께 넘겨야 한다. 미활성이면 생략.
 - 교차 작업은 **순차**: 계약면 먼저 확정(§5) → 공급측 → 소비측. 병렬은 디렉토리 상이(충돌 없음)에
   한해 계약 합의 후.
 
