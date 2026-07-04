@@ -161,6 +161,14 @@ graphify 는 optional — 감지될 때만 사용자에게 등록을 제안한�
    (그래프가 vault 등 다른 위치면 `--graph <graph.json 절대경로>` 를 붙인다.)
 3. 새 세션에서 확인: `claude mcp list | grep graphify` (→ graphify … Connected).
 
+- 등록(`--apply`)은 대상 레포 `.gitignore` 에 `graphify-out/`(그래프 산출물, 수십 MB)를 자동 추가한다.
+  Flutter/node 등 네이티브 혼재 레포면 god-node 오염 방지용 `.graphifyignore` 스캐폴드를 제안하며,
+  기록하려면 `--graphifyignore` 로 재실행한다(자동 기록 안 함 — 제외 경로는 레포마다 다름).
+- 조회 라우팅: **지식**은 기본 그래프(vault ingest), **특정 레포 코드**는 `project_path=<repo 절대경로>` 인자.
+- 참고: `graphify install --platform claude` 가 `.claude/CLAUDE.md` 에 넣는 graphify 블록은 graphify
+  자체 산출물이다 — 워크스페이스 루트엔 그래프가 없어 문구가 거짓일 수 있다. 그래프 라우팅 정본은
+  digest guidance(지식=기본 그래프 / 코드=`project_path`)이며 CLAUDE.md 블록에 의존하지 않는다.
+
 ## 마무리 보고
 
 설치·설정된 항목을 표로 요약하고, 다음 행동을 안내한다:
