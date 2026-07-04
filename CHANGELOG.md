@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.4.1 — 2026-07-04
+
+### 추가
+- **graphify 가시성 태그 복원** — SessionStart systemMessage 에 프로젝트 `.mcp.json` 에 graphify MCP
+  서버가 등록돼 있으면 ` · 🕸 graphify` 표시. v2.3.0 에서 CLI-안내를 MCP 로 교체하며 태그가 사라졌던 것을
+  MCP 모델에 맞게 되살림 — **가시성 표시만**(additionalContext 주입 없음), `.mcp.json` 등록 여부로 감지
+  (graphify 바이너리 PATH 비의존). 미등록 프로젝트엔 표시 없음(무영향).
+
+### 수정
+- **오케스트레이터가 문서 탐색에 graphify 를 기본으로 쓰도록** `dw-orchestrator` §1 강화. 기존 §1 은
+  LIVE pull 에 `dw_search` 만 명시해, graphify 활성 세션에서도 vault(substring)를 먼저 쓰는 문제가 있었다.
+  이제 `🕸 graphify` 활성 시 지식·문서·계약 탐색은 graphify 그래프 우선(`query_graph`/`get_neighbors`,
+  코드는 `project_path`), 원문 확정만 `dw_read`, graphify 미활성 시에만 `dw_search` 로 명시.
+
 ## 2.4.0 — 2026-07-04
 
 ### 추가

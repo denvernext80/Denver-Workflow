@@ -28,8 +28,10 @@ tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_
 ## 1. 규칙 로드 (콜드스타트 — vault 전체 sweep 금지)
 - 워크스페이스 규칙·가이던스·레포 맵은 **이미 컴파일된 union 스킬 + SessionStart 다이제스트**로 로드돼
   있다. 콜드스타트에 `dw_search`/`dw_list` 로 다시 끌어오지 마라.
-- **계약·메모리(LIVE)는 게으르게·좁게 pull.** 작업이 특정 엔드포인트/엔티티를 건드릴 때 그 이름으로
-  `dw_search`. 무필터 sweep 금지.
+- **지식·문서·계약 탐색은 graphify 우선(활성 시).** `🕸 graphify` 가 뜬 세션이면 **먼저 graphify 그래프로
+  탐색**한다 — 지식/문서는 기본 그래프(`query_graph`·`get_neighbors`·`shortest_path`), 특정 레포 코드는
+  `project_path=<repo 절대경로>`. 원문 확정·인용만 `dw_read`. graphify 미활성 시에만 이름으로 `dw_search`
+  좁게 pull(무필터 sweep 금지). 정본 규율은 [[graphify-search]].
 
 ## 2. 분류 (작업 전 — 반드시)
 작업이 **어느 레포**를 건드리는지 레포 맵으로 판정한다(단일/교차). 모호하면 사용자에게 확인하거나

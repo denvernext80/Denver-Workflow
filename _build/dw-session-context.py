@@ -61,6 +61,19 @@ def _doctor_notice() -> str:
     )
 
 
+def _graphify_tag(project: Path) -> str:
+    """프로젝트 .mcp.json 에 graphify MCP 서버가 등록돼 있으면 가시성 태그(가시성만 — 주입 없음).
+    실패·미등록은 조용히 "". (graphify 는 옵셔널이라 미등록 프로젝트엔 아무 표시 없음.)"""
+    try:
+        p = project / ".mcp.json"
+        if not p.exists():
+            return ""
+        servers = json.loads(p.read_text(encoding="utf-8")).get("mcpServers", {})
+        return " · 🕸 graphify" if isinstance(servers, dict) and "graphify" in servers else ""
+    except Exception:
+        return ""
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -90,7 +103,8 @@ def main() -> int:
     ver = _plugin_version(project)
     vtag = f" v{ver}" if ver else ""
     setup_tag = " · ⚠️ /dw-setup 필요" if notice else ""
-    sysmsg = f"🔒 Denver Workflow{vtag} — 규율·규칙 {g} · 지식 인덱스 {idx}건 (전문은 dw_read){setup_tag}"
+    graph_tag = _graphify_tag(project)
+    sysmsg = f"🔒 Denver Workflow{vtag} — 규율·규칙 {g} · 지식 인덱스 {idx}건 (전문은 dw_read){setup_tag}{graph_tag}"
 
     out = {
         "systemMessage": sysmsg,
