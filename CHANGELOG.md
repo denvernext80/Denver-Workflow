@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.0 — 2026-07-04
+
+### 추가
+- `/dw-setup` 레거시 정리 보강 — 로컬 훅·settings 배선 제거, 커스텀 vault 경로 감지,
+  `dw-migrate-vault` 구 이름 리터럴 치환 스크립트.
+
+### 수정
+- `make` 가 `DW_VAULT_DIR` 의 리터럴 `$HOME` 을 못 풀어 vault 경로가 깨지던 버그 교정
+  (`install-project`/`dw-setup` 실패 원인).
+
 ## 2.0.0 — 2026-07-03 (브레이킹)
 
 팀 공용 전환 릴리스. **1.x 에서 올리는 경우 아래 마이그레이션 필수.**
