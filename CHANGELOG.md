@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.1.2 — 2026-07-04
+
+### 수정
+- **vault 기록 실패 근본 수정** — 매니페스트 개명(`.ssot-agents.json`→`.dw-agents.json`)으로
+  추적 이탈한 1.x do-er 에이전트가 죽은 `ssot_write_*` 도구 grant 를 문 채 방치돼, 디스패치돼도
+  `dw_write_*` 를 못 써 vault 기록이 조용히 실패하던 문제. 파일명은 멀쩡하고 내용만 stale 이라
+  파일명접두 정리·vault전용 치환 양쪽 그물을 통과하던 사각을 메움:
+  - `dw-migrate-vault` `--project` 모드 — 설치된 `.claude/agents/*.md` 의 죽은 식별자를 `dw_*` 로
+    제자리 치환(skills 는 재설치가 재생성, agent-memory 는 사용자 데이터라 제외).
+  - `/dw-install`·`/dw-setup` 레거시 감지를 파일명 접두(`ssot-`) → 내용 grep 으로 확장.
+
+### 추가
+- **디스패치 규율 강화** — `dw-orchestrator` §3 디스패치 프롬프트에 브랜치/워크트리 격리 강제 +
+  마감 기록 지시, §4 do-er 학습 취합, §6 기록 규율 강화. 신규 `dispatch-discipline` guidance
+  (digest:full — 절대경로·워크트리·대상레포 checks·마감 기록, 세션 유형 무관 항상 주입).
+
+### 정합성
+- `marketplace.json` metadata 설명의 구 제품명 `Denver Agent` → `Denver AI Workflow` 정정.
+
 ## 2.1.1 — 2026-07-04
 
 ### 수정
