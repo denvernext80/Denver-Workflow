@@ -37,8 +37,19 @@ tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_
 (`/denver-workflow`). typo·1줄 fix·docs-only 는 do-er git flow 직행.
 
 ## 3. repo-pinned 디스패치 (제약 — Task 는 re-root 불가)
-- 해당 레포 do-er 에게 `Task` 로 위임. 프롬프트에 반드시: ① 대상 레포 **절대경로**, ② "변경 후 **그
-  레포의 `<repo>/.claude/dw-checks.json`**로 결정론 검사하라", ③ 작업 범위.
+- 해당 레포 do-er 에게 `Task` 로 위임. 프롬프트에 **반드시** 넣는다:
+  ① 대상 레포 **절대경로**.
+  ② **워크트리/브랜치 강제** — "첫 in-repo 동작으로 대상 레포에 **격리 워크트리 + 작업 브랜치**를
+     만들고(올바른 base 위에서 — 세션 digest 의 레포 맵이 정한 그 레포의 base 브랜치 기준), **모든
+     변경을 그 워크트리 안에서만** 수행하라. base/main 브랜치 **직접 커밋·작업 금지**." Task 는
+     re-root 불가라 워크트리 생성·진입은 do-er 스스로의 첫 동작이다(`git worktree add` +
+     `superpowers:using-git-worktrees`). 어느 워크트리·브랜치·base 를 썼는지 회신에 명시하게 한다.
+     정본은 [[pr-merge-discipline]] 참조.
+  ③ "변경 후 **그 레포의 `<repo>/.claude/dw-checks.json`**로 결정론 검사하라".
+  ④ 작업 범위.
+  ⑤ **마감 기록** — "비자명한 학습·재사용 절차·계약 변경을 §6 대로 vault 에 기록하고(do-er 는 직접
+     `dw_write_*` 도구를 가짐), **무엇을 기록했는지 회신하라**." (do-er 컨텍스트는 회신 후 버려지므로,
+     기록하지 않으면 학습이 사라진다.)
 - 교차 작업은 **순차**: 계약면 먼저 확정(§5) → 공급측 → 소비측. 병렬은 디렉토리 상이(충돌 없음)에
   한해 계약 합의 후.
 
@@ -47,14 +58,21 @@ tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_
   union checks 를 게이트로 쓰지 마라(오적용 위험).
 - grep 못 잡는 구조 규칙은 `enforced-by` 검증자(`security-qa`/`code-review`/`design-review`)를 `Task` 로 리뷰.
 - 위반·미달이면 §3 으로 돌아가 재디스패치 — **전부 green 전 완료 선언 금지**. 증거 제시.
+- do-er 가 회신한 기록(§3⑤)을 **취합**한다. 교차레포·통합·계약 협상처럼 **오케스트레이터만 본 학습**은
+  어느 do-er 컨텍스트에도 안 남으므로 **본인이 §6 으로 직접 기록**한다 — 이게 멀티레포 학습의 유일한
+  포집 지점이다.
 
 ## 5. 교차레포 계약 흐름
 - 인터페이스는 **vault `contracts/` 단일 SSOT**. ① 관련 계약 `dw_read` → ② 합의 → ③ 공급측 디스패치
   → ④ 소비측 디스패치 → ⑤ 변경 계약 `dw_write_contract`(sign-off, 차단/비차단 명시).
 - 계약 요청 전 상대 레포 현 코드 직접 확인(2차 주석·"미해결 0" 그대로 신뢰 금지 — 실측 우선).
 
-## 6. 학습·절차 기록
-- 비자명 학습은 `dw_write_memory`. 재사용 절차는 `dw_write_procedure`. 규칙 변경은 `dw_propose_rule`.
+## 6. 학습·절차 기록 (완료 게이트의 마감 단계 — 건너뛰지 마라)
+- 비자명한 학습(레포·git 이 이미 기록하는 것 말고)은 `dw_write_memory` 로 `status:draft` 기록한다 —
+  특히 교차레포·통합·계약 협상처럼 do-er 개별 컨텍스트엔 안 남는 학습.
+- **재사용 가능한 절차를 풀어냈다면** `dw_write_procedure` 로 playbook 을 draft 기록한다 — "다음에 또
+  이 작업을 어떻게 하나"를 단계로. 사람이 비준하면 스킬로 로드되어 다음 세션이 따른다.
+- 규칙 변경이 필요하면 `dw_propose_rule` 로 draft 제안만 한다(stable 승격은 사람 몫).
 
 ## 강제 원칙
 - 검사 실패 = 진행 불가. 우회·생략·"대충 동작" 금지. 가드/린터 오탐이면 근거 남기고 진행.

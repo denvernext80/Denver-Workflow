@@ -96,7 +96,13 @@ Windows 에서 gstack `./setup` 실패 시: "gstack 은 수동 설치가 필요�
 `agents/.ssot-agents.json`, 그리고 1.x 가 프로젝트에 복사해 둔 로컬 훅 4종
 `hooks/ssot-lint.py`·`hooks/ssot-session-context.py`·`hooks/ssot-vault-guard.py`·
 `hooks/ssot-worktree-guard.py` (지운 뒤 `hooks/` 가 비면 폴더도 제거 — 2.0 은 훅을 플러그인이
-전역 제공하므로 프로젝트 사본이 필요 없다). 다른 이름의 훅·에이전트 파일은 사용자 것 — 건드리지 않는다.
+전역 제공하므로 프로젝트 사본이 필요 없다). 다른 이름의 훅·에이전트 파일은 사용자 것 — 삭제하지
+않는다. **단, 파일명은 멀쩡하나 내용에 구 식별자(`ssot_`·`denver-agent`)를 품은 에이전트(예: 1.x 가
+설치한 `senior-backend-engineer.md`)는 삭제 대상이 아니라 (e) 내용 치환 대상**이다 — 지우면 오케스트
+레이터가 디스패치할 do-er 가 사라진다(기록 실패가 디스패치 실패로 악화). 아래로 감지한다:
+```bash
+grep -rlE 'ssot_|denver-agent|mcp__plugin_denver-agent' "<프로젝트>/.claude/agents" 2>/dev/null
+```
 
 **(b) settings 배선** — `settings.json`/`settings.local.json` 에서 (다른 설정은 유지):
 - `hooks` 항목 중 command 가 `/hooks/ssot-` 를 참조하는 배선만 제거.
@@ -119,6 +125,22 @@ python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-migrate-vault.py" --vault <vault 경로
 python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-migrate-vault.py" --vault <vault 경로> --apply  # 적용(백업 tar.gz 자동)
 ```
 적용 후 검증: `make -C "${CLAUDE_PLUGIN_ROOT}" dry-run` 이 에러 0 으로 통과해야 한다.
+
+**(e) 프로젝트 설치 아티팩트 내용 치환** — (a) 에서 감지한, 파일명은 멀쩡하나 내용이 stale 한
+에이전트(`senior-*.md` 등)를 **삭제 대신 제자리 치환**한다. `dw-migrate-vault.py` 는 vault 뿐 아니라
+`--project` 로 대상 레포의 `.claude/agents/*.md` 도 같은 규칙으로 치환한다(skills 는 재설치가 재생성,
+agent-memory 는 사용자 데이터라 제외) — `ssot_write_memory` 류 죽은 도구 이름이 `dw_write_*` 로
+바뀌어 기록 도구가 되살아난다. 여러 레포는 `--project` 를 반복한다:
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-migrate-vault.py" --project <레포1> --project <레포2>          # 미리보기
+python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-migrate-vault.py" --project <레포1> --project <레포2> --apply  # 적용(백업 자동)
+```
+치환 후 `grep -rlE 'ssot_|denver-agent' <레포>/.claude/agents` 가 **빈 결과**여야 한다.
+
+> **후속(사용자 판단):** 위 do-er(`senior-*.md` 등)가 **현재 vault `governance/agents/` 소스에
+> 정의돼 있지 않으면**, 지금 치환으로 되살아나더라도 다음 클린 설치 때 다시 고아가 될 수 있다.
+> vault 의 규칙·레포맵이 그 do-er 를 디스패치 대상으로 참조한다면, **정본을 vault 소스로 추가**해
+> 컴파일·재설치 흐름에 편입시켜야 근본 해소된다.
 
 ## 마무리 보고
 

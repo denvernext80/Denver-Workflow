@@ -21,8 +21,14 @@ denver-workflow 를 대상 프로젝트에 설치·갱신한다. vault(팀 지�
 ## 사전 점검
 
 - vault 가 없으면 중단하고 `/dw-setup` 안내 (설정 도우미가 vault 를 만들어 준다).
-- 대상 `.claude/` 에 구버전(1.x, `ssot-` 접두) 산출물이 보이면 `/dw-setup` 의
-  "레거시 정리" 절차를 먼저 수행한 뒤 설치한다.
+- 대상 `.claude/` 에 구버전(1.x) 잔재가 있으면 `/dw-setup` 의 "레거시 정리" 절차를 먼저 수행한
+  뒤 설치한다. **파일명 접두(`ssot-`)만 보지 말고 내용까지 검사하라** — 파일명이 멀쩡한 do-er
+  에이전트(예: `senior-backend-engineer.md`)도 `tools:` frontmatter 에 죽은 `ssot_*` 도구 이름을
+  품고 있으면 디스패치돼도 `dw_write_*` 를 못 써 **vault 기록이 조용히 실패**한다(재설치도 이
+  파일을 안 건드림 — 우리 매니페스트 밖 고아라서):
+  ```bash
+  grep -rlE 'ssot_|denver-agent|mcp__plugin_denver-agent' "$(pwd)/.claude" 2>/dev/null   # 하나라도 뜨면 레거시 정리 필요
+  ```
 
 ## 보고
 
