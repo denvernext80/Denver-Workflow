@@ -61,6 +61,15 @@ def _doctor_notice() -> str:
     )
 
 
+_GRAPHIFY_FIRST = (
+    "## 🕸 graphify 활성 — 지식·코드 탐색은 그래프 먼저 (아래 인덱스보다 우선)\n"
+    "이 세션엔 graphify 시멘틱 그래프가 있다. 자료를 찾을 때 **먼저 graphify 로 발견**한다 — 지식/문서는\n"
+    "기본 그래프(`query_graph`·`get_neighbors`·`shortest_path`), 특정 레포 코드는 `project_path=<repo 절대경로>`.\n"
+    "아래 \"누적 학습(memory)·계약·스펙\" 인덱스의 `dw_read`/`dw_search` 는 graphify 로 관련 노드를 잡은 **뒤\n"
+    "원문 확정·인용용**으로만 쓴다. graphify 탐색 없이 `dw_search` 직행 금지. (INFERRED 엣지는 근거 인용 금지.)"
+)
+
+
 def _graphify_tag(project: Path) -> str:
     """프로젝트 .mcp.json 에 graphify MCP 서버가 등록돼 있으면 가시성 태그(가시성만 — 주입 없음).
     실패·미등록은 조용히 "". (graphify 는 옵셔널이라 미등록 프로젝트엔 아무 표시 없음.)"""
@@ -95,6 +104,10 @@ def main() -> int:
         return 0
     if notice:
         text = (notice + "\n\n" + text).strip()
+    # graphify 등록 세션이면 graphify-first 지시를 최상단에 prepend(vault-일색 인덱스보다 우선).
+    # 미등록이면 무영향(불변식). 가시성 태그(_graphify_tag)와 동일 감지.
+    if _graphify_tag(project):
+        text = (_GRAPHIFY_FIRST + "\n\n" + text).strip()
 
     # 발화 가시화: additionalContext 는 모델 컨텍스트에만 주입(UI 비가시)이라,
     # systemMessage 로 사용자에게 '주입됨' 한 줄을 보여 발화 여부 + 활성 플러그인 버전을 확인하게 한다.

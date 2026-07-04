@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.4.2 — 2026-07-04
+
+### 수정
+- **오케스트레이터의 graphify proactive 사용 강화(구조적 nudge).** graphify 활성 세션에서도 vault
+  dw_search/dw_read 를 먼저 쓰는 문제 — digest 가 vault-일색(memory·계약·스펙 인덱스가 dw_read 로 유도,
+  graphify-search 는 중간에 묻힘)이라 별도 guidance·§1 문구로는 부족했다. SessionStart 훅이 **graphify
+  등록 세션(`.mcp.json`)에서만** 주입 컨텍스트 **최상단**에 "지식·코드 탐색은 graphify 그래프 먼저,
+  아래 인덱스의 dw_read 는 발견 후 원문 확정용" 지시를 prepend — vault-일색 인덱스의 pull 을 읽기 순서
+  최상위에서 상쇄. graphify 미등록 세션엔 미주입(불변식 유지). 컴파일러가 아닌 훅에서 처리(런타임
+  등록 상태를 알아야 옵셔널 불변식을 지킴).
+  ※ 프롬프트 기반 유도라 **보장이 아닌 nudge** — 확정적 강제는 프롬프트로 불가.
+
 ## 2.4.1 — 2026-07-04
 
 ### 추가
