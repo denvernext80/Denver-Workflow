@@ -71,6 +71,7 @@ SSOT vault 콘텐츠는 플러그인에 포함되지 않는다(사적 프로젝�
 - **에이전트**: `agents/*.md` 가 CC 서브에이전트로 로드(`name:` 추가로 Denver·CC 양립). 하네스를 항상-on
   하려면 프로젝트 `settings.local.json` 에 `"agent": "dw-governed"` 를 둔다(플러그인이 강제하진 않음).
 - **커맨드**: `/dw-build` · `/dw-ratify` · `/dw-review` · `/dw-install`(프로젝트에 스킬·검사·훅·다이제스트 적용) (make 타깃 래핑).
+- **선택적 graphify 연동**: `graphify`(시멘틱 코드/지식 그래프)가 구축돼 있으면(CLI + `graphify-out/graph.json`) 세션에 의미 기반 탐색(`graphify explain`/`path`)을 안내하고, 없으면 무시한다.
 - **외부 의존 플러그인·스킬(번들 아님)**: Denver 워크플로우가 쓰는 외부 스킬은 **번들하지 않는다** —
   사용자가 직접 설치한다(아래 〈외부 의존〉 참조). 중복·라이선스·버전 드리프트를 피한다.
 - **한계**: 훅·MCP·에이전트는 전역으로 제공되지만, **프로젝트별 스킬·검사·다이제스트는 여전히

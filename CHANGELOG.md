@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.0 — 2026-07-04
+
+### 추가
+- **선택적 graphify 연동** — `graphify` CLI 와 `graphify-out/graph.json` 이 둘 다 감지되면
+  SessionStart 시 세션 컨텍스트에 시멘틱 탐색 안내를 주입한다(자료를 찾을 때 substring `dw_search`
+  대신 `graphify explain`/`path` 를 그래프 위에서 우선, 실패 시 `dw_search` 폴백). graphify 환경이
+  없으면 완전히 무시(현행 동작 무변경) — 팀 공용 설치자 대다수에 영향 없음. 훅 시점 subprocess
+  없이 파일 존재만 검사하며, 감지 실패는 조용히 무시해 digest 주입을 막지 않는다.
+
 ## 2.1.2 — 2026-07-04
 
 ### 수정
