@@ -19,10 +19,6 @@ do-er(구현·진단·QA·배포·리뷰 서브에이전트)에게 `Task`/`Agent
 4. **마감 기록.** "비자명한 학습·재사용 절차·계약 변경을 vault 에 기록하고(`dw_write_memory`/
    `dw_write_procedure`/`dw_write_contract`, draft), 무엇을 기록했는지 회신하라." do-er 컨텍스트는
    회신 후 버려지므로, 기록하지 않으면 학습이 사라진다.
-5. **graphify 전파 (활성 시에만).** 세션 컨텍스트에 `🕸 graphify` 블록이 있으면, 디스패치 프롬프트에
-   "자료 탐색 시 `graphify explain "<개념>"`·`graphify path "A" "B"`(graph.json 경로 포함)를 substring
-   `dw_search` 보다 우선하라"를 넣는다. do-er 컨텍스트엔 SessionStart 안내가 안 닿으므로 디스패처가
-   그래프 경로와 함께 relay 한다. graphify 미활성 환경이면 이 항목은 생략(조건 거짓 — 무영향).
 
 결과 검증·완료 게이트 책임은 **디스패처 본인**이다([[delegation-ownership]]). 교차레포·통합·계약
 협상처럼 디스패처만 본 학습은 어느 do-er 에도 안 남으므로 디스패처가 직접 기록한다.

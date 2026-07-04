@@ -12,7 +12,7 @@ Claude Code 에이전트가 **읽고 복종하고, 학습을 되써서 갱신**�
      LIVE  memory·contracts·specs ──── MCP 가 stable 직행(게이트 없음) ←─ 에이전트 read/write
              │ make ratify (비준+compile+install, 스케줄)        │ dw-vault MCP (8 도구)
              ▼                                                  ▼
-   세션 시작: SessionStart 훅이 다이제스트(규율·규칙·지식 인덱스, +graphify 활성 시 🕸 탐색 안내) 주입 → 복종·강제
+   세션 시작: SessionStart 훅이 다이제스트(규율·규칙·지식 인덱스) 주입 → 복종·강제
      대상 프로젝트 세션              ·      Claude Code
 ```
 
@@ -71,7 +71,7 @@ SSOT vault 콘텐츠는 플러그인에 포함되지 않는다(사적 프로젝�
 - **에이전트**: `agents/*.md` 가 CC 서브에이전트로 로드(`name:` 추가로 Denver·CC 양립). 하네스를 항상-on
   하려면 프로젝트 `settings.local.json` 에 `"agent": "dw-governed"` 를 둔다(플러그인이 강제하진 않음).
 - **커맨드**: `/dw-build` · `/dw-ratify` · `/dw-review` · `/dw-install`(프로젝트에 스킬·검사·훅·다이제스트 적용) (make 타깃 래핑).
-- **선택적 graphify 연동**: `graphify`(시멘틱 코드/지식 그래프)가 구축돼 있으면(CLI + `graphify-out/graph.json`) SessionStart 시 세션에 의미 기반 탐색(`graphify explain`/`path`)을 안내하고(systemMessage `🕸 graphify` 표시), **서브에이전트 디스패치에도 relay** 한다(do-er 컨텍스트엔 SessionStart 안내가 안 닿으므로 디스패처가 graph.json 경로와 함께 넘김). 미구축이면 완전히 무시 — SessionStart 훅이 CLI+graph.json 을 감지할 때만 활성.
+- **선택적 graphify 연동(MCP)**: `graphify`(시멘틱 코드/지식 그래프)가 구축돼 있으면 `/dw-setup` 이 옵인으로 프로젝트 `.mcp.json` 에 graphify MCP 서버(`graphify.serve`)를 등록 — `query_graph`·`shortest_path` 등 네이티브 그래프 도구가 세션에 노출된다. graphify 미구축이면 등록을 제안하지 않는다(무영향).
 - **외부 의존 플러그인·스킬(번들 아님)**: Denver 워크플로우가 쓰는 외부 스킬은 **번들하지 않는다** —
   사용자가 직접 설치한다(아래 〈외부 의존〉 참조). 중복·라이선스·버전 드리프트를 피한다.
 - **한계**: 훅·MCP·에이전트는 전역으로 제공되지만, **프로젝트별 스킬·검사·다이제스트는 여전히
