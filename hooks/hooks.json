@@ -13,6 +13,12 @@
         "hooks": [
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-worktree-guard.py\"", "timeout": 15 }
         ]
+      },
+      {
+        "matcher": "mcp__plugin_denver-workflow_dw-vault__dw_search",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-graphify-gate.py\"", "timeout": 15 }
+        ]
       }
     ],
     "PostToolUse": [

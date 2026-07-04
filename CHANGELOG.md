@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.4.3 — 2026-07-04
+
+### 추가
+- **dw_search 가로채기 게이트** — graphify 활성 세션에서 `dw_search`(substring) 호출 **직전**에
+  PreToolUse 훅(`dw-graphify-gate.py`)이 "graphify(`query_graph`/`project_path`)로 먼저 발견했는가"를
+  additionalContext 로 주입(차단 아님, self-correct 유도). SessionStart 1회 nudge(2.4.2)보다 강한 개입
+  시점 — 매 dw_search 시도마다 발화. `dw_read`(원문 확정)는 매처에서 제외(정상 흐름 방해 방지).
+  프로젝트 `.mcp.json` 의 graphify 등록으로 게이트 — 미등록 세션 무영향(불변식).
+
 ## 2.4.2 — 2026-07-04
 
 ### 수정
