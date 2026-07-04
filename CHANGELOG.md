@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.3.1 — 2026-07-04
+
+### 추가
+- **에이전트가 지식 탐색 시 graphify 우선** — 신규 guidance `graphify-search`(digest 상시 주입):
+  graphify MCP 도구가 세션에 있으면 substring `dw_search` 보다 `query_graph`·`shortest_path` 등을
+  우선하고, 없으면 폴백. 설치 에이전트는 `tools:` 없이 emit(전체 상속)돼 graphify 도구를 자동 획득 —
+  오케스트레이터·do-er 모두 활용. 오케스트레이터는 디스패치에도 이 우선순위를 relay.
+
+### 수정
+- `dw-graphify-register` 그래프 해석에 **vault 그래프 폴백** 추가 — 프로젝트 로컬 `graphify-out/graph.json`
+  이 없어도 `<vault>/graphify-out/graph.json`(vault 에 ingest 한 지식 그래프)을 자동으로 찾는다
+  (vault 해석은 dw-config `vault_root` > `DW_VAULT_DIR` > 규약 경로 순, 런처와 동일). 이전엔 `--graph`
+  를 명시하지 않으면 balipick 처럼 vault-ingest 사용 환경에서 "등록 스킵"이 됐다.
+- README: graphify 연동을 전용 섹션(MCP·그래프 해석·노출 도구·에이전트 활용)으로 재작성.
+
 ## 2.3.0 — 2026-07-04
 
 ### 변경

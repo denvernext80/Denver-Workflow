@@ -71,7 +71,7 @@ SSOT vault 콘텐츠는 플러그인에 포함되지 않는다(사적 프로젝�
 - **에이전트**: `agents/*.md` 가 CC 서브에이전트로 로드(`name:` 추가로 Denver·CC 양립). 하네스를 항상-on
   하려면 프로젝트 `settings.local.json` 에 `"agent": "dw-governed"` 를 둔다(플러그인이 강제하진 않음).
 - **커맨드**: `/dw-build` · `/dw-ratify` · `/dw-review` · `/dw-install`(프로젝트에 스킬·검사·훅·다이제스트 적용) (make 타깃 래핑).
-- **선택적 graphify 연동(MCP)**: `graphify`(시멘틱 코드/지식 그래프)가 구축돼 있으면 `/dw-setup` 이 옵인으로 프로젝트 `.mcp.json` 에 graphify MCP 서버(`graphify.serve`)를 등록 — `query_graph`·`shortest_path` 등 네이티브 그래프 도구가 세션에 노출된다. graphify 미구축이면 등록을 제안하지 않는다(무영향).
+- **선택적 graphify 연동(MCP)**: vault 지식을 그래프로 ingest 한 `graphify` 가 있으면 시멘틱 탐색을 쓸 수 있다(옵인). 아래 〈선택적 graphify 연동〉 참조.
 - **외부 의존 플러그인·스킬(번들 아님)**: Denver 워크플로우가 쓰는 외부 스킬은 **번들하지 않는다** —
   사용자가 직접 설치한다(아래 〈외부 의존〉 참조). 중복·라이선스·버전 드리프트를 피한다.
 - **한계**: 훅·MCP·에이전트는 전역으로 제공되지만, **프로젝트별 스킬·검사·다이제스트는 여전히
@@ -236,6 +236,36 @@ export DW_VAULT_DIR="$HOME/My Vaults/denver"   # CC 시작 전 export
 **coherence**: 컴파일·비준은 같은 vault 를 읽어야 한다. `make build|install-project|ratify` 는 **이 워크스페이스에서**
 실행하되, Makefile 의 `VAULT_DIR`(= `DW_VAULT_DIR` 우선, 기본 `~/denver-workflow-vault`)로 그 vault 를 읽는다
 (`--out` 산출물은 `TOOLS_ROOT` = 워크스페이스 절대경로). 도구·`.venv` 는 워크스페이스, vault 콘텐츠는 별도 폴더.
+
+## 선택적 graphify 연동 (MCP)
+
+`graphify`(코드·지식을 그래프로 인덱싱하는 외부 CLI)로 **vault 지식을 ingest** 해 두면, 에이전트가
+substring 매칭인 `dw_search` 대신 **관계·경로 기반 시멘틱 탐색**을 쓸 수 있다. graphify 는 **optional** —
+설치·구축한 사용자만 켠다. 미구축 환경엔 아무 영향이 없다.
+
+**연결 방식(MCP)**: graphify 는 CLI 조회뿐 아니라 MCP stdio 서버(`graphify.serve`)를 제공한다.
+`/dw-setup` 옵인 단계가 graphify 를 감지하면 **프로젝트별 `.mcp.json`** 에 등록한다(전역 `plugin.json`
+아님 — optional 도구를 모든 세션에 강요하지 않기 위해). 등록 헬퍼는 `_build/dw-graphify-register.py`:
+
+```bash
+# 감지·미리보기(쓰기 없음) — graphify CLI + graph.json 있어야 함
+python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-graphify-register.py" --project "$(pwd)"
+# 등록(mcp SDK 없으면 pipx inject 자동, .mcp.json 병합)
+python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-graphify-register.py" --project "$(pwd)" --apply
+```
+
+- **그래프 해석 순서**: 명시 `--graph` > `<project>/graphify-out/graph.json`(프로젝트 로컬) >
+  `<vault>/graphify-out/graph.json`(vault 에 ingest 한 지식 그래프 — 런처와 같은 순서로 vault 해석).
+  vault 지식을 ingest 한 경우 프로젝트에 로컬 그래프가 없어도 vault 그래프를 자동으로 찾는다.
+- **노출 도구(약 10개)**: `query_graph`·`get_node`·`get_neighbors`·`get_community`·`god_nodes`·
+  `graph_stats`·`shortest_path`·`list_prs`·`get_pr_impact`·`triage_prs` — `mcp__graphify__*` 로 노출.
+- **에이전트 활용**: 설치 에이전트는 `tools:` 없이 emit 돼(전체 도구 상속) graphify 도구를 자동 획득한다.
+  guidance `[[graphify-search]]`(digest 상시 주입)가 "지식 탐색은 graphify 그래프 우선, 없으면
+  `dw_search` 폴백"을 지시하고, 오케스트레이터는 do-er 디스패치에도 이 우선순위를 relay 한다.
+- **확인**: 등록 후 새 세션에서 `claude mcp list | grep graphify` (→ graphify … Connected).
+
+> graphify 자체 설치·그래프 빌드(`graphify update`/ingest)는 사용자 몫 — 이 플러그인은 감지 시
+> 등록만 대행한다. mcp SDK 는 graphify venv 에 `pipx inject graphifyy mcp` 로 확보한다.
 
 ## 메모리 & 계약 — vault 단일 SSOT
 

@@ -11,8 +11,35 @@ mcp SDK 가 graphify venv 에 없으면 pipx inject 로 확보. 사용처: /dw-s
   (--graph <경로>로 graph.json 위치 지정, 기본 <레포>/graphify-out/graph.json)
 """
 from __future__ import annotations
-import argparse, json, shutil, subprocess, sys
+import argparse, json, os, shutil, subprocess, sys
 from pathlib import Path
+
+
+def _expand(p: str) -> str:
+    """런처 규약과 동일하게 리터럴 ~/ · $HOME/ 접두 확장."""
+    p = p.strip()
+    if p.startswith("~/"):
+        return str(Path.home() / p[2:])
+    if p.startswith("$HOME/"):
+        return str(Path.home() / p[6:])
+    return p
+
+
+def _resolve_vault(project: Path) -> Path:
+    """vault 루트 해석 — dw-config.json vault_root > DW_VAULT_DIR env > 규약 ~/denver-workflow-vault
+    (dw-mcp-launch.sh 와 동일 순서)."""
+    cfg = project / ".claude" / "dw-config.json"
+    if cfg.exists():
+        try:
+            vr = json.loads(cfg.read_text(encoding="utf-8")).get("vault_root")
+            if vr:
+                return Path(_expand(vr))
+        except (OSError, json.JSONDecodeError):
+            pass
+    env = os.environ.get("DW_VAULT_DIR")
+    if env:
+        return Path(_expand(env))
+    return Path.home() / "denver-workflow-vault"
 
 
 def _graphify_python() -> str | None:
@@ -30,14 +57,22 @@ def _graphify_python() -> str | None:
 
 
 def detect(project: Path, graph_opt: str | None):
-    """(graphify_python, graph_path) 또는 (None, None). graphify CLI + graph.json 둘 다 필요."""
+    """(graphify_python, graph_path) 또는 (None, None). graphify CLI + graph.json 둘 다 필요.
+    graph 탐색: 명시 --graph > <project>/graphify-out/graph.json > <vault>/graphify-out/graph.json.
+    (vault 에 ingest 한 지식 그래프를 프로젝트별 로컬 그래프가 없을 때 자동 사용한다.)"""
     py = _graphify_python()
     if not py:
         return None, None
-    graph = Path(graph_opt).expanduser() if graph_opt else (project / "graphify-out" / "graph.json")
-    if not graph.is_file():
-        return None, None
-    return py, graph.resolve()
+    if graph_opt:
+        g = Path(graph_opt).expanduser()
+        return (py, g.resolve()) if g.is_file() else (None, None)
+    local = project / "graphify-out" / "graph.json"
+    if local.is_file():
+        return py, local.resolve()
+    vault_graph = _resolve_vault(project) / "graphify-out" / "graph.json"
+    if vault_graph.is_file():
+        return py, vault_graph.resolve()
+    return None, None
 
 
 def merge_mcp_json(project: Path, graphify_py: str, graph: Path) -> dict:
