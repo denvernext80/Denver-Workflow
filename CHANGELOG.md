@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.1 — 2026-07-04
+
+### 수정
+- venv 부트 스킵 버그 — 플러그인 설치가 stale `.venv/.stamp`(바이너리 없이)를 배포하면
+  `make` 가 venv 를 이미 부트된 걸로 오판해 `install-project`/`dw-install` 이
+  `.venv/bin/python: No such file` 로 실패하던 문제. `.stamp` 를 실제 바이너리 `$(VPY)` 에
+  의존시켜 바이너리 부재 시 재생성하도록 교정.
+
 ## 2.1.0 — 2026-07-04
 
 ### 추가

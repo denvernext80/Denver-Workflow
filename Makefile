@@ -28,8 +28,12 @@ SEED_AGENTS   := code-review security-qa dw-governed dw-ratifier
 
 .PHONY: build dry-run clean distclean help doctor review ratify install-project
 
-$(VENV)/.stamp:
+# venv 부트 — .stamp 는 $(VPY)(실제 바이너리)에 의존한다. 플러그인 설치가 stale .stamp 를
+# (바이너리 없이) 배포해도, $(VPY) 부재를 감지해 venv 를 재생성한다(부트 스킵 버그 방지).
+$(VPY):
 	$(PY) -m venv $(VENV)
+
+$(VENV)/.stamp: $(VPY)
 	$(VPY) -m pip install --quiet --upgrade pip
 	$(VPY) -m pip install --quiet pyyaml mcp
 	@touch $(VENV)/.stamp
