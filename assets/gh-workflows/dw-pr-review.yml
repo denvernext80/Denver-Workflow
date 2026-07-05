@@ -126,7 +126,10 @@ jobs:
             exit 1
           fi
           # 3) MEDIUM 3개 이상 → FAIL (프롬프트 판정규칙과 동일하게 shell 에서도 카운트 교차검증).
-          MED=$(echo "$BODY" | grep -ciE "^[[:space:]]*[-*][[:space:]]*\**\[MEDIUM\]")
+          #    `grep -c` 는 매치 0개일 때도 exit 1 을 반환 — bash -e 하에서 `MED=$(...)` 대입문이
+          #    보호 없이 그 실패를 그대로 받아 스크립트가 조용히 죽는다(가장 흔한 "findings 없음"
+          #    케이스에서 오탐 FAIL). `|| true` 로 grep 자체의 실패를 흡수한다.
+          MED=$(echo "$BODY" | grep -ciE "^[[:space:]]*[-*][[:space:]]*\**\[MEDIUM\]" || true)
           if [ "${MED:-0}" -ge 3 ]; then
             echo "::error::MEDIUM finding ${MED}개(≥3) — FAIL."
             exit 1
