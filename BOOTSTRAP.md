@@ -18,14 +18,14 @@
         │  memory · contracts →  라이브(비컴파일)                            │  ← 에이전트가
         └──────────────┬───────────────────────────────┬───────────────┘     read/write(draft)
                        │ /dw-install                   │ dw-vault MCP 서버
-            프로젝트 스킬·검사·훅·에이전트       (8 도구; LIVE stable 직행·OBEY draft)
+            프로젝트 스킬·검사·훅·에이전트      (11 도구; LIVE stable 직행·OBEY draft)
                        │                               │
                        ▼                               ▼
                  대상 프로젝트 세션          ·  Claude Code (구독)
 ```
 
 - **사람은 저작**한다(주로 규칙·원칙). **에이전트는 컴파일된 규칙에 복종**하고, 학습·계약·규칙을 기록·제안한다.
-- **비준은 자동**이다 — LIVE(memory/contract/spec)는 게이트가 없고, OBEY(rule/guidance/procedure)는
+- **비준은 자동**이다 — LIVE(memory/contract/spec/backlog/reference)는 게이트가 없고, OBEY(rule/guidance/procedure)는
   `dw-ratify`(결정론) + `dw-ratifier`(LLM 판단)가 비준한다.
 - 사람·기계를 잇는 유일한 계약면은 **frontmatter** 다.
 - vault = 소스. `.claude/skills` = 빌드 산출물(소스 → 바이너리). **산출물 직접 편집 금지.**
@@ -36,10 +36,14 @@
 |---|---|---|---|
 | **복종** | `rules` · `guidance` · `procedures` | 저작/제안 → 자동 비준 → 스킬 → 에이전트 복종 | ✅ `stable` 만 |
 | **학습** | `memory` | 에이전트가 stable 기록(게이트 없음) (자동 캡처도 vault 로 funnel) | ❌ 라이브 |
-| **협업** | `contracts` | 백엔드↔앱 에이전트 read/write, stable (게이트 없음) | ❌ 라이브 |
-| **설계** | `specs` | 계획·스펙·설계, 에이전트 작성, stable (worktree 휘발 방지) | ❌ 라이브 |
+| **협업** | `contracts` | 백엔드↔앱 에이전트 read/write, stable · 완결 시 `dw_resolve`→archive | ❌ 라이브 |
+| **설계** | `specs` | 계획·스펙·설계, stable · 구현완료 시 `dw_resolve`→archive (worktree 휘발 방지) | ❌ 라이브 |
+| **후속** | `backlog` | 범위 밖 할일, stable · 완료 시 `dw_resolve`→archive (repo 파일 대신 vault) | ❌ 라이브 |
+| **참조** | `reference` | 시스템 상태 스냅샷(DB 스키마·API 인덱스), stable · 드리프트 시 재추출 교체 | ❌ 라이브 |
 
-메모리·계약은 **컴파일하지 않는다**. 에이전트가 vault 를 라이브로 읽고 쓴다.
+LIVE(memory·contract·spec·backlog·reference)는 **컴파일하지 않는다**. 에이전트가 vault 를 라이브로 읽고 쓴다.
+완료/폐기 라이프사이클이 있는 것(contract·spec·backlog)은 `dw_resolve` 로 `archive/` 이동해 활성 목록에서
+내린다(memory=영구 누적, reference=완료 없이 재추출 교체이므로 resolve 대상 아님).
 읽기 도구는 status 를 안 거르므로 **LIVE 의 draft↔stable 구분은 무의미** — 그래서 MCP 가 LIVE 를
 바로 stable 로 쓴다(비준 게이트 제거). `draft` 는 OBEY(컴파일·강제 대상)에서만 의미를 가지며,
 `dw-ratify` 가 안전성을 **경험적으로 검증**(check 패턴을 실제 코드에 돌려 오탐 0)한 뒤 자동 승격한다.
@@ -57,8 +61,8 @@
 7. **skill 은 점진적 노출.** description 은 항상, body 는 관련될 때만 로드.
 8. **사용자/테넌트 데이터 격리는 1급 규칙** — 검증자(`enforced-by: security-qa`)를 붙인다.
    (구현은 프로젝트마다 다르다.)
-9. **비준은 자동, 강제 입법만 검증된다.** LIVE(memory/contract/spec)는 MCP가 stable 로 바로 쓴다
-   (읽기가 status 무관 → 게이트 무의미). OBEY(rule/guidance/procedure)는 status:draft 로 제안되고,
+9. **비준은 자동, 강제 입법만 검증된다.** LIVE(memory/contract/spec/backlog/reference)는 MCP가 stable 로
+   바로 쓴다(읽기가 status 무관 → 게이트 무의미). OBEY(rule/guidance/procedure)는 status:draft 로 제안되고,
    `dw-ratify`(결정론: 스키마·enforced-by 실재·check 패턴 코드 0매치)가 **안전한 것만** 자동 stable
    승격한다. 판단 필요 건(check 가 기존 코드에 매치)만 `dw-ratifier`(LLM)로 에스컬레이션 — 사람은 불요.
    **불변식의 핵심은 "사람 비준"이 아니라 "강제되는 규칙은 발효 전 경험적으로 검증된다"** 이다.
@@ -75,8 +79,9 @@
 게이트 레이어:
 0. **자동 비준**(`make ratify`, 스케줄) — OBEY draft 를 결정론적으로 검증해 안전분 자동 stable·
    compile·install. 사람·수동 make 제거. 판단 필요 건만 `dw-ratifier`(LLM)로 넘긴다.
-1. **MCP 도구**(주 경로) — `dw_write_*` 가 frontmatter 를 *구성*한다. LIVE 는 stable 직행,
-   OBEY(rule/procedure)는 draft 제안(status 파라미터 없음 → validate-by-construction).
+1. **MCP 도구**(주 경로) — `dw_write_*` 가 frontmatter 를 *구성*한다. LIVE(memory·contract·spec·
+   backlog·reference)는 stable 직행, OBEY(rule/procedure)는 draft 제안(status 파라미터 없음 →
+   validate-by-construction). 완료/폐기는 `dw_resolve` 가 archive 로 이동(별도 status 없이 위치로 구분).
 2. **결정론적 린터**(자동) — 규칙의 `check-deny`/`check-require` 를 PostToolUse 훅이 검사,
    위반을 `additionalContext` 로 피드백(차단이 아니라 self-correct 유도).
 3. **vault 가드**(백스톱) — raw `.md` 직접 쓰기의 frontmatter 계약·draft 게이트 검사.
@@ -93,8 +98,11 @@ vault 를 stdio MCP 서버(`_build/dw-mcp-server.py`)로 노출 → Claude Code(
 클라이언트)가 타입 도구로 접근. 쓰기 도구에 status 파라미터 없음(validate-by-construction):
 
 - **읽기**: `dw_search` · `dw_read` · `dw_list` (status 무관 — draft·stable 모두 검색)
-- **쓰기·LIVE(stable 직행)**: `dw_write_memory` · `dw_write_contract` · `dw_write_spec`
+- **쓰기·LIVE(stable 직행)**: `dw_write_memory` · `dw_write_backlog` · `dw_write_reference` ·
+  `dw_write_contract` · `dw_write_spec`
 - **쓰기·OBEY(draft 제안 → dw-ratify 자동 비준)**: `dw_write_procedure` · `dw_propose_rule`
+- **완료/폐기**: `dw_resolve(name)` — backlog·spec·contract 를 `archive/` 로 이동(활성 목록 제외).
+  memory·decision·reference 는 대상 아님(reference 는 드리프트 시 재추출로 교체).
 
 메모리는 **CC auto-memory(`autoMemoryDirectory`)도 vault 로 funnel**되어, 자동 캡처·큐레이션
 모두 vault 단일 SSOT 로 모인다(가드·도구가 CC 포맷·vault 포맷 둘 다 수용).
