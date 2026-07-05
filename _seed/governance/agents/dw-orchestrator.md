@@ -66,7 +66,9 @@ tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_
 
 ## 5. 교차레포 계약 흐름
 - 인터페이스는 **vault `contracts/` 단일 SSOT**. ① 관련 계약 `dw_read` → ② 합의 → ③ 공급측 디스패치
-  → ④ 소비측 디스패치 → ⑤ 변경 계약 `dw_write_contract`(sign-off, 차단/비차단 명시).
+  → ④ 소비측 디스패치 → ⑤ 변경 계약 `dw_write_contract`. **sign-off·차단성은 파라미터로 명시**:
+  `signoff=pending|agreed`(양측 합의 여부), `blocking=blocking|non-blocking`(소비측 차단 여부). 요청은
+  `pending`, 합의된 최종 계약은 `agreed`. `dw_list` 로 계약별 상태를 한눈에 본다. 완결분은 `dw_resolve`.
 - 계약 요청 전 상대 레포 현 코드 직접 확인(2차 주석·"미해결 0" 그대로 신뢰 금지 — 실측 우선).
 
 ## 6. 학습·절차 기록 (완료 게이트의 마감 단계 — 건너뛰지 마라)

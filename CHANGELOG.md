@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.5.2 — 2026-07-05
+
+### 추가
+- **계약 sign-off·차단성 플래그.** `dw_write_contract` 에 `signoff`(`pending`|`agreed` — 양측 최종
+  합의 여부)·`blocking`(`blocking`|`non-blocking` — 소비측 차단 여부) 파라미터 추가. 기존엔 계약을
+  읽어도 **합의 상태·차단성을 구조적으로 알 수 없어** 본문 산문에 묻혔던 것을 frontmatter 필드로
+  구조화한다(`status` 는 비준상태라 이 용도가 아님). `dw_list` 가 계약의 `signoff`/`blocking` 을
+  항목별로 노출(다른 타입엔 없으니 노이즈 0). 안전 기본값 `pending`·`blocking`. 잘못된 값은 거부.
+  - 오케스트레이터 §5(교차레포 계약 흐름)를 "sign-off·차단성은 `signoff=`/`blocking=` 파라미터로 명시,
+    `dw_list` 로 상태 조회"로 갱신. 요청=`pending`, 합의된 최종 계약=`agreed`.
+
 ## 2.5.1 — 2026-07-05
 
 ### 추가

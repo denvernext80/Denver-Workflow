@@ -35,6 +35,8 @@ CONTENT_DIRS = ["governance/rules", "governance/guidance", "governance/procedure
 DIRECTIONS = {"backend-to-app", "app-to-backend", "shared"}
 KINDS = {"request", "reply", "signoff", "contract", "notice"}
 SPEC_KINDS = {"plan", "spec", "design"}
+SIGNOFF_STATES = {"pending", "agreed"}      # 양측 최종 합의 여부(status=비준상태와 별개)
+BLOCKING_STATES = {"blocking", "non-blocking"}  # 소비측 차단 여부(§5 "차단/비차단 명시")
 
 mcp = FastMCP("dw-vault")
 
@@ -169,10 +171,15 @@ def dw_list(note_type: str = "") -> list[dict]:
         ty = fm.get("type", "")
         if note_type and ty != note_type:
             continue
-        out.append({"path": str(p.relative_to(VAULT)),
-                    "type": ty or ("auto-memory" if fm.get("name") else ""),
-                    "status": fm.get("status", ""),
-                    "title": fm.get("title") or fm.get("name") or p.stem})
+        entry = {"path": str(p.relative_to(VAULT)),
+                 "type": ty or ("auto-memory" if fm.get("name") else ""),
+                 "status": fm.get("status", ""),
+                 "title": fm.get("title") or fm.get("name") or p.stem}
+        # 계약은 sign-off·차단 상태를 목록에서 한눈에(있을 때만 노출 — 다른 타입 노이즈 없음).
+        for k in ("signoff", "blocking"):
+            if fm.get(k):
+                entry[k] = fm[k]
+        out.append(entry)
     return out
 
 
@@ -257,21 +264,34 @@ def dw_resolve(name: str, resolution: str = "") -> str:
 
 
 @mcp.tool()
-def dw_write_contract(direction: str, kind: str, title: str, body: str, scope: str = "") -> str:
+def dw_write_contract(direction: str, kind: str, title: str, body: str, scope: str = "",
+                      signoff: str = "pending", blocking: str = "blocking") -> str:
     """백엔드↔앱 계약(요청/회신/sign-off)을 vault contracts/ 에 기록한다(status:stable — LIVE 라 즉시 사용 가능).
     direction=backend-to-app|app-to-backend|shared, kind=request|reply|signoff|contract|notice.
+
+    **signoff** = 양측 최종 합의 상태(`pending`|`agreed`) — `status`(비준상태)와 별개다. 요청/제안은
+    `pending`, 양측 합의된 최종 계약은 `agreed` 로 쓴다. **blocking** = 소비측 차단 여부(`blocking`|
+    `non-blocking`) — 합의 전까지 소비측이 진행 못 하면 `blocking`(안전 기본값). 둘 다 frontmatter 에
+    남아 `dw_list` 로 한눈에 보인다(§5 "sign-off, 차단/비차단 명시"의 구조화).
+
     계약은 비컴파일 LIVE SSOT 라 사람 비준 불요. **완결분은 `dw_resolve(name)` 로 contracts/archive/ 이동**
     (활성 검색 제외)."""
     if direction not in DIRECTIONS:
         return f"(거부) direction 은 {sorted(DIRECTIONS)} 중 하나여야 합니다."
     if kind not in KINDS:
         return f"(거부) kind 는 {sorted(KINDS)} 중 하나여야 합니다."
+    if signoff not in SIGNOFF_STATES:
+        return f"(거부) signoff 는 {sorted(SIGNOFF_STATES)} 중 하나여야 합니다."
+    if blocking not in BLOCKING_STATES:
+        return f"(거부) blocking 은 {sorted(BLOCKING_STATES)} 중 하나여야 합니다."
     today = datetime.date.today().isoformat()
     side = {"backend-to-app": "backend", "app-to-backend": "app", "shared": "shared"}[direction]
     fm = {"type": "contract", "status": "stable", "scope": scope or "api-contract",
+          "signoff": signoff, "blocking": blocking,
           "date": today, "direction": direction, "kind": kind, "title": title}
     path = _emit("project/contracts", f"{today}-{side}-{kind}-{_slugify(title)}.md", fm, body)
-    return f"기록됨: {path} — LIVE 계약이라 dw_search 로 즉시 검색됩니다(비준 불요)."
+    return (f"기록됨: {path} — LIVE 계약(signoff={signoff}·{blocking})이라 dw_search/dw_list 로 즉시 조회됩니다"
+            "(비준 불요).")
 
 
 @mcp.tool()
