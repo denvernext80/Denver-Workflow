@@ -1,328 +1,289 @@
 # Denver AI Workflow
 
-**팀의 지식(규칙·계약·학습)을 한 폴더에 모아 두고, Claude Code 에이전트가 그걸 읽고 따르고 되쓰게
-만드는 시스템.** 지식 폴더 하나를 **단일 진실 원천**(SSOT — "한 곳만 믿는 원본")으로 삼습니다.
+**팀의 지식(규칙·계약·학습)을 하나의 폴더에 통합하고, Claude Code 에이전트가 이를 읽고, 준수하며, 지속적으로 갱신하도록 강제하는 거버넌스 시스템.** 지식 폴더 하나를 팀과 에이전트의 유일한 **단일 진실 원천(SSOT, Single Source of Truth)**으로 삼습니다.
 
-> **비개발자도 씁니다.** 아래 〈빠른 시작〉 3단계면 준비 끝입니다. 그 아래는 필요할 때만 읽으세요.
+> **💡 비개발자도 바로 사용할 수 있습니다.** 아래 [🚀 빠른 시작](#-빠른-시작-3단계) 3단계만으로 준비가 완료됩니다. 하위의 상세 내용은 필요할 때 참조하십시오.
 
 ---
 
-## 이게 뭔가요? (한 문단)
+## 📌 개요
 
-프로젝트가 커지면 "우리 팀은 이렇게 일한다"·"이 API 는 이런 계약이다"·"저번에 이걸 이렇게 고쳤다"
-같은 지식이 여기저기 흩어집니다. Denver 는 이 지식을 **Obsidian**(노트 앱) 폴더 하나에 모으고,
-Claude Code 가 매 작업에서 **자동으로 그 규칙을 지키고, 새로 배운 걸 다시 그 폴더에 적어** 넣게 합니다.
-사람이 매번 규칙을 붙여넣거나 검토·승인하는 병목이 없습니다 — 검증·컴파일·주입이 자동입니다.
+프로젝트가 확장됨에 따라 협업 방식, API 계약 스펙, 장애 복구 이력 등의 팀 지식은 파편화되기 쉽습니다. Denver는 이 지식을 **Obsidian**(노트 앱) 폴더 하나로 통합합니다.
+
+이후 Claude Code가 매 작업 세션마다 **기존 규칙을 자동으로 준수(OBEY)하게 만들고, 새로 학습한 컨텍스트(LIVE)를 해당 폴더에 실시간으로 기록**하도록 제어합니다. 사람이 지식을 검토, 붙여넣기, 승인하는 병목이 없도록 검증·컴파일·컨텍스트 주입의 전 과정을 자동화합니다.
 
 ```
-          사람 (주로 규칙 저작)
-               │
-     Obsidian vault (SSOT · 팀 지식 폴더)
-       OBEY  규칙·지침·절차 ── dw-ratify(자동 검증·승인) → [컴파일] → .claude/skills
-       LIVE  학습·계약·스펙·백로그·참조 ── MCP 가 즉시 저장 ←── 에이전트가 읽고/쓰기
-               │                                              │ dw-vault MCP (11 도구)
-               ▼                                              ▼
-     세션 시작: 훅이 "지켜야 할 규율 + 규칙 + 지식 인덱스"를 자동 주입 → 복종·강제
-       대상 프로젝트 세션        ·        Claude Code
+               사람 (규칙 및 지식 저작)
+                         │
+        Obsidian Vault (SSOT · 팀 지식 폴더)
+           ├── OBEY (규칙·지침·절차) ── dw-ratify(자동 검증·승인) → [컴파일] → .claude/skills
+           └── LIVE (학습·계약·스펙) ── MCP 서버가 실시간 저장 ◀── 에이전트 읽기/쓰기
+                         │                                             │ dw-vault MCP (11개 도구)
+                         ▼                                             ▼
+ ───────────────────────────────────────────────────────────────────────────────
+ 세션 시작 시점: 훅(Hook)이 "필수 준수 지침 + 강제 규칙 + 지식 인덱스"를 컨텍스트에 자동 주입
+                         │
+                         ▼
+                대상 프로젝트 세션 ◀──────▶ Claude Code (규율 강제 준수)
 ```
 
-> 이 문서는 **사용법·운영**입니다. 설계 원리·불변식은 [BOOTSTRAP.md](./BOOTSTRAP.md).
+> ℹ️ 이 문서는 **사용법 및 운영 가이드**입니다. 설계 원리 및 불변식은 [BOOTSTRAP.md](./BOOTSTRAP.md)을 참조하십시오.
 
 ---
 
 ## 🚀 빠른 시작 (3단계)
 
-1. **플러그인 설치** — 터미널에서 Claude Code 를 열고 두 줄을 붙여넣기:
-   ```
+1. **플러그인 설치** — 터미널에서 Claude Code를 실행하고 아래 명령어를 순서대로 입력합니다:
+   ```bash
    claude plugin marketplace add https://github.com/denvernext80/Denver-Workflow
    claude plugin install denver-workflow@denver-workflow
    ```
-2. **초기 설정** — 세션에서 `/dw-setup` 입력. 도우미가 필요한 프로그램(Obsidian 등) 설치, 지식
-   폴더(vault) 준비, 이 프로젝트 연결까지 알아서 안내합니다(새 프로젝트·기존 프로젝트·멀티레포 자동 판별).
-3. **사용 시작** — `/denver-workflow` 입력. 기능 개발 전 과정(요구사항 → 배포)을 11단계로 안내합니다.
+2. **초기 설정** — 세션에서 `/dw-setup`을 입력합니다. 설정 도우미가 필수 프로그램(Obsidian 등) 설치, 지식 폴더(Vault) 준비, 프로젝트 연결까지 자동으로 안내합니다 (신규·기존·멀티레포 프로젝트 유형 자동 판별).
+3. **사용 시작** — `/denver-workflow`를 입력합니다. 요구사항 분석부터 최종 배포까지의 전체 기능 개발 과정을 11단계로 자동 안내합니다.
 
-> 단발 수정(오타·1줄 fix)은 11단계가 아니라 바로 git 흐름으로 갑니다. 신규 기능일 때만 풀사이클.
-
----
-
-## 커맨드 (슬래시 명령)
-
-| 커맨드 | 하는 일 |
-|---|---|
-| `/dw-setup` | **초기 설정 도우미** — 프로그램 설치·vault 준비·프로젝트 연결을 한 번에 |
-| `/denver-workflow` | **기능 개발 풀사이클** — 요구사항 → 배포 11단계(멀티레포 디스패치) |
-| `/dw-install` | vault 최신 상태(규칙·검사·에이전트·세션 다이제스트)를 프로젝트에 설치/갱신 |
-| `/dw-build` | vault 를 컴파일(`.claude/skills`) — dry-run strict 검증 후 빌드 |
-| `/dw-ratify` | draft 규칙·절차를 **자동 검증·승인** → 통과분 stable·컴파일·설치(사람 불요) |
-| `/dw-review` | 자동 승인이 보류한 "판단 필요" 큐 + 헬스체크 |
-| `/dw-scope` | 플러그인 활성 범위 — 사용자 전역 vs 이 프로젝트만 |
-| `/dw-ci-review` | **(선택) GitHub PR 자동 리뷰어** 설치 — PR 마다 Claude 가 코드 리뷰(11단계 ⑥ 자동화) |
+> 💡 오타 수정, 한 줄짜리 버그 픽스, 단순 문서 수정 등 단발성 작업은 11단계를 생략하고 바로 Git 흐름(Branch/PR)으로 진행합니다. **신규 기능 개발 등 전체 사이클 검증이 필요할 때만 적용합니다.**
 
 ---
 
-## 기능 개발 풀사이클 — `/denver-workflow`
+## 💻 슬래시 커맨드 (Commands)
 
-신규 기능을 **요구사항 → 배포**까지 **11단계**로 안내하는 멀티에이전트 워크플로우입니다. 여러
-저장소를 함께 쓰면(멀티레포) 변경 면(프론트·백엔드·QA…)에 맞는 저장소와 담당 에이전트(do-er)로
-**자동 분기(dispatch)** 합니다. 각 단계엔 전담 스킬/에이전트가 있고, 막히면 **advisor**(더 강한
-리뷰어 모델)로 **에스컬레이션**합니다.
-
-> - **단발 수정은 제외** — 오타·1줄 fix·문서만 바꾸는 건 11단계를 건너뛰고 바로 git 흐름으로.
-> - **첫 1회 준비(0단계)** — 멀티레포면 `/denver-workflow` 가 **저장소 지도(repo-map)**를 대화식으로
->   만듭니다(어느 저장소에 어떤 담당자를 붙일지). 기술자가 한 번 설정하면 이후엔 일상 실행만.
-
-### 흐름 — 설계 → 분기·계약 → 구현 → 검증 → 배포
-
-11개 세부 단계는 **다섯 국면**으로 진행됩니다: **설계 → 분기·계약 → 구현 → 검증 → 배포.**
-**분기·계약** 국면엔 **API 계약 GATE**(관문)가 있어, 계약(request/response shape)이 확정돼야
-구현에 들어갑니다.
-
-| 국면 | # | 세부 단계 | 도구(스킬/에이전트) |
-|---|---|---|---|
-| **① 설계** | 1 | 요구사항 분석 | brainstorming + ★advisor |
-| | 2 | 상세 기획 | writing-plans |
-| | 3 · 3.5 | UI/UX 시안 · 디자인 HTML | impeccable · gstack |
-| **② 분기·계약** 🔒 | 4 | 업무 배분 + worktree 격리 | 레포별 do-er |
-| | 🔒 | **API 계약 GATE** — shape 확정 전 구현 진입 금지 | vault `contracts/` + ★advisor |
-| **③ 구현** | 5 | 구현 + 회귀 가드 | subagent-driven (순차: 계약→공급측→소비측) |
-| **④ 검증** | 6 | PR + 리뷰 + CI | `gh pr create` → 레포 CI (선택: `dw-pr-review.yml`) |
-| | 7 · 7.5 | 기획↔구현 비교 · 디자인 QA | ★advisor · gstack |
-| | 8 · 8.5 | 기능 QA · 회귀 스위트 | gstack · 대상 레포 테스트 전체 green |
-| **⑤ 배포** | 9 | 머지 + 배포 | 레포별 규율(머지·배포 게이트는 사용자 동의) |
-
-★ = advisor 에스컬레이션 · 🔒 = GATE (통과 전 다음 단계 금지)
-
-### 핵심 규율
-
-- **API 계약 먼저** — 교차 레포 작업은 계약(vault `contracts/`)을 확정한 뒤에야 구현 진입(shape 없이 ⑤ 금지).
-- **순차 디스패치** — 계약 → 공급측(백엔드) → 소비측(앱/프론트) 순서. 병렬 금지(디렉토리 상이 시 계약 합의 후만).
-- **회귀 2지점** — ⑤ 사고 fix 는 실패 테스트(RED) 먼저 · ⑧.5 배포 전 전체 테스트 green.
-- **완료 게이트** — 대상 레포의 `.claude/dw-checks.json` 로 검증. **green 전 완료 선언 금지.**
-- **머지·배포 게이트** — 마이그레이션·시크릿·권한·데이터 손실 변경은 **사용자 동의**.
-
-> 이 워크플로우는 외부 스킬(superpowers·impeccable·gstack)을 호출합니다 — 미설치 시 그 자리에서
-> 안내·설치(자가치유, 아래 〈외부 의존〉). 각 단계의 상세·게이트는 `/denver-workflow` 실행이 안내합니다.
+| 커맨드 | 설명 |
+| --- | --- |
+| `/dw-setup` | **초기 설정 도우미** — 필수 도구 설치, Vault 준비 및 프로젝트 연결 일괄 처리 |
+| `/denver-workflow` | **기능 개발 풀사이클** — 요구사항 정의부터 배포까지의 11단계 프로세스 가동 (멀티레포 대응) |
+| `/dw-install` | Vault의 최신 상태(규칙, 검사, 에이전트 설정, 다이제스트)를 타깃 프로젝트에 동기화/갱신 |
+| `/dw-build` | Vault 내용을 컴파일하여 `.claude/skills`로 빌드 (Strict 검증 모드 적용) |
+| `/dw-ratify` | Draft 상태의 규칙/절차를 **자동 검증 및 승인**하여 Stable 상태로 빌드·설치 (사람의 개입 불요) |
+| `/dw-review` | 자동 승인이 보류된 수동 검토용 큐(Queue) 확인 및 시스템 헬스체크 수행 |
+| `/dw-scope` | 플러그인 활성화 범위 설정 (사용자 전역 vs 현재 프로젝트 한정) |
+| `/dw-ci-review` | **(선택) GitHub PR 자동 리뷰어** 설치 — PR 생성 시 Claude가 브랜치 단위 코드 리뷰 수행 |
 
 ---
 
-## vault 에 무엇을 어디에 두나
+## 🔄 기능 개발 풀사이클 — `/denver-workflow`
 
-지식 폴더(vault)는 두 축으로 나뉩니다. **폴더는 사람이 보기 좋으라고 나눈 것이고, 실제 라우팅은
-각 노트의 `type`(frontmatter)으로 합니다** — 그래서 노트를 다른 폴더에 둬도 컴파일은 정확합니다.
+신규 기능을 **요구사항 정의부터 배포**까지 안전하게 실행하는 멀티 에이전트 워크플로우입니다.
 
-### 축 B — 운영체계 `governance/` ("어떻게 일하나", 프로젝트 무관, 컴파일됨)
+다중 저장소(멀티레포) 환경인 경우 변경 범위(Frontend, Backend, QA 등)를 스스로 분석하여 알맞은 저장소와 담당 에이전트(**Do-er**)로 자동 분기(Dispatch)합니다. 프로세스 진행 중 교착 상태가 발생하면 상위 리뷰어 모델인 **Advisor**로 에스컬레이션(Escalation)하여 검토를 받습니다.
 
-| 폴더 | 용도 | type | 컴파일 |
-|---|---|---|---|
-| `governance/_skills/` | scope 묶음 정의(skill-manifest) | `skill-manifest` | ✅ |
-| `governance/rules/` | **강제 규칙**("법") — 검증자(`enforced-by`) 필수 | `rule` | ✅ stable |
-| `governance/guidance/` | 작업 규율 — 공유 원칙(강제 게이트는 아님) | `guidance` | ✅ stable |
-| `governance/procedures/` | 재사용 절차(playbook) — 에이전트 저작(draft→자동 승인) | `procedure` | ✅ stable |
-| `governance/agents/` | 역할 정의(검증자·하네스) | `agent` | 서브에이전트로 설치 |
+* **최초 1회 준비 단계 (0단계):** 멀티레포 환경일 경우, 대화식 인터페이스를 통해 각 저장소에 매칭할 담당 에이전트를 정의하는 저장소 지도(Repo-Map)를 생성합니다. 기술자가 한 번 구축해 두면 이후에는 추가 설정 없이 일상적으로 구동됩니다.
 
-### 축 A — 프로젝트 지식 `project/` ("무엇을 만들/합의/배웠나", LIVE · 비컴파일)
+### 🛠️ 5국면 흐름 (설계 ➔ 분기·계약 ➔ 구현 ➔ 검증 ➔ 배포)
 
-LIVE = 승인 게이트 없이 **즉시 저장·검색**됩니다(읽기가 승인 상태와 무관하므로).
+| 국면 | 단계 | 세부 단계 | 도구 (스킬 / 에이전트) |
+| --- | --- | --- | --- |
+| **① 설계** | 1 | 요구사항 분석 | `brainstorming` + ★ `advisor` |
+|  | 2 | 상세 기획 | `writing-plans` |
+|  | 3 · 3.5 | UI/UX 시안 · 디자인 HTML | `impeccable` · `gstack` |
+| **② 분기·계약** 🔒 | 4 | 업무 배분 + Worktree 격리 | 저장소별 `do-er` |
+|  | 🔒 | **API 계약 GATE** (인터페이스 확정 전 구현 진입 금지) | Vault 내 `contracts/` + ★ `advisor` |
+| **③ 구현** | 5 | 구현 및 회귀 방지 가드 구동 | `subagent-driven` (순차: 계약 ➔ 공급측 ➔ 소비측) |
+| **④ 검증** | 6 | PR 생성 + 리뷰 + CI 빌드 | `gh pr create` ➔ 레포 CI (선택: `dw-pr-review.yml`) |
+|  | 7 · 7.5 | 기획-구현 싱크 비교 · 디자인 QA | ★ `advisor` · `gstack` |
+|  | 8 · 8.5 | 기능 QA · 회귀 테스트 스위트 구동 | `gstack` ➔ 대상 저장소 테스트 전체 Green 통과 |
+| **⑤ 배포** | 9 | 머지(Merge) + 프로덕션 배포 | 레포지토리별 규율 준수 (**머지·배포 관문은 사용자 동의 필수**) |
 
-| 폴더 | 용도 | type | 완료 처리 |
-|---|---|---|---|
-| `project/memory/` | 에이전트 학습(비자명한 것만) | `memory` | — |
-| `project/contracts/` | 백엔드↔앱 등 인터페이스 계약(SSOT) | `contract` | `dw_resolve` → archive |
-| `project/specs/` | 계획·스펙·설계(worktree 휘발 방지) | `spec` | `dw_resolve` → archive |
-| `project/backlog/` | **후속·할 일**(범위 밖 — repo 에 BACKLOG 파일 만들지 말고 여기) | `backlog` | `dw_resolve` → archive |
-| `project/reference/` | **스냅샷형 참조**(DB 스키마·API 인덱스·아키텍처 — "현재 상태 추출") | `reference` | 재추출로 교체(완료 없음) |
-| `project/decisions/` | ADR(아키텍처 결정 기록) — append-only | `decision` | — |
-| `project/repo-map.md` | 멀티레포 라우팅 토폴로지(예외 — digest 로 주입) | `repo-map` | — |
+> 📌 **표기 규약**
+> * ★ = `advisor` 에스컬레이션 지점
+> * 🔒 = **GATE** (조건 충족 및 통과 전에는 다음 단계 진입 절대 불가)
 
-> **backlog vs reference**: backlog 는 "나중에 할 일"(완료되면 archive), reference 는 "지금 시스템이
-> 이렇게 생겼다"의 캡처(완료 개념 없음 — 낡으면 새로 추출해 **교체**). `project/` 는 사적 데이터라
-> 공개 플러그인 seed 에 **절대 포함하지 않습니다**.
+### 🚨 핵심 개발 규율 (Core Disciplines)
 
----
-
-## vault 지식 도구 — MCP `dw-vault` (11개)
-
-vault 를 MCP 서버로 노출합니다. 에이전트는 raw 파일이 아니라 **타입별 도구**로 읽고 씁니다(잘못된
-형식이 원천 차단). 쓰기 도구엔 status 파라미터가 없습니다 — LIVE 는 즉시 stable, OBEY 만 draft 제안.
-
-| 구분 | 도구 | 설명 |
-|---|---|---|
-| **읽기** | `dw_search(query)` · `dw_read(name)` · `dw_list(type?)` | 검색 · 원문 열기 · 목록 |
-| **쓰기 · LIVE** (즉시 사용) | `dw_write_memory` | 학습 기록 |
-| | `dw_write_backlog` | 후속·할 일 |
-| | `dw_write_reference` | 현재 상태 스냅샷(같은 title 재호출 시 덮어써 교체) |
-| | `dw_write_contract` | 계약 — `signoff`(pending\|agreed) · `blocking`(blocking\|non-blocking) 명시 |
-| | `dw_write_spec` | 계획·스펙·설계 |
-| **쓰기 · OBEY** (자동 승인) | `dw_write_procedure` · `dw_propose_rule` | 절차 · 규칙 제안(draft→ratify) |
-| **완료/폐기** | `dw_resolve(name, resolution)` | backlog·spec·contract 를 `archive/` 로 이동(완료 표시). memory·decision·**reference 는 대상 아님** |
-
-> `status`(비준상태)로는 완료/미완료를 못 나눕니다 — 그래서 완료는 **archive 이동**(`dw_resolve`)으로
-> 표현합니다. 활성 목록(dw_search·dw_list)엔 미완료만 남고, 완료분은 경로로 직접 `dw_read` 하면 이력이 남습니다.
-
-등록은 자동입니다 — `plugin.json` 의 `mcpServers.dw-vault` 가 플러그인 켜진 모든 세션에
-`plugin:denver-workflow:dw-vault`(도구 `mcp__plugin_denver-workflow_dw-vault__*`)로 제공합니다.
-계정마다 `claude mcp add` 하던 수동 등록이 불필요합니다. (도구는 **세션 시작 시 로드** — 플러그인
-갱신 후엔 새 세션을 여세요.)
+* **API 계약 우선 원칙 (Contract First):** 교차 레포지토리 작업 시 Vault의 `contracts/`에 인터페이스 계약 스펙이 확정되어야만 구현(5단계) 시작이 가능합니다. (인터페이스 정의 없는 5단계 진입 금지)
+* **순차적 디스패치:** 구현 작업은 합의된 스펙을 바탕으로 **[계약] ➔ [공급측 (Backend)] ➔ [소비측 (Frontend/App)]** 순서로 순차 실행됩니다. 상호 디렉토리가 상이한 상태에서의 병렬 작업을 금지합니다.
+* **회귀 테스트 2지점 방어:** 5단계 결함 수정 시에는 실패하는 테스트(RED)를 먼저 작성해야 하며, 배포 전(8.5단계)에는 전체 테스트 스위트가 통과(GREEN)되어야 합니다.
+* **완료 게이트 (Completion Gate):** 대상 레포지토리의 `.claude/dw-checks.json` 검증 결과가 모두 **Green 상태가 되기 전에는 임의로 완료를 선언할 수 없습니다.**
+* **머지·배포 게이트:** 데이터베이스 마이그레이션, 시크릿 키 변경, 인프라 권한 변경, 데이터 손실 위험이 있는 변경 사안은 **반드시 사용자의 명시적 승인**을 거쳐야 합니다.
 
 ---
 
-## 선택 기능
+## 📂 Vault 지식 구조 및 관리 원칙
 
-### GitHub Actions Claude PR 리뷰어 — `/dw-ci-review`
+지식 폴더(Vault)는 구조에 따라 두 축으로 나뉩니다. **폴더 분류는 작업자의 가독성을 위한 것이며, 실제 에이전트 라우팅은 노트 상단 Frontmatter에 명시된 `type`을 기준으로 컴파일러가 정확하게 식별합니다.** 따라서 노트를 다른 폴더로 이동시켜도 컴파일은 유효합니다.
 
-PR 이 열리거나 갱신되면 **Claude 가 PR 브랜치를 받아 실제 코드를 읽고 리뷰**해, 인라인 코멘트 +
-최종 요약(합격/불합격 판정)을 남깁니다. 불합격이면 검사(`review`)가 실패 → 브랜치 보호 규칙에 넣으면
-리뷰 통과 전 머지를 막습니다. **저장소별 옵인**입니다.
+### 축 B — 운영체계 `governance/` ("어떻게 일하는가" | 프로젝트 무관 | 컴파일 대상)
 
-- 리뷰 기준은 특정 언어에 묶이지 않습니다 — 리뷰어가 그 저장소에 커밋된 거버넌스(`.claude/skills`·
-  `.claude/dw-checks.json`·`CLAUDE.md`)를 발견해 그 기준으로 리뷰하고, 없으면 일반 시니어 원칙으로.
-- 인증은 **Claude Pro/Max OAuth 토큰**(`CLAUDE_CODE_OAUTH_TOKEN` — 별도 API 과금 없이 구독으로).
-- 설치: `/dw-ci-review`(미리보기 → 적용). 이후 사람 작업(토큰 시크릿 등록·커밋·브랜치 보호)을 커맨드가
-  안내합니다. 템플릿: `assets/gh-workflows/dw-pr-review.yml`.
-- verdict 게이트는 위조 방지(코멘트 작성자 검증)·stale 코멘트 차단·응답 부재 시 안전 FAIL 을 갖춥니다.
+| 폴더 경로 | 용도 및 설명 | `type` | 컴파일 및 적용 |
+| --- | --- | --- | --- |
+| `governance/_skills/` | 스킬 범위 및 매니페스트 정의 | `skill-manifest` | ✅ |
+| `governance/rules/` | **강제 규칙 (법률)** — 검증자(`enforced-by`) 필드 필수 명시 | `rule` | ✅ Stable만 적용 |
+| `governance/guidance/` | 작업 규율 및 공유 원칙 (하드 게이트는 아님) | `guidance` | ✅ Stable만 적용 |
+| `governance/procedures/` | 재사용 가능한 절차(Playbook) — 에이전트 자동 저작 지원 | `procedure` | ✅ Stable만 적용 |
+| `governance/agents/` | 역할 정의 (보안·리뷰 전담 서브에이전트 및 하네스) | `agent` | 서브에이전트로 설치 |
 
-### graphify 시멘틱 그래프 (MCP)
+### 축 A — 프로젝트 지식 `project/` ("무엇을 만드는가" | 실시간 변동 | LIVE)
 
-코드·지식을 그래프로 인덱싱하는 외부 도구 `graphify` 가 있으면, 문자열 매칭인 `dw_search` 대신
-**관계·경로 기반 탐색**을 씁니다. 옵인이라 구축한 사용자만 켭니다(미구축 환경엔 무영향).
+**LIVE 영역은 별도의 비준 게이트 없이 에이전트에 의해 즉시 저장되고 검색됩니다.**
 
-- `/dw-setup` 옵인 단계가 graphify 를 감지하면 **프로젝트별 `.mcp.json`** 에 등록(헬퍼:
-  `_build/dw-graphify-register.py`). 전역이 아니라 프로젝트별이라 모든 세션에 강요하지 않습니다.
-- **지식**은 vault 기본 그래프, **특정 레포 코드**는 `project_path=<repo 절대경로>` 로 조회.
-- guidance `graphify-search`(세션 상시 주입)가 "탐색은 graphify 우선, 코드 구조는 graphify **MCP**
-  (raw grep·CLI 아님), 없으면 `dw_search` 폴백"을 지시합니다.
+| 폴더 경로 | 용도 및 설명 | `type` | 완료 처리 방식 |
+| --- | --- | --- | --- |
+| `project/memory/` | 작업 도중 축적된 에이전트의 비자명한 학습 내용 기록 | `memory` | 영구 누적 |
+| `project/contracts/` | 백엔드 ↔ 앱/프론트엔드 간의 인터페이스 계약 (SSOT) | `contract` | 완료 시 `dw_resolve` ➔ archive |
+| `project/specs/` | 기능 계획, 스펙 및 아키텍처 설계 문서 (휘발 방지) | `spec` | 완료 시 `dw_resolve` ➔ archive |
+| `project/backlog/` | 후속 작업 및 To-Do (코드 내 BACKLOG 주석 대신 여기에 관리) | `backlog` | 완료 시 `dw_resolve` ➔ archive |
+| `project/reference/` | 현재 시스템 스냅샷 (DB 스키마, API 인덱스 등 추출 데이터) | `reference` | 최신 데이터 재추출 시 덮어쓰기 |
+| `project/decisions/` | 아키텍처 결정 기록 (ADR) | `decision` | Append-only (누적) |
+| `project/repo-map.md` | 멀티레포 라우팅 토폴로지 구조 정의 | `repo-map` | 다이제스트로 자동 주입 |
 
----
-
-## 어떻게 강제되나 (거버넌스 하네스)
-
-아래 레이어들은 그 자체로는 *권고*입니다("안다"이지 "못 어긴다"가 아님). **`dw-governed` 하네스
-에이전트**가 이들을 *강제 루프*로 묶습니다: 규칙 pull → 작업 → 결정론 검사 → 검증자 호출 →
-**통과까지 루프** → 완료 게이트. 프로젝트 `settings.local.json` 에 `"agent": "dw-governed"` 를 두면
-모든 세션이 하네스로 시작합니다(항상 강제).
-
-- **세션 주입**(SessionStart 훅) — 다이제스트(항상-적용 지침 + 강제 규칙 + 지식 인덱스)를 세션
-  시작 시 컨텍스트에 주입(`🔒` 표시). CC 스킬 body 는 자동 로드되지 않으므로 이게 규칙·지식을 세션에 닿게 하는 실제 경로.
-- **자동 비준**(`make ratify`, 스케줄) — draft 규칙·절차를 결정론 검증(스키마·검증자 실재·check 패턴을
-  실제 코드에 돌려 오탐 0)해 안전분만 자동 stable·컴파일·설치. 판단 필요분만 `dw-ratifier`(LLM).
-- **결정론 린터**(PostToolUse) — 규칙의 `check-deny`/`check-require` → `.claude/dw-checks.json` +
-  `dw-lint.py`. 위반을 피드백(차단 아님, self-correct 유도).
-- **worktree 가드**(PreToolUse, `Agent|Task`) — 격리 없이 파일 변경 에이전트를 spawn 하면 `ask`(공유 체크아웃 오염 방지).
-- **vault 가드 / 산출물 가드**(PostToolUse) — raw `.md` frontmatter 계약 검사 + durable 문서·백로그를 vault 로 유도.
-- **graphify 게이트**(PreToolUse, `dw_search`·`Grep`) — graphify 등록 세션이면 그래프 우선 탐색을 리마인드.
-- **서브에이전트**(판단) — `enforced-by` 가 참조하는 검증자(security-qa·code-review 등)만 설치.
-
-> 오탐 방지: 모든 검사는 `check-glob` 로 파일형 한정 + `check-exclude` 로 생성물·테스트·정본 파일 제외.
-> grep 이 못 잡는 구조 규칙은 서브에이전트 리뷰가 담당합니다.
+> ⚠️ **정리 및 보안 원칙**
+> * `backlog`는 완료 시 archive 폴더로 이동하여 종결되지만, `reference`는 시스템의 현재 상태를 동기화하므로 완료 개념 없이 최신 데이터로 **교체**됩니다.
+> * `project/` 하위 데이터는 비공개 도메인 자산이므로, 오픈소스 플러그인 Seed 배포본에 **절대 포함하지 않습니다.**
 
 ---
 
-## 설정·운영
+## 🛠️ Vault 지식 관리 도구 (MCP `dw-vault`)
 
-### 무엇이 설치되나
+Denver는 Vault를 MCP(Model Context Protocol) 서버 형태로 에이전트에 노출합니다. 에이전트는 원시 마크다운 파일을 직접 다루지 않고, 규격화된 **타입별 전용 도구**를 통해서만 읽고 씁니다. 포맷 오염을 원천 차단하기 위함입니다.
 
-이 repo 자체가 플러그인입니다(`.claude-plugin/plugin.json`·`hooks/`·`commands/`). 한 번에 **MCP(dw-vault)
-+ 거버넌스 하네스·검증자 에이전트 + 훅(린터·vault/산출물 가드·worktree 가드·세션 주입·graphify 게이트)
-+ 슬래시 커맨드**가 설치됩니다. 단, **프로젝트별 스킬·검사·다이제스트는 `/dw-install`**(또는
-`make install-project`)로 생성합니다 — 플러그인은 엔진, 프로젝트별 컴파일은 별도.
+| 구분 | 도구 명칭 | 설명 |
+| --- | --- | --- |
+| **읽기 (Read)** | `dw_search(query)` <br> `dw_read(name)` <br> `dw_list(type?)` | 지식 검색 <br> 특정 노트 원문 조회 <br> 타입별 지식 목록 조회 |
+| **쓰기 (Write) · LIVE** *(즉시 반영)* | `dw_write_memory` <br> `dw_write_backlog` <br> `dw_write_reference` <br> `dw_write_contract` <br> `dw_write_spec` | 실시간 에이전트 학습 내역 기록 <br> 후속 할 일 기록 <br> 시스템 스냅샷 기록 (동일 제목 호출 시 자동 덮어쓰기 교체) <br> 계약 기록 (`signoff` [pending\|agreed], `blocking` 여부 명시) <br> 기능 기획 및 설계서 기록 |
+| **쓰기 (Write) · OBEY** *(검증 및 제안)* | `dw_write_procedure` <br> `dw_propose_rule` | 절차(Playbook) 및 규칙 제안 <br> *(작성 시 즉시 반영되지 않고 `draft` 상태로 대기)* |
+| **종결 (Resolve)** | `dw_resolve(name, resolution)` | 완료된 backlog, spec, contract 노트를 `archive/` 폴더로 이동 처리 <br> *(※ memory, decision, reference는 이 도구의 대상이 아님)* |
 
-### vault 위치
+> 💡 **자동 MCP 등록** — 에이전트 도구는 `plugin.json` 정의를 통해 플러그인이 활성화된 모든 세션에 자동으로 등록됩니다. 계정마다 수동으로 `claude mcp add`를 실행할 필요가 없습니다. 도구는 세션 시작 시점에 로드되므로 플러그인 업데이트 후에는 새 세션을 열어주십시오.
 
-vault 콘텐츠는 이 repo 가 아니라 **별도 폴더**(기본 `~/denver-workflow-vault`)에 있습니다. 사람은
-Obsidian 으로 열어 편집, 에이전트는 MCP 로 read/write.
+---
 
-- 해석 순서: `DW_VAULT_DIR`(env, 존재하는 폴더) > `~/denver-workflow-vault`(규약) > 에러(폴더 없으면 서버 미기동).
-- 커스텀 위치는 CC 시작 전 `export DW_VAULT_DIR="$HOME/My Vaults/denver"`.
-- `make build|install-project|ratify` 는 **이 워크스페이스에서** 실행하되 `VAULT_DIR` 로 그 vault 를 읽습니다.
+## 🌟 선택 확장 기능
 
-### advisor 모델 — Opus 4.8 권장
+### 1. GitHub Actions 연동 Claude PR 리뷰어 (`/dw-ci-review`)
 
-11단계의 ★advisor 에스컬레이션은 CC 빌트인 advisor(강한 리뷰어 모델)를 씁니다. 플러그인이 자동
-설정할 수 없어 한 번 설정합니다: 세션에서 `/advisor opus`(→ `~/.claude/settings.json` 저장), 또는
-`{ "advisorModel": "claude-opus-4-8" }`. (Anthropic API 필요, CC v2.1.98+.)
+Pull Request가 생성되거나 업데이트되면, GitHub Actions 상에서 **Claude가 PR 브랜치 코드를 체크아웃하여 정밀 리뷰**를 수행합니다.
 
-### 외부 의존 — `/dw-setup` 이 대신 설치
+* 파일 단위의 인라인 코멘트를 남기고, 최종 요약(Pass/Fail 판정)을 제공합니다.
+* Fail 판정 시 CI 체크가 실패하므로, 브랜치 보호 규칙(Branch Protection Rule)과 결합하여 품질 기준 미달 코드의 머지를 강제 차단할 수 있습니다.
+* **저장소별 옵인(Opt-in) 방식**으로 동작합니다. 리뷰 기준은 특정 언어에 종속되지 않으며, 프로젝트 내에 커밋된 거버넌스 규칙(`.claude/skills`, `CLAUDE.md` 등)을 최우선 기준으로 삼습니다.
+* **인증:** 별도의 API 과금 없이 사용자의 **Claude Pro/Max OAuth 토큰**(`CLAUDE_CODE_OAUTH_TOKEN`)을 활용합니다.
+* **설치:** 세션에서 `/dw-ci-review` 입력 후 안내에 따라 시크릿 등록 및 워크플로우 템플릿(`assets/gh-workflows/dw-pr-review.yml`)을 커밋합니다.
 
-Denver 는 자기 영역(SSOT·거버넌스·MCP·가드·하네스)만 번들합니다. do-er 워크플로우가 호출하는 외부
-스킬은 **사용자가 직접 설치**합니다(복사본 번들 금지 — 중복·라이선스·버전 드리프트 회피). 미설치가
-발견되면 그 자리에서 설치(자가치유).
+### 2. Graphify 시맨틱 그래프 탐색 (MCP)
 
-| 의존 | 용도 | 설치 |
-|---|---|---|
-| **Obsidian** (필수) | vault 편집 | https://obsidian.md/download · macOS `brew install --cask obsidian` |
-| **superpowers** (권장) | brainstorming·writing-plans·TDD(①②④⑤) | `claude plugin install superpowers@claude-plugins-official` |
-| **impeccable** (UI 시 필수) | 프론트 디자인 critique(③) | `claude plugin install impeccable@impeccable` |
-| **gstack** (디자인/QA 권장) | design·browse·qa(③③.5⑦.5⑧) | `git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` |
+코드베이스와 지식의 관계를 그래프 구조로 인덱싱하는 외부 도구 `graphify`가 구축되어 있다면, 단순 문자열 매칭 방식인 `dw_search` 대신 **관계 및 경로 기반 시맨틱 탐색**을 우선 활용하도록 자동 전환됩니다.
 
-### 빌드·헬스체크
+* `/dw-setup` 프로세스 진행 중 graphify 환경이 감지되면 프로젝트별 `.mcp.json`에 자동으로 등록됩니다. (전역 강제가 아닌 프로젝트별 독립 격리 적용)
+* graphify가 구축되지 않았거나 응답이 없는 환경에서는 기존 `dw_search`로 안전하게 폴백(Fallback)됩니다.
+
+---
+
+## 🔒 거버넌스 강제 메커니즘 (Governance Harness)
+
+단순 권고 지침에 그치지 않도록, Denver는 **`dw-governed` 하네스 에이전트**를 통해 아래의 보호 레이어들을 결정론적 루프로 묶어 실행을 강제합니다. 프로젝트 `settings.local.json`에 `"agent": "dw-governed"` 설정을 추가하면 모든 세션이 하네스 제어하에 시작됩니다.
+
+* **세션 다이제스트 주입 (SessionStart Hook):** 세션이 시작되는 즉시 상시 준수 지침, 강제 규칙, 지식 인덱스가 포함된 다이제스트(Digest) 컨텍스트를 에이전트 컨텍스트에 주입합니다. (`🔒` 표시) 이는 스킬 본문이 자동 로드되지 않는 Claude Code 환경에서 실제 규칙을 도달시키는 핵심 경로입니다.
+* **자동 비준 루프 (`dw-ratify`):** 제안된 규칙과 절차(`draft`)들을 결정론적 검증 스크립트(스키마 일치, 검증자 실재 여부 등)로 자동 확인하여, 오탐이 없는 건에 한해 `stable` 상태로 자동 승격, 컴파일 및 설치합니다. 수동 판단이 필요한 케이스만 LLM 검증기(`dw-ratifier`) 큐로 이관합니다.
+* **결정론적 린터 (PostToolUse Hook):** 지식 노트에 선언된 정적 규칙 위반 패턴(`check-deny`/`check-require`)을 실시간 검사하여 위반 발생 시 에이전트에게 즉각적인 피드백을 제공하고 자가 치유(Self-correct)를 유도합니다.
+* **Worktree 오염 방지 가드 (PreToolUse Hook):** 변경 범위 격리(Worktree) 없이 공유 체크아웃 환경에서 다이렉트로 파일을 수정하려는 서브에이전트 스폰 시도를 감지하여 즉시 차단하고, 사용자 동의(`ask`)를 구합니다.
+* **오탐 방지 장치:** 모든 정적 검사는 `check-glob`을 통해 지정된 파일 포맷으로 타깃을 한정하며, `check-exclude`를 통해 빌드 산출물이나 테스트 정본 파일 등은 검사 대상에서 제외합니다.
+
+---
+
+## ⚙️ 설정 및 운영 가이드 (Ops)
+
+### 1. 설치 구성 요소
+
+이 레포지토리 자체가 하나의 플러그인 구조(`.claude-plugin/plugin.json`, `hooks/`, `commands/`)를 가집니다. 플러그인을 활성화하면 아래 요소들이 일괄 설치됩니다.
+
+* **MCP 서버 (`dw-vault`)** + **거버넌스 하네스 및 검증자 에이전트**
+* **런타임 훅(Hook) 시스템** (린터, 산출물 가드, Worktree 보호 가드, 세션 지식 주입 훅 등)
+* **슬래시 커맨드 세트**
+
+> ⚠️ 프로젝트별 고유 스킬, 검사 규칙, 세션 다이제스트 파일은 플러그인 설치와 별개로 **`/dw-install`**(또는 `make install-project`) 명령어를 실행하여 빌드 및 배포해야 합니다. 플러그인은 공통 '엔진'이며, 프로젝트별 컴파일 결과물은 독립적으로 관리됩니다.
+
+### 2. Vault 위치 제어 및 우선순위
+
+지식 데이터(Vault)는 플러그인 코드 내부가 아닌 사용자의 **독립 로컬 폴더**에 보관됩니다. 사람은 Obsidian으로 편집하고 에이전트는 MCP 서버를 통해 접근합니다.
+
+* **경로 해석 우선순위:** 환경 변수 `DW_VAULT_DIR` 경로 ➔ 기본 규약 경로(`~/denver-workflow-vault`) ➔ 해당 경로에 폴더가 없을 경우 에러를 반환하며 서버 구동이 중지됩니다.
+* 커스텀 위치를 사용하려면 Claude Code 실행 전 터미널 환경 변수를 선언하십시오:
+  ```bash
+  export DW_VAULT_DIR="$HOME/My Vaults/denver"
+  ```
+
+### 3. Advisor 모델 지정 (Claude Opus 권장)
+
+11단계 워크플로우 진행 중 기술적 교착 상태가 되거나 강력한 리뷰가 필요할 때 호출되는 Advisor 에스컬레이션용 모델입니다.
+
+* 세션 창에서 `/advisor opus` 명령어를 입력하거나, `~/.claude/settings.json` 내에 아래 설정을 적용하십시오:
+  ```json
+  { "advisorModel": "claude-opus-4-8" }
+  ```
+* *(※ Anthropic API Key 필요, Claude Code v2.1.98 이상 버전 요구)*
+
+### 4. 외부 의존성 관리
+
+Denver는 자체 거버넌스 코어 및 하네스 엔진만 포함하고 있습니다. 개발 워크플로우 도중 에이전트가 호출하게 되는 강력한 외부 플러그인/스킬들은 사용자가 직접 환경에 설치해야 합니다. 미설치 상태로 도구가 호출되면 시스템이 스스로 자가치유 설치 안내 메시지를 노출합니다.
+
+| 의존 도구 | 용도 | 설치 방법 |
+| --- | --- | --- |
+| **Obsidian** *(필수)* | 지식 저작 및 편집용 IDE 환경 | 공식 홈페이지 다운로드 또는 `brew install --cask obsidian` |
+| **superpowers** *(권장)* | 브레인스토밍, 기획서 작성, TDD 구현 리드 | `claude plugin install superpowers@claude-plugins-official` |
+| **impeccable** *(선택)* | 프론트엔드 UI/UX에 대한 전문 비평 | `claude plugin install impeccable@impeccable` |
+| **gstack** *(권장)* | 디자인 시안 구현, 브라우징, 종합 디자인 QA | `git clone` 후 스킬 디렉토리에 타깃팅하여 내장 `./setup` 실행 |
+
+---
+
+## 💻 주요 CLI 명령어 (Makefile)
 
 ```bash
-make build      # vault 컴파일 → .claude/skills
-make dry-run    # 쓰기 없이 검증/요약 (CI: 경고도 에러)
-make doctor     # 콜드스타트 헬스체크 (venv·컴파일러·MCP·설치 상태)
-make ratify     # (스케줄 권장) draft 자동 비준 → compile+install
-make review     # 판단 필요 큐 + 헬스체크
-make scaffold-vault           # 빈 vault 에 제네릭 seed 복사(no-clobber)
-make update-seed              # live vault 의 제네릭 분을 _seed 로 갱신(사적 데이터 제외)
-make clean  /  make distclean # 산출물 제거 / 산출물+.venv 제거
+make build                    # Vault 컴파일 ➔ .claude/skills 디렉토리로 빌드
+make dry-run                  # 실제 파일 수정 없이 규칙 유효성 및 빌드 검증 (CI 환경용, 경고 발생 시 에러 처리)
+make doctor                   # 콜드스타트 상태 진입 시 venv, 컴파일러, MCP 상태 전수 점검
+make ratify                   # Draft 규칙 자동 비준 스크립트 실행 (크론탭 등 스케줄러 등록 권장)
+make review                   # 사람의 판단이 필요한 수동 검토 큐 확인 및 시스템 상태 체크
+make scaffold-vault           # 새로운 빈 Vault 공간에 기본 템플릿(Generic Seed) 구성 (덮어쓰기 방지 적용)
+make update-seed              # 활성화된 Vault의 공통 거버넌스 규칙 파트를 템플릿 Seed로 역업데이트 (개인정보 자동 제외)
+make clean / make distclean   # 빌드 산출물 제거 / 빌드 산출물 및 로컬 가상환경(.venv)까지 완전 제거
 ```
 
-`pyyaml`·`mcp` 만 외부 의존이며, `make` 가 프로젝트-로컬 `.venv` 에 자동 설치합니다(PEP 668 안전).
+*(※ 외부 의존 패키지는 `pyyaml`과 `mcp` 뿐이며, `make` 명령어 실행 시 시스템 환경을 오염시키지 않고 프로젝트 로컬 가상환경(`.venv`)에 안전하게 자동 격리 설치됩니다.)*
 
-### 대상 프로젝트에 설치 (멀티레포)
-
-`/dw-install`(또는 `make install-project`)이 프로젝트 `.claude/` 에 **관련 scope 스킬 + 결정론 검사 +
-훅 + 서브에이전트 + 세션 다이제스트**를 설치합니다(계약은 vault 단일 SSOT 라 미러하지 않음).
+### 타깃 프로젝트에 거버넌스 배포 (Multi-Repo 배포)
 
 ```bash
-make install-project P=/절대/경로/프로젝트                    # 전체 scope union
-make install-project P=/절대/경로/프로젝트 SCOPES=engineering  # scope 지정(콤마 구분)
+# 지정 프로젝트에 전체 거버넌스 스킬 묶음 배포
+make install-project P=/절대경로/대상프로젝트
+
+# 특정 업무 도메인(Scope) 영역만 지정하여 배포
+make install-project P=/절대경로/대상프로젝트 SCOPES=engineering,qa
 ```
 
-멀티레포는 레포 맵(vault `project/repo-map.md`)의 각 경로에 순회 실행 — `/dw-install` 은 세션 digest 의
-레포 맵을 읽어 자동 순회합니다. 대상 repo 의 **기존 스킬·에이전트는 보존**됩니다(우리 매니페스트
-기준으로만 정리). 설치 산출물은 **직접 편집 금지** — vault 를 고친 뒤 재설치.
-
-### 콜드스타트
-
-| Tier | 상황 | 할 일 |
-|---|---|---|
-| **1** | 매 새 세션(평상시) | 없음 — SessionStart 훅이 다이제스트 주입, 스킬·훅·에이전트·MCP 자동 로드. 점검 `claude mcp list \| grep dw-vault` |
-| **2** | 재부팅 후 | 동일(절대경로 + `.venv` 영속). `make doctor` |
-| **3** | 새 머신/재클론 | `/dw-setup` 한 번(의존 설치·vault scaffold·프로젝트 설치) |
+`/dw-install` 명령어는 세션 다이제스트에 등록된 저장소 지도(Repo-Map)를 읽어 각 멀티레포 경로를 순회하며 자동으로 동기화를 실행합니다. 이 과정에서 **대상 프로젝트의 기존 고유 스킬과 에이전트 설정은 온전하게 보존**되며, Denver 매니페스트 기준의 거버넌스 영역만 갱신됩니다. 동기화된 산출물은 타깃 프로젝트 내에서 직접 수정해서는 안 되며, **반드시 원본 Vault를 고친 뒤 재설치**해야 합니다.
 
 ---
 
-## Frontmatter 계약 (vault 저작용)
+## 📝 Frontmatter 작성 계약 (Vault 저작 규칙)
 
-노트 상단 frontmatter 가 사람(폴더)과 기계(컴파일러)를 잇는 유일한 계약입니다.
+노트 파일 최상단의 Frontmatter(YAML 문서 구조)는 사람의 분류와 컴파일러 파서 엔진을 연결하는 유일한 인터페이스 계약입니다.
 
-| 필드 | 값 | 동작 |
-|---|---|---|
-| `type` | `rule`·`guidance`·`procedure`·`memory`·`contract`·`spec`·`backlog`·`reference`·`decision`·`skill-manifest`·`agent` | 라우팅 시작점 |
-| `scope` | kebab-case 도메인 | skill 묶음 단위 |
-| `status` | `draft`·`stable`·`deprecated` | **`stable` 만 컴파일·강제** |
-| `compiles-to` | `skill` | 있어야 스킬 포함 |
-| `enforced-by` | 검증자 id | rule 필수(`agents/` 에 없으면 경고) |
-| `check-deny`·`check-require` | 정규식/목록 | 린터 위반 판정(deny=있으면, require=없으면) |
-| `check-glob`·`check-exclude`·`check-hint` | glob·문구 | 검사 대상 한정(**glob 없으면 검사 비활성**)·수정 안내 |
+```yaml
+---
+type: rule
+scope: backend-engineering
+status: stable
+compiles-to: skill
+enforced-by: security-qa
+check-deny:
+  - "exec\\s*\\("
+check-glob: "*.js,*.ts"
+check-hint: "프로덕션 코드 내에서 raw exec 명령어 사용은 엄격히 금지됩니다. 전용 래퍼 모듈을 사용하세요."
+---
+```
 
-**type 별 필수 필드**
-- `rule`: `type scope status enforced-by compiles-to`
-- `guidance`·`procedure`: `type scope status compiles-to`
-- `skill-manifest`: `type scope skill-name skill-description`
-- `memory`·`contract`·`spec`·`backlog`·`reference`: `type status` (+`title`) · `agent`·`decision`: `type`
+### Frontmatter 주요 필드 규약
 
-**Obsidian 저작**: 이 폴더 자체가 볼트(`.obsidian/` 포함). 명령 팔레트 → *Insert template* 로 frontmatter
-를 채워 시작. 위키링크 `[[노트]]` 는 컴파일러가 평탄화. 저작 후 `make build`/`/dw-install`.
-
-> seed 는 제네릭 축-B 만 배포합니다(엔지니어링 규율 + 검증자·하네스). 프로젝트 특화 규칙·계약·스펙은
-> 사용자가 작성하며 공개 플러그인엔 포함되지 않습니다.
+* **`type`:** 노트를 분류하는 라우팅 메인 키입니다. (`rule`, `guidance`, `procedure`, `memory`, `contract`, `spec`, `backlog`, `reference`, `decision`, `skill-manifest`, `agent` 중 선택)
+* **`scope`:** 지식이 적용될 도메인을 `kebab-case` 형태로 지정합니다. (예: `api-design`, `frontend-qa`)
+* **`status`:** 비준 상태를 의미합니다. (`draft`, `stable`, `deprecated`) **오직 `stable` 상태의 지식 노트만 에이전트 스킬로 컴파일되고 실제 환경에서 강제력을 가집니다.**
+* **`compiles-to`:** 에이전트의 실행 가능 스킬 매니페스트 포함 여부를 정의합니다. (`skill`로 지정)
+* **`enforced-by`:** 해당 규칙을 런타임에 검증할 전담 서브에이전트 ID를 매칭합니다. (`rule` 타입 필수 필드이며, `agents/` 내에 해당 에이전트 정의가 없으면 컴파일러가 경고/에러를 반환합니다.)
+* **정적 린터 필드 (`check-deny`, `check-require`, `check-glob`, `check-exclude`, `check-hint`):** 문맥 정규식 패턴과 타깃 파일 Glob 범위를 지정합니다. **(`check-glob` 필드가 명시되지 않은 지식 노트는 자동 린터 정적 검사 대상에서 제외됩니다.)**
 
 ---
 
-## 더 깊이
+## 🔗 관련 문서 링크
 
-- **설계 원리·불변식(9개)·아키텍처 근거** → [BOOTSTRAP.md](./BOOTSTRAP.md)
-- **개발·빌드 규약** → [CLAUDE.md](./CLAUDE.md)
-- **변경 이력** → [CHANGELOG.md](./CHANGELOG.md)
+* **Denver 아키텍처 불변식 및 9대 설계 원칙** ➔ [BOOTSTRAP.md](./BOOTSTRAP.md)
+* **플러그인 자체 코어 개발 및 빌드 규약** ➔ [CLAUDE.md](./CLAUDE.md)
+* **버전별 상세 릴리즈 변경 이력** ➔ [CHANGELOG.md](./CHANGELOG.md)
