@@ -3,7 +3,7 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
 ---
 신규 기능을 **요구사항 → 배포**까지 11단계로 진행한다. 이 워크스페이스는 **멀티레포
 오케스트레이터**이므로 원본의 "FE/BE worktree 2개"(한 레포 안)가 아니라 **레포별 do-er
-디스패치**로 분기한다. 엔진은 `dw-orchestrator` roster(분류·순차 디스패치·게이트·계약 흐름)고,
+디스패치**로 분기한다. 엔진은 `dw-orchestrator` 에이전트(분류·순차 디스패치·게이트·계약 흐름)고,
 이 커맨드는 그 위의 **단계 순서 + 단계별 도구**다. 중복 규율은 vault 정본을 참조한다.
 
 > **🟡 Karpathy 코딩 원칙은 모든 단계의 전제** — 가정 명시·단순함 우선·외과적 변경·목표주도
@@ -170,5 +170,5 @@ git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.cl
 - **denver-workflow(dw-vault)**: 이 플러그인 자체 — `/dw-setup` 으로 설치.
 - 미설치 플러그인의 단계는 **건너뛰지 말고** 사용자에게 설치 안내 후 진행(검증 전 완료 선언 금지).
 
-_관련: orchestrator roster `roster/dw-orchestrator.md` · 정본 가이던스 `governance/guidance/`
+_관련: 오케스트레이터 `governance/agents/dw-orchestrator.md` · 정본 가이던스 `governance/guidance/`
 (karpathy·pr-merge-discipline·worktree-isolation·tdd-iron-law) · 계약 SSOT vault `contracts/`._

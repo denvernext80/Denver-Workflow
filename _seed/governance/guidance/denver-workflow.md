@@ -18,6 +18,6 @@ title: denver-workflow — 신규 기능 풀사이클 11단계(멀티레포)
 
 규율 정본은 재정의하지 않고 참조한다: gitflow·`--admin`금지는 [[pr-merge-discipline]], worktree 격리(격리된
 작업공간에서 do-er 가 자기 레포에서 수행), 회귀는 [[tdd-iron-law]]·[[regression-by-set-diff]], 모든 단계 전제는
-[[karpathy-guidelines]]. 디스패치·게이트·계약 흐름은 `dw-orchestrator` roster.
+[[karpathy-guidelines]]. 디스패치·게이트·계약 흐름은 `dw-orchestrator` 에이전트.
 교차 작업은 **순차**(계약 먼저 → 공급측 → 소비측), 완료 게이트는 **대상 레포 checks**.
 막히면 즉시 **advisor 에스컬레이션**. 상세 단계·도구·외부 플러그인 설치 안내는 `/denver-workflow`.
