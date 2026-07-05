@@ -113,23 +113,25 @@ jobs:
             exit 1
           fi
           # 1) Verdict FAIL 명시
-          if echo "$BODY" | grep -qiE "Verdict:[[:space:]*]*FAIL"; then
+          if echo "$BODY" | grep -qiE "Verdict:[[:space:]]*FAIL"; then
             echo "::error::Verdict FAIL — PR comment 확인 + fix 후 재 push."
             exit 1
           fi
-          # 2) Findings 개별 태그 교차검증 — overall Verdict 가 PASS 라도 [CRITICAL]/[HIGH] 태그가
-          #    본문에 있으면 FAIL (prompt-injection 등으로 overall 만 PASS 로 뒤집히는 것 차단).
-          if echo "$BODY" | grep -qiE "\[(CRITICAL|HIGH)\]"; then
-            echo "::error::Findings 에 [CRITICAL]/[HIGH] 태그 존재 — FAIL (overall Verdict 와 무관)."
+          # 2) Findings 심각도 태그 교차검증 — overall Verdict 가 PASS 라도 실제 finding 이 CRITICAL/HIGH 면
+          #    FAIL (prompt-injection 등으로 overall 만 뒤집히는 것 차단). **불릿 맨 앞 태그만** 실제
+          #    finding 으로 본다 — 산문·백틱 언급(예: "`[CRITICAL]` grep 이…")은 매치하지 않아 오탐 방지.
+          if echo "$BODY" | grep -qiE "^[[:space:]]*[-*][[:space:]]*\**\[(CRITICAL|HIGH)\]"; then
+            echo "::error::CRITICAL/HIGH finding 태그 존재 — FAIL (overall Verdict 와 무관)."
             exit 1
           fi
-          # 3) Severity CRITICAL/HIGH (verdict 누락 보호). -A2: 헤더-값 사이 빈 줄 대비.
-          if echo "$BODY" | grep -iA2 "## *Severity" | grep -qiE "\b(CRITICAL|HIGH)\b"; then
-            echo "::error::Severity CRITICAL/HIGH 감지 — FAIL."
+          # 3) MEDIUM 3개 이상 → FAIL (프롬프트 판정규칙과 동일하게 shell 에서도 카운트 교차검증).
+          MED=$(echo "$BODY" | grep -ciE "^[[:space:]]*[-*][[:space:]]*\**\[MEDIUM\]")
+          if [ "${MED:-0}" -ge 3 ]; then
+            echo "::error::MEDIUM finding ${MED}개(≥3) — FAIL."
             exit 1
           fi
           # 4) Verdict PASS 명시 부재 → FAIL (불완전 응답 보호)
-          if ! echo "$BODY" | grep -qiE "Verdict:[[:space:]*]*PASS"; then
+          if ! echo "$BODY" | grep -qiE "Verdict:[[:space:]]*PASS"; then
             echo "::error::Verdict PASS 미확인 — FAIL (안전)."
             exit 1
           fi
