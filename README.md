@@ -1,336 +1,283 @@
-# Denver AI Workflow — SSOT 기반 에이전트 거버넌스
+# Denver AI Workflow
 
-**Obsidian vault 를 단일 진실 원천(SSOT)** 으로 두고, 규칙·원칙·메모리·계약·스펙을 한 곳에 모아
-Claude Code 에이전트가 **읽고 복종하고, 학습을 되써서 갱신**하게 하는 시스템. **사람은 비준·컴파일
-바틀넥이 아니다** — 비준·컴파일·세션 주입이 자동화돼 있다.
+**팀의 지식(규칙·계약·학습)을 한 폴더에 모아 두고, Claude Code 에이전트가 그걸 읽고 따르고 되쓰게
+만드는 시스템.** 지식 폴더 하나를 **단일 진실 원천**(SSOT — "한 곳만 믿는 원본")으로 삼습니다.
+
+> **비개발자도 씁니다.** 아래 〈빠른 시작〉 3단계면 준비 끝입니다. 그 아래는 필요할 때만 읽으세요.
+
+---
+
+## 이게 뭔가요? (한 문단)
+
+프로젝트가 커지면 "우리 팀은 이렇게 일한다"·"이 API 는 이런 계약이다"·"저번에 이걸 이렇게 고쳤다"
+같은 지식이 여기저기 흩어집니다. Denver 는 이 지식을 **Obsidian**(노트 앱) 폴더 하나에 모으고,
+Claude Code 가 매 작업에서 **자동으로 그 규칙을 지키고, 새로 배운 걸 다시 그 폴더에 적어** 넣게 합니다.
+사람이 매번 규칙을 붙여넣거나 검토·승인하는 병목이 없습니다 — 검증·컴파일·주입이 자동입니다.
 
 ```
-        사람(주로 규칙 저작)
-             │
-   Obsidian vault (SSOT)
-     OBEY  rules·guidance·procedures ─ dw-ratify(자동 비준) → [컴파일] → .claude/skills
-     LIVE  memory·contracts·specs ──── MCP 가 stable 직행(게이트 없음) ←─ 에이전트 read/write
-             │ make ratify (비준+compile+install, 스케줄)        │ dw-vault MCP (8 도구)
-             ▼                                                  ▼
-   세션 시작: SessionStart 훅이 다이제스트(규율·규칙·지식 인덱스) 주입 → 복종·강제
-     대상 프로젝트 세션              ·      Claude Code
+          사람 (주로 규칙 저작)
+               │
+     Obsidian vault (SSOT · 팀 지식 폴더)
+       OBEY  규칙·지침·절차 ── dw-ratify(자동 검증·승인) → [컴파일] → .claude/skills
+       LIVE  학습·계약·스펙·백로그·참조 ── MCP 가 즉시 저장 ←── 에이전트가 읽고/쓰기
+               │                                              │ dw-vault MCP (11 도구)
+               ▼                                              ▼
+     세션 시작: 훅이 "지켜야 할 규율 + 규칙 + 지식 인덱스"를 자동 주입 → 복종·강제
+       대상 프로젝트 세션        ·        Claude Code
 ```
 
-> 설계·불변식은 [BOOTSTRAP.md](./BOOTSTRAP.md). 이 문서는 **운영·사용법**.
+> 이 문서는 **사용법·운영**입니다. 설계 원리·불변식은 [BOOTSTRAP.md](./BOOTSTRAP.md).
 
-## 🚀 빠른 시작 (개발자가 아니어도 3단계)
+---
 
-1. **플러그인 설치** — 터미널에서 Claude Code 를 열고 아래 두 줄을 붙여넣으세요:
+## 🚀 빠른 시작 (3단계)
+
+1. **플러그인 설치** — 터미널에서 Claude Code 를 열고 두 줄을 붙여넣기:
    ```
    claude plugin marketplace add https://github.com/denvernext80/Denver-Workflow
    claude plugin install denver-workflow@denver-workflow
    ```
-2. **초기 설정** — Claude Code 세션에서 `/dw-setup` 을 입력하세요.
-   설정 도우미가 필요한 프로그램(Obsidian 등) 설치, vault(팀 지식 폴더) 준비, 프로젝트 연결까지
-   대신해 드립니다. 새 프로젝트든, 이미 진행 중인 프로젝트든, 여러 저장소를 함께 쓰는 경우든
-   도우미가 알아서 판단해 안내합니다.
-3. **사용 시작** — `/denver-workflow` 를 입력하면 기능 개발 전체 과정(요구사항 → 배포)을
-   단계별로 안내합니다.
+2. **초기 설정** — 세션에서 `/dw-setup` 입력. 도우미가 필요한 프로그램(Obsidian 등) 설치, 지식
+   폴더(vault) 준비, 이 프로젝트 연결까지 알아서 안내합니다(새 프로젝트·기존 프로젝트·멀티레포 자동 판별).
+3. **사용 시작** — `/denver-workflow` 입력. 기능 개발 전 과정(요구사항 → 배포)을 11단계로 안내합니다.
 
-## 플러그인으로 설치 (repo-as-plugin)
+> 단발 수정(오타·1줄 fix)은 11단계가 아니라 바로 git 흐름으로 갑니다. 신규 기능일 때만 풀사이클.
 
-이 repo 자체가 Claude Code 플러그인이다(`.claude-plugin/plugin.json`·`hooks/`·`commands/`). 한 번에
-**MCP(dw-vault) + 거버넌스 하네스·검증자 에이전트 + worktree/lint/vault 가드 + SessionStart 지식 주입
-+ 슬래시 커맨드**가 설치된다. MCP 는 `plugin.json` 의 `mcpServers` 에 단일 선언돼 플러그인이 켜진 모든
-세션에 `plugin:denver-workflow:dw-vault`(도구 `mcp__plugin_denver-workflow_dw-vault__*`)로 **자동 제공**된다
-— 계정마다 `claude mcp add` 하던 수동 등록이 불필요하다.
+---
 
-```bash
-claude plugin marketplace add https://github.com/denvernext80/Denver-Workflow   # 또는 로컬 경로
-claude plugin install denver-workflow@denver-workflow
-```
+## 커맨드 (슬래시 명령)
 
-> 공용 워크플로우 — `/denver-workflow` 0단계 repo-map 부트스트랩으로 신규 프로젝트도 즉시 구성.
+| 커맨드 | 하는 일 |
+|---|---|
+| `/dw-setup` | **초기 설정 도우미** — 프로그램 설치·vault 준비·프로젝트 연결을 한 번에 |
+| `/denver-workflow` | **기능 개발 풀사이클** — 요구사항 → 배포 11단계(멀티레포 디스패치) |
+| `/dw-install` | vault 최신 상태(규칙·검사·에이전트·세션 다이제스트)를 프로젝트에 설치/갱신 |
+| `/dw-build` | vault 를 컴파일(`.claude/skills`) — dry-run strict 검증 후 빌드 |
+| `/dw-ratify` | draft 규칙·절차를 **자동 검증·승인** → 통과분 stable·컴파일·설치(사람 불요) |
+| `/dw-review` | 자동 승인이 보류한 "판단 필요" 큐 + 헬스체크 |
+| `/dw-scope` | 플러그인 활성 범위 — 사용자 전역 vs 이 프로젝트만 |
+| `/dw-ci-review` | **(선택) GitHub PR 자동 리뷰어** 설치 — PR 마다 Claude 가 코드 리뷰(11단계 ⑥ 자동화) |
 
-### 신규 설치 — vault 준비 (Obsidian + scaffold)
+---
 
-SSOT vault 콘텐츠는 플러그인에 포함되지 않는다(사적 프로젝트 데이터 분리). 플러그인은 **제네릭 seed**
-(`_seed/` = 축-B 운영체계 거버넌스 + 폴더 구조 + `VAULT-STRUCTURE.md`)만 들고 있다가 설치 시 빈 vault 로 복사한다.
+## vault 에 무엇을 어디에 두나
 
-1. **Obsidian 설치**: https://obsidian.md/download (또는 `/dw-setup` 한 번)
-2. **vault scaffold**: `make scaffold-vault` — `$(VAULT_DIR)`(기본 `~/denver-workflow-vault`)가 비었으면 seed 를
-   **no-clobber** 복사(기존 콘텐츠 보존). 폴더 구성원칙(축 A/B)이 구조·`VAULT-STRUCTURE.md` 로 박힌다.
-3. Obsidian 에서 그 폴더를 **Open folder as vault** 로 열어 사적 콘텐츠(rules·contracts·specs…)를 저작한다.
-4. `make build` / `/dw-install`(프로젝트에 스킬·검사·훅·다이제스트 설치). **이미 vault 가 있으면**
-   scaffold 불요 — vault 를 `~/denver-workflow-vault` 로 이동하거나, 다른 위치면 `DW_VAULT_DIR` 로
-   그 경로를 가리키면 된다.
+지식 폴더(vault)는 두 축으로 나뉩니다. **폴더는 사람이 보기 좋으라고 나눈 것이고, 실제 라우팅은
+각 노트의 `type`(frontmatter)으로 합니다** — 그래서 노트를 다른 폴더에 둬도 컴파일은 정확합니다.
 
-> seed 는 제네릭 축-B 만(엔지니어링 작업 규율 + 검증자·하네스). 프로젝트 특화 rule·계약·스펙은 사용자가 작성.
-> 유지보수: live vault 의 제네릭 분 갱신은 `make update-seed`(화이트리스트 verbatim, 사적 데이터 미포함).
+### 축 B — 운영체계 `governance/` ("어떻게 일하나", 프로젝트 무관, 컴파일됨)
 
-- **MCP 자가 부트스트랩**: `plugin.json` 의 `mcpServers.dw-vault` → `${CLAUDE_PLUGIN_ROOT}/_build/dw-mcp-launch.sh`
-  가 첫 실행 시 `.venv`(pyyaml·mcp)를 만들고 서버를 vault 경로(규약 해석 결과)로 띄운다(설치 직후 첫 MCP 호출만 느림).
-- **vault 위치**: vault 콘텐츠는 이 repo 가 아니라 **별도 폴더**(기본 `~/denver-workflow-vault`)에 있다.
-  사람은 그 폴더를 Obsidian 으로 열어 편집, 에이전트는 MCP 를 통해 read/write. 이 repo 는
-  빌드·플러그인 도구만. `make build|install-project|ratify` 는 **이 워크스페이스에서** 돌리되 `VAULT_DIR` 로 그 vault 를 읽는다.
-- **에이전트**: `agents/*.md` 가 CC 서브에이전트로 로드(`name:` 추가로 Denver·CC 양립). 하네스를 항상-on
-  하려면 프로젝트 `settings.local.json` 에 `"agent": "dw-governed"` 를 둔다(플러그인이 강제하진 않음).
-- **커맨드**: `/dw-build` · `/dw-ratify` · `/dw-review` · `/dw-install`(프로젝트에 스킬·검사·훅·다이제스트 적용) (make 타깃 래핑).
-- **선택적 graphify 연동(MCP)**: vault 지식을 그래프로 ingest 한 `graphify` 가 있으면 시멘틱 탐색을 쓸 수 있다(옵인). 아래 〈선택적 graphify 연동〉 참조.
-- **외부 의존 플러그인·스킬(번들 아님)**: Denver 워크플로우가 쓰는 외부 스킬은 **번들하지 않는다** —
-  사용자가 직접 설치한다(아래 〈외부 의존〉 참조). 중복·라이선스·버전 드리프트를 피한다.
-- **한계**: 훅·MCP·에이전트는 전역으로 제공되지만, **프로젝트별 스킬·검사·다이제스트는 여전히
-  `/dw-install`(또는 `make install-project`, 아래)로 생성**한다 — 플러그인은 엔진, 프로젝트별 컴파일은 별도.
-
-### 외부 의존 — /dw-setup 이 대신 설치 (수동 설치 경로 병기)
-
-아래는 `/dw-setup` 이 자동으로 설치를 대행한다. 수동으로 설치하려면 표의 명령을 쓰면 된다.
-
-| 의존 | 용도 | 요구 | 설치 |
+| 폴더 | 용도 | type | 컴파일 |
 |---|---|---|---|
-| **Obsidian** | vault(SSOT) 편집 — 사람이 rules·contracts·specs 저작 | 필수(vault 운영) | https://obsidian.md/download → "Open folder as vault" 로 vault 폴더 열기. macOS: `brew install --cask obsidian` / Windows: `winget install Obsidian.Obsidian` |
-| **superpowers** | brainstorming·writing-plans·TDD·디버깅 워크플로우(①②④⑤단계) | 권장 | `claude plugin marketplace add anthropics/claude-plugins-official`<br>`claude plugin install superpowers@claude-plugins-official` |
-| **impeccable** | 프론트엔드 디자인 critique·폴리시(③단계, 프론트 do-er 가 호출) | UI 작업 시 필수 | `claude plugin marketplace add pbakaus/impeccable`<br>`claude plugin install impeccable@impeccable` |
-| **gstack** | design-consultation·design-html·design-review·browse·qa(③③.5⑦.5⑧단계) | 디자인/QA 시 권장 | `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` |
+| `governance/_skills/` | scope 묶음 정의(skill-manifest) | `skill-manifest` | ✅ |
+| `governance/rules/` | **강제 규칙**("법") — 검증자(`enforced-by`) 필수 | `rule` | ✅ stable |
+| `governance/guidance/` | 작업 규율 — 공유 원칙(강제 게이트는 아님) | `guidance` | ✅ stable |
+| `governance/procedures/` | 재사용 절차(playbook) — 에이전트 저작(draft→자동 승인) | `procedure` | ✅ stable |
+| `governance/agents/` | 역할 정의(검증자·하네스) | `agent` | 서브에이전트로 설치 |
 
-> gstack 은 플러그인 아님 — git clone + setup(유저 스코프 스킬). 나머지는 플러그인 마켓플레이스.
+### 축 A — 프로젝트 지식 `project/` ("무엇을 만들/합의/배웠나", LIVE · 비컴파일)
 
-Denver 는 **자기 영역(SSOT·거버넌스·MCP·가드·하네스)만** 번들한다. do-er 에이전트의 워크플로우가
-호출하는 외부 플러그인·스킬은 **각 마켓플레이스에서 사용자가 직접 설치**한다(복사본 번들 금지 —
-중복·라이선스·버전 드리프트 회피). 실행 중 미설치가 발견되면 그 자리에서 설치한다(자가치유 —
-guidance `dw-dependencies`).
+LIVE = 승인 게이트 없이 **즉시 저장·검색**됩니다(읽기가 승인 상태와 무관하므로).
 
-- **설치 확인**: `claude plugin list` 에 노출돼야 한다(예: `impeccable@impeccable`,
-  `superpowers@claude-plugins-official`). 미설치 시 디자인 게이트(impeccable critique)를 통과시킬 수 없다.
-- **신규 외부 의존 추가 규율**: do-er 에이전트가 새 외부 스킬을 요구하게 되면 — **복사(벤더링) 금지.**
-  이 표에 한 줄(용도·요구 수준·설치 명령)을 추가하고, 해당 do-er(`roster/*.md`)에 "○○ 스킬 필수"를 명시한다.
+| 폴더 | 용도 | type | 완료 처리 |
+|---|---|---|---|
+| `project/memory/` | 에이전트 학습(비자명한 것만) | `memory` | — |
+| `project/contracts/` | 백엔드↔앱 등 인터페이스 계약(SSOT) | `contract` | `dw_resolve` → archive |
+| `project/specs/` | 계획·스펙·설계(worktree 휘발 방지) | `spec` | `dw_resolve` → archive |
+| `project/backlog/` | **후속·할 일**(범위 밖 — repo 에 BACKLOG 파일 만들지 말고 여기) | `backlog` | `dw_resolve` → archive |
+| `project/reference/` | **스냅샷형 참조**(DB 스키마·API 인덱스·아키텍처 — "현재 상태 추출") | `reference` | 재추출로 교체(완료 없음) |
+| `project/decisions/` | ADR(아키텍처 결정 기록) — append-only | `decision` | — |
+| `project/repo-map.md` | 멀티레포 라우팅 토폴로지(예외 — digest 로 주입) | `repo-map` | — |
 
-### Advisor 모델 설정 — Opus 4.8 권장
+> **backlog vs reference**: backlog 는 "나중에 할 일"(완료되면 archive), reference 는 "지금 시스템이
+> 이렇게 생겼다"의 캡처(완료 개념 없음 — 낡으면 새로 추출해 **교체**). `project/` 는 사적 데이터라
+> 공개 플러그인 seed 에 **절대 포함하지 않습니다**.
 
-11단계의 ★advisor 에스컬레이션은 CC 빌트인 advisor(강한 리뷰어 모델)를 쓴다. **플러그인이 자동
-설정할 수 없으므로**(플러그인 settings.json 은 advisorModel 미지원) 사용자가 한 번 설정한다:
+---
 
-- 간편: 세션에서 `/advisor opus` 실행(→ `~/.claude/settings.json` 에 저장, 이후 항상 적용).
-- 또는 `~/.claude/settings.json`(또는 프로젝트 `.claude/settings.json`)에:
-  ```json
-  { "advisorModel": "claude-opus-4-8" }
-  ```
-- 단발 세션만: `claude --advisor opus`.
+## vault 지식 도구 — MCP `dw-vault` (11개)
 
-제약: Anthropic API 필요(Bedrock/Vertex/Foundry 미지원), CC v2.1.98+, 메인 모델 Opus 4.8/Sonnet 5/
-Haiku 4.5/Fable 5, advisor 는 메인 이상 역량. 미설정 시 11단계 advisor 단계는 기본 동작으로 진행한다.
+vault 를 MCP 서버로 노출합니다. 에이전트는 raw 파일이 아니라 **타입별 도구**로 읽고 씁니다(잘못된
+형식이 원천 차단). 쓰기 도구엔 status 파라미터가 없습니다 — LIVE 는 즉시 stable, OBEY 만 draft 제안.
 
-`pyyaml`·`mcp` 가 유일한 외부 의존성이며, PEP 668 환경을 깨지 않도록 `make` 가 전역이 아닌
-프로젝트-로컬 `.venv` 에 자동 설치한다(수동 설치 불요).
+| 구분 | 도구 | 설명 |
+|---|---|---|
+| **읽기** | `dw_search(query)` · `dw_read(name)` · `dw_list(type?)` | 검색 · 원문 열기 · 목록 |
+| **쓰기 · LIVE** (즉시 사용) | `dw_write_memory` | 학습 기록 |
+| | `dw_write_backlog` | 후속·할 일 |
+| | `dw_write_reference` | 현재 상태 스냅샷(같은 title 재호출 시 덮어써 교체) |
+| | `dw_write_contract` | 계약 — `signoff`(pending\|agreed) · `blocking`(blocking\|non-blocking) 명시 |
+| | `dw_write_spec` | 계획·스펙·설계 |
+| **쓰기 · OBEY** (자동 승인) | `dw_write_procedure` · `dw_propose_rule` | 절차 · 규칙 제안(draft→ratify) |
+| **완료/폐기** | `dw_resolve(name, resolution)` | backlog·spec·contract 를 `archive/` 로 이동(완료 표시). memory·decision·**reference 는 대상 아님** |
 
-## 빌드
+> `status`(비준상태)로는 완료/미완료를 못 나눕니다 — 그래서 완료는 **archive 이동**(`dw_resolve`)으로
+> 표현합니다. 활성 목록(dw_search·dw_list)엔 미완료만 남고, 완료분은 경로로 직접 `dw_read` 하면 이력이 남습니다.
+
+등록은 자동입니다 — `plugin.json` 의 `mcpServers.dw-vault` 가 플러그인 켜진 모든 세션에
+`plugin:denver-workflow:dw-vault`(도구 `mcp__plugin_denver-workflow_dw-vault__*`)로 제공합니다.
+계정마다 `claude mcp add` 하던 수동 등록이 불필요합니다. (도구는 **세션 시작 시 로드** — 플러그인
+갱신 후엔 새 세션을 여세요.)
+
+---
+
+## 선택 기능
+
+### GitHub Actions Claude PR 리뷰어 — `/dw-ci-review`
+
+PR 이 열리거나 갱신되면 **Claude 가 PR 브랜치를 받아 실제 코드를 읽고 리뷰**해, 인라인 코멘트 +
+최종 요약(합격/불합격 판정)을 남깁니다. 불합격이면 검사(`review`)가 실패 → 브랜치 보호 규칙에 넣으면
+리뷰 통과 전 머지를 막습니다. **저장소별 옵인**입니다.
+
+- 리뷰 기준은 특정 언어에 묶이지 않습니다 — 리뷰어가 그 저장소에 커밋된 거버넌스(`.claude/skills`·
+  `.claude/dw-checks.json`·`CLAUDE.md`)를 발견해 그 기준으로 리뷰하고, 없으면 일반 시니어 원칙으로.
+- 인증은 **Claude Pro/Max OAuth 토큰**(`CLAUDE_CODE_OAUTH_TOKEN` — 별도 API 과금 없이 구독으로).
+- 설치: `/dw-ci-review`(미리보기 → 적용). 이후 사람 작업(토큰 시크릿 등록·커밋·브랜치 보호)을 커맨드가
+  안내합니다. 템플릿: `assets/gh-workflows/dw-pr-review.yml`.
+- verdict 게이트는 위조 방지(코멘트 작성자 검증)·stale 코멘트 차단·응답 부재 시 안전 FAIL 을 갖춥니다.
+
+### graphify 시멘틱 그래프 (MCP)
+
+코드·지식을 그래프로 인덱싱하는 외부 도구 `graphify` 가 있으면, 문자열 매칭인 `dw_search` 대신
+**관계·경로 기반 탐색**을 씁니다. 옵인이라 구축한 사용자만 켭니다(미구축 환경엔 무영향).
+
+- `/dw-setup` 옵인 단계가 graphify 를 감지하면 **프로젝트별 `.mcp.json`** 에 등록(헬퍼:
+  `_build/dw-graphify-register.py`). 전역이 아니라 프로젝트별이라 모든 세션에 강요하지 않습니다.
+- **지식**은 vault 기본 그래프, **특정 레포 코드**는 `project_path=<repo 절대경로>` 로 조회.
+- guidance `graphify-search`(세션 상시 주입)가 "탐색은 graphify 우선, 코드 구조는 graphify **MCP**
+  (raw grep·CLI 아님), 없으면 `dw_search` 폴백"을 지시합니다.
+
+---
+
+## 어떻게 강제되나 (거버넌스 하네스)
+
+아래 레이어들은 그 자체로는 *권고*입니다("안다"이지 "못 어긴다"가 아님). **`dw-governed` 하네스
+에이전트**가 이들을 *강제 루프*로 묶습니다: 규칙 pull → 작업 → 결정론 검사 → 검증자 호출 →
+**통과까지 루프** → 완료 게이트. 프로젝트 `settings.local.json` 에 `"agent": "dw-governed"` 를 두면
+모든 세션이 하네스로 시작합니다(항상 강제).
+
+- **세션 주입**(SessionStart 훅) — 다이제스트(항상-적용 지침 + 강제 규칙 + 지식 인덱스)를 세션
+  시작 시 컨텍스트에 주입(`🔒` 표시). CC 스킬 body 는 자동 로드되지 않으므로 이게 규칙·지식을 세션에 닿게 하는 실제 경로.
+- **자동 비준**(`make ratify`, 스케줄) — draft 규칙·절차를 결정론 검증(스키마·검증자 실재·check 패턴을
+  실제 코드에 돌려 오탐 0)해 안전분만 자동 stable·컴파일·설치. 판단 필요분만 `dw-ratifier`(LLM).
+- **결정론 린터**(PostToolUse) — 규칙의 `check-deny`/`check-require` → `.claude/dw-checks.json` +
+  `dw-lint.py`. 위반을 피드백(차단 아님, self-correct 유도).
+- **worktree 가드**(PreToolUse, `Agent|Task`) — 격리 없이 파일 변경 에이전트를 spawn 하면 `ask`(공유 체크아웃 오염 방지).
+- **vault 가드 / 산출물 가드**(PostToolUse) — raw `.md` frontmatter 계약 검사 + durable 문서·백로그를 vault 로 유도.
+- **graphify 게이트**(PreToolUse, `dw_search`·`Grep`) — graphify 등록 세션이면 그래프 우선 탐색을 리마인드.
+- **서브에이전트**(판단) — `enforced-by` 가 참조하는 검증자(security-qa·code-review 등)만 설치.
+
+> 오탐 방지: 모든 검사는 `check-glob` 로 파일형 한정 + `check-exclude` 로 생성물·테스트·정본 파일 제외.
+> grep 이 못 잡는 구조 규칙은 서브에이전트 리뷰가 담당합니다.
+
+---
+
+## 설정·운영
+
+### 무엇이 설치되나
+
+이 repo 자체가 플러그인입니다(`.claude-plugin/plugin.json`·`hooks/`·`commands/`). 한 번에 **MCP(dw-vault)
++ 거버넌스 하네스·검증자 에이전트 + 훅(린터·vault/산출물 가드·worktree 가드·세션 주입·graphify 게이트)
++ 슬래시 커맨드**가 설치됩니다. 단, **프로젝트별 스킬·검사·다이제스트는 `/dw-install`**(또는
+`make install-project`)로 생성합니다 — 플러그인은 엔진, 프로젝트별 컴파일은 별도.
+
+### vault 위치
+
+vault 콘텐츠는 이 repo 가 아니라 **별도 폴더**(기본 `~/denver-workflow-vault`)에 있습니다. 사람은
+Obsidian 으로 열어 편집, 에이전트는 MCP 로 read/write.
+
+- 해석 순서: `DW_VAULT_DIR`(env, 존재하는 폴더) > `~/denver-workflow-vault`(규약) > 에러(폴더 없으면 서버 미기동).
+- 커스텀 위치는 CC 시작 전 `export DW_VAULT_DIR="$HOME/My Vaults/denver"`.
+- `make build|install-project|ratify` 는 **이 워크스페이스에서** 실행하되 `VAULT_DIR` 로 그 vault 를 읽습니다.
+
+### advisor 모델 — Opus 4.8 권장
+
+11단계의 ★advisor 에스컬레이션은 CC 빌트인 advisor(강한 리뷰어 모델)를 씁니다. 플러그인이 자동
+설정할 수 없어 한 번 설정합니다: 세션에서 `/advisor opus`(→ `~/.claude/settings.json` 저장), 또는
+`{ "advisorModel": "claude-opus-4-8" }`. (Anthropic API 필요, CC v2.1.98+.)
+
+### 외부 의존 — `/dw-setup` 이 대신 설치
+
+Denver 는 자기 영역(SSOT·거버넌스·MCP·가드·하네스)만 번들합니다. do-er 워크플로우가 호출하는 외부
+스킬은 **사용자가 직접 설치**합니다(복사본 번들 금지 — 중복·라이선스·버전 드리프트 회피). 미설치가
+발견되면 그 자리에서 설치(자가치유).
+
+| 의존 | 용도 | 설치 |
+|---|---|---|
+| **Obsidian** (필수) | vault 편집 | https://obsidian.md/download · macOS `brew install --cask obsidian` |
+| **superpowers** (권장) | brainstorming·writing-plans·TDD(①②④⑤) | `claude plugin install superpowers@claude-plugins-official` |
+| **impeccable** (UI 시 필수) | 프론트 디자인 critique(③) | `claude plugin install impeccable@impeccable` |
+| **gstack** (디자인/QA 권장) | design·browse·qa(③③.5⑦.5⑧) | `git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` |
+
+### 빌드·헬스체크
 
 ```bash
-make build      # vault 컴파일 → .claude/skills (vault 로컬)
+make build      # vault 컴파일 → .claude/skills
 make dry-run    # 쓰기 없이 검증/요약 (CI: 경고도 에러)
 make doctor     # 콜드스타트 헬스체크 (venv·컴파일러·MCP·설치 상태)
-make ratify     # (스케줄 권장) draft OBEY 자동 비준 → 항상 compile+install (사람·수동 불요)
-make review     # OBEY draft 큐(ratify 가 hold 한 판단필요 건) + 헬스체크
-make clean      # 산출물 제거    /  make distclean  # 산출물 + .venv 제거
+make ratify     # (스케줄 권장) draft 자동 비준 → compile+install
+make review     # 판단 필요 큐 + 헬스체크
+make scaffold-vault           # 빈 vault 에 제네릭 seed 복사(no-clobber)
+make update-seed              # live vault 의 제네릭 분을 _seed 로 갱신(사적 데이터 제외)
+make clean  /  make distclean # 산출물 제거 / 산출물+.venv 제거
 ```
 
-## 콜드스타트
+`pyyaml`·`mcp` 만 외부 의존이며, `make` 가 프로젝트-로컬 `.venv` 에 자동 설치합니다(PEP 668 안전).
 
-| Tier  | 상황             | 할 일                                                                    |
-| ----- | -------------- | ---------------------------------------------------------------------- |
-| **1** | 매 새 CC 세션(평상시) | 없음 — SessionStart 훅이 다이제스트(규율·규칙·지식 인덱스)를 컨텍스트에 주입(`🔒 SSOT … 주입됨` 표시). 스킬·훅·서브에이전트·MCP 자동 로드. 점검 `claude mcp list \| grep dw-vault`(→ `plugin:denver-workflow:dw-vault … Connected`) |
-| **2** | 재부팅 후          | 동일(절대경로 + `.venv` 영속). `make doctor`                                   |
-| **3** | 새 머신/재클론       | `/dw-setup` 한 번으로 의존 설치·vault scaffold·프로젝트 설치까지 처리(권장). 수동으로 하려면 아래 블록 |
+### 대상 프로젝트에 설치 (멀티레포)
 
-```bash
-# Tier 3 — 풀 부트스트랩(수동. 보통은 /dw-setup 이 대신한다)
-make build                         # .venv(pyyaml·mcp) + 컴파일
-make install-project P=<절대경로>   # 대상 프로젝트에 스킬·검사·훅·에이전트 설치
-python3 _build/grant-vault-access.py <프로젝트> <vault>   # (선택) vault 쓰기 권한 사전 승인
-make doctor                        # 전체 [ok] 확인
-# MCP 는 플러그인(plugin.json)이 plugin:denver-workflow:dw-vault 로 자동 제공 — 별도 등록 불요.
-```
-
-> **MCP 등록은 plugin.json 일원화로 자동.** 플러그인이 켜진 세션엔 config-dir(계정/프로필)
-> 마다 따로 `claude mcp add` 할 필요가 없다 — `plugin:denver-workflow:dw-vault` 가 모든 세션에 노출된다.
-> roster 오케스트레이터·do-er 화이트리스트도 이 플러그인 prefix(`mcp__plugin_denver-workflow_dw-vault__*`)에
-> 정합돼 있다. MCP 도구는 **세션 시작 시 로드**되므로 플러그인 갱신 후엔 새 세션을 연다. MCP 미가용
-> 세션은 가드가 검사하는 직접 `.md` 쓰기로 폴백(백스톱).
-
-## 대상 프로젝트에 설치
-
-`install-project`(단일 진입점, `/dw-install` 이 감싼다)는 그 프로젝트의 `.claude/` 에 **관련 scope 의
-스킬 + 결정론적 검사 + 훅 4종(린터·vault 가드·worktree 가드·SessionStart 컨텍스트) + 서브에이전트 +
-세션 다이제스트**를 설치한다(계약은 vault 단일 SSOT 라 미러하지 않는다).
+`/dw-install`(또는 `make install-project`)이 프로젝트 `.claude/` 에 **관련 scope 스킬 + 결정론 검사 +
+훅 + 서브에이전트 + 세션 다이제스트**를 설치합니다(계약은 vault 단일 SSOT 라 미러하지 않음).
 
 ```bash
 make install-project P=/절대/경로/프로젝트                    # 전체 scope union
 make install-project P=/절대/경로/프로젝트 SCOPES=engineering  # scope 지정(콤마 구분)
 ```
 
-멀티레포(여러 저장소를 함께 쓰는 경우)는 레포 맵(vault `project/repo-map.md`)에 등록된 각 절대경로에
-대해 위 명령을 순회 실행한다 — 대화식으로 하려면 `/dw-install` 을 쓰면 세션 digest 의 레포 맵을 읽어
-자동으로 순회한다.
+멀티레포는 레포 맵(vault `project/repo-map.md`)의 각 경로에 순회 실행 — `/dw-install` 은 세션 digest 의
+레포 맵을 읽어 자동 순회합니다. 대상 repo 의 **기존 스킬·에이전트는 보존**됩니다(우리 매니페스트
+기준으로만 정리). 설치 산출물은 **직접 편집 금지** — vault 를 고친 뒤 재설치.
 
-- scope→프로젝트 매핑은 레포 맵(vault `project/repo-map.md`)의 scope 열을 따른다.
-- **부분 빌드**: 각 프로젝트의 `.dw-manifest.json`/`.dw-agents.json` 기준으로 우리 산출물만
-  정리하므로 대상 repo 의 **기존 스킬·에이전트(예: denver-workflow)는 보존**된다.
-- 설치된 산출물은 **직접 편집 금지** — vault 를 고친 뒤 `make install-project`(또는 `/dw-install`) 재실행.
+### 콜드스타트
 
-## 강제 — 능동 하네스가 게이트를 돌린다
-
-아래 게이트 레이어들은 그 자체로는 *권고*다(ambient 규칙·피드백 훅·on-demand 리뷰 — "안다"이지 "못 어긴다"가 아님).
-**`dw-governed` 하네스 에이전트**가 이들을 *강제된 루프*로 묶는다:
-규칙 pull(`dw_search`) → 작업 → 결정론 검사 → 검증자 호출 → **통과까지 루프** → 완료 게이트.
-대상 프로젝트는 `settings.local.json` 의 **`"agent": "dw-governed"`** 로 **모든 세션이 하네스로 시작**(항상 강제).
-하네스는 vault `agents/dw-governed.md`(`install: always`)에서 컴파일된다.
-
-게이트 레이어:
-0. **세션 주입**(SessionStart 훅) — `dw-session-context.py` 가 프로젝트 다이제스트(항상-적용 guidance +
-   강제 규칙 목록 + 누적 지식 인덱스)를 세션 시작 시 컨텍스트에 주입(`🔒` 표시). CC 스킬 body 는
-   자동 로드 안 되므로(progressive disclosure) 이 주입이 규칙·지식을 세션에 닿게 하는 실제 경로다.
-1. **자동 비준**(`make ratify`, 스케줄) — OBEY draft 를 결정론적 검증(스키마·enforced-by 실재·check
-   패턴을 실제 코드에 돌려 0매치)해 안전분만 자동 stable·compile·install. 판단필요 건만 `dw-ratifier`(LLM).
-2. **MCP 도구** — `dw_write_*` 가 frontmatter 구성(status 파라미터 없음). LIVE 는 stable 직행, OBEY 만 draft 제안.
-3. **결정론적 린터**(PostToolUse) — 규칙 `check-deny`/`check-require` → `.claude/dw-checks.json` + `dw-lint.py`.
-   위반을 `additionalContext` 로 **피드백**(차단 아님, self-correct 유도).
-4. **worktree 가드**(PreToolUse, `Agent|Task`) — 파일 변경 에이전트를 격리 없이 spawn 하면 `ask`(공유 체크아웃 main 오염 방지).
-5. **vault 가드**(PostToolUse 백스톱) — raw `.md` 쓰기의 frontmatter 계약 검사.
-6. **서브에이전트**(판단) — `enforced-by` 가 참조하는 검증자(security-qa/code-review/design-review)만 설치.
-
-이들을 **`dw-governed` 하네스**가 강제 루프로 묶는다(규칙 pull → 작업 → 검사 → 검증자 → 통과까지 루프).
-하네스 콜드스타트는 **vault 전체 재검색 금지** — 규칙은 이미 로드(스킬+다이제스트), LIVE 만 작업이 호명한 대상을 좁게 pull.
-
-**오탐 방지**: 모든 검사는 `check-glob` 로 파일형 한정 + `check-exclude` 로 생성물(`*/dist/*`)·
-테스트(`tests/*`)·정본 정의 파일을 제외한다 — 실제 코드베이스 감사로 오탐 0.
-
-> grep 못 잡는 구조 규칙은 서브에이전트 리뷰(문서적)가 담당한다.
-
-## MCP 게이트웨이 — `dw-vault`
-
-vault 를 stdio MCP 서버(`_build/dw-mcp-server.py --vault <path>`)로 노출. 쓰기 도구에 status
-파라미터 없음(validate-by-construction). 읽기는 status 무관 — LIVE 는 stable 직행, OBEY 만 비준 대상:
-
-| | 도구 |
-|---|---|
-| **읽기** | `dw_search(query)` · `dw_read(name)` · `dw_list(type?)` (draft·stable 모두) |
-| **쓰기·LIVE(stable 직행)** | `dw_write_memory` · `dw_write_contract` · `dw_write_spec` |
-| **쓰기·OBEY(draft→자동 비준)** | `dw_write_procedure` · `dw_propose_rule` |
-
-등록: 플러그인(`plugin.json` 의 `mcpServers.dw-vault`)이 `plugin:denver-workflow:dw-vault` 로 자동 제공 —
-별도 `claude mcp add` 불요.
-
-### vault 경로 — 규약 경로와 커스텀 위치
-
-**기본(규약 경로)**: 런처(`dw-mcp-launch.sh`)는 `~/denver-workflow-vault` 를 vault 로 자동 해석한다.
-별도 env 설정 없이도 에이전트 writes 가 이 폴더에 직접 기록된다. `make scaffold-vault` 도 이 경로를
-기본 타깃으로 생성한다.
-
-해석 순서: `DW_VAULT_DIR`(env, 존재하는 폴더) > `~/denver-workflow-vault`(규약) > **에러(exit 1)**.
-vault 폴더가 없으면 런처는 기동하지 않는다 — 플러그인 루트 캐시 폴백 없음.
-
-**커스텀 위치**: vault 를 다른 경로에 두고 싶을 때만 `DW_VAULT_DIR` 를 설정한다(탈출구).
-`plugin.json` 의 `mcpServers.dw-vault.env` 는 `{}` — 런처가 환경·규약 경로를 해석하므로 선언에 박힌 값이 없다
-(루트 `.mcp.json` 은 `{}`). 별도 export 나 선언 수정 없이 동작하는 것이 기본이다.
-
-```sh
-# 커스텀 vault 위치만 — 기본 ~/denver-workflow-vault 쓴다면 불요
-export DW_VAULT_DIR="$HOME/My Vaults/denver"   # CC 시작 전 export
-```
-
-**coherence**: 컴파일·비준은 같은 vault 를 읽어야 한다. `make build|install-project|ratify` 는 **이 워크스페이스에서**
-실행하되, Makefile 의 `VAULT_DIR`(= `DW_VAULT_DIR` 우선, 기본 `~/denver-workflow-vault`)로 그 vault 를 읽는다
-(`--out` 산출물은 `TOOLS_ROOT` = 워크스페이스 절대경로). 도구·`.venv` 는 워크스페이스, vault 콘텐츠는 별도 폴더.
-
-## 선택적 graphify 연동 (MCP)
-
-`graphify`(코드·지식을 그래프로 인덱싱하는 외부 CLI)로 **vault 지식을 ingest** 해 두면, 에이전트가
-substring 매칭인 `dw_search` 대신 **관계·경로 기반 시멘틱 탐색**을 쓸 수 있다. graphify 는 **optional** —
-설치·구축한 사용자만 켠다. 미구축 환경엔 아무 영향이 없다.
-
-**연결 방식(MCP)**: graphify 는 CLI 조회뿐 아니라 MCP stdio 서버(`graphify.serve`)를 제공한다.
-`/dw-setup` 옵인 단계가 graphify 를 감지하면 **프로젝트별 `.mcp.json`** 에 등록한다(전역 `plugin.json`
-아님 — optional 도구를 모든 세션에 강요하지 않기 위해). 등록 헬퍼는 `_build/dw-graphify-register.py`:
-
-```bash
-# 감지·미리보기(쓰기 없음) — graphify CLI + graph.json 있어야 함
-python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-graphify-register.py" --project "$(pwd)"
-# 등록(mcp SDK 없으면 pipx inject 자동, .mcp.json 병합)
-python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-graphify-register.py" --project "$(pwd)" --apply
-```
-
-- **그래프 해석 순서**: 명시 `--graph` > `<project>/graphify-out/graph.json`(프로젝트 로컬) >
-  `<vault>/graphify-out/graph.json`(vault 에 ingest 한 지식 그래프 — 런처와 같은 순서로 vault 해석).
-  vault 지식을 ingest 한 경우 프로젝트에 로컬 그래프가 없어도 vault 그래프를 자동으로 찾는다.
-- **노출 도구(약 10개)**: `query_graph`·`get_node`·`get_neighbors`·`get_community`·`god_nodes`·
-  `graph_stats`·`shortest_path`·`list_prs`·`get_pr_impact`·`triage_prs` — `mcp__graphify__*` 로 노출.
-- **에이전트 활용**: 설치 에이전트는 `tools:` 없이 emit 돼(전체 도구 상속) graphify 도구를 자동 획득한다.
-  guidance `[[graphify-search]]`(digest 상시 주입)가 "지식 탐색은 graphify 그래프 우선, 없으면
-  `dw_search` 폴백"을 지시하고, 오케스트레이터는 do-er 디스패치에도 이 우선순위를 relay 한다.
-- **확인**: 등록 후 새 세션에서 `claude mcp list | grep graphify` (→ graphify … Connected).
-
-> graphify 자체 설치·그래프 빌드(`graphify update`/ingest)는 사용자 몫 — 이 플러그인은 감지 시
-> 등록만 대행한다. mcp SDK 는 graphify venv 에 `pipx inject graphifyy mcp` 로 확보한다.
-
-## 메모리 & 계약 — vault 단일 SSOT
-
-- **메모리**(`memory/`): 라이브, 비컴파일. 에이전트가 `dw_write_memory` 로 stable 기록(읽기가 status
-  무관 → 게이트 무의미). CC **auto-memory 도 `autoMemoryDirectory` 로 vault 로 funnel** → 자동 캡처가
-  vault 단일 SSOT 로 수렴(가드·도구가 CC 포맷 `name/metadata.type` 과 vault 포맷 `type:memory` 둘 다 수용).
-- **계약**(`contracts/`): 라이브, 비컴파일, **repo 미러 없음**. `dw_write_contract` 로 작성(stable).
-  완결분은 `contracts/archive/`(활성 검색 제외, 경로 직접 읽기 가능).
-- **자동 노출(읽기 절반)**: 스킬 body 는 자동 로드되지 않으므로(description 만), `/dw-install`(`make install-project`)이 프로젝트별 **다이제스트**
-  (`.claude/dw-session-digest.md`: 항상-적용 guidance + 강제 규칙 목록 + 누적 지식 인덱스)를 만들고,
-  `dw-session-context.py`(**SessionStart 훅**)가 세션 시작 시 컨텍스트에 직접 주입한다. 전문은 `dw_read`.
-  scope 어휘는 `SCOPE_ALIASES` 로 정규화(freeform·skill-이름 흡수), orphan 은 `engineering` 인덱스로 흡수.
-
-## vault 작성 규칙
-
-**폴더는 사람용 정리, frontmatter 는 기계용 라우팅.** 규칙 노트를 엉뚱한 폴더에 둬도 컴파일은 정확하다.
-최상위는 **governance/**(역할·기능·원칙·법)와 **project/**(프로젝트 작업 산출물)로 분리한다.
-
-| 폴더 | 용도 | 컴파일 |
+| Tier | 상황 | 할 일 |
 |---|---|---|
-| `governance/_skills/` | skill-manifest (scope 묶음 정의) | ✅ |
-| `governance/rules/` | "법" — 검증 가능한 강제(`enforced-by` 필수) | ✅ stable |
-| `governance/guidance/` | 작업 규율 — 공유 원칙(enforced-by 불요) | ✅ stable |
-| `governance/procedures/` | 재사용 절차(playbook) — **에이전트 저작**(draft→dw-ratify 자동 비준) | ✅ stable |
-| `governance/agents/` | 역할(검증자·하네스) 정의(`enforced-by` 대상) | (서브에이전트로 설치) |
-| `project/decisions/` | ADR(아키텍처 결정 기록) — append-only | ❌ |
-| `project/memory/` | 에이전트 학습 — 라이브 | ❌ |
-| `project/contracts/` | 백엔드↔앱 계약 SSOT — 라이브(`archive/` 포함) | ❌ |
-| `project/specs/` | 계획·스펙·설계 SSOT — 라이브(worktree 휘발 방지, `archive/`) | ❌ |
-| `_build/` · `_templates/` · `.obsidian/` | 컴파일러 · 저작 템플릿 · Obsidian 설정 | ❌ |
+| **1** | 매 새 세션(평상시) | 없음 — SessionStart 훅이 다이제스트 주입, 스킬·훅·에이전트·MCP 자동 로드. 점검 `claude mcp list \| grep dw-vault` |
+| **2** | 재부팅 후 | 동일(절대경로 + `.venv` 영속). `make doctor` |
+| **3** | 새 머신/재클론 | `/dw-setup` 한 번(의존 설치·vault scaffold·프로젝트 설치) |
 
-> 폴더 경로는 사람·MCP·ratify·review 가 참조하지만, **컴파일러는 frontmatter `type` 으로만 라우팅**(rglob 전체 스캔)하므로 재배치에 안전하다.
+---
 
-**Obsidian 으로 열기**: 이 폴더 자체가 볼트(`.obsidian/` 포함). 명령 팔레트 → *Insert template* 로
-`rule`/`guidance`/`memory`/`contract`/`agent`/`skill-manifest`/`decision` frontmatter 를 채워 시작.
-위키링크 `[[노트]]` 는 컴파일러가 평탄화. 저작 후 `make build`/`/dw-install`.
+## Frontmatter 계약 (vault 저작용)
 
-## Frontmatter 계약
+노트 상단 frontmatter 가 사람(폴더)과 기계(컴파일러)를 잇는 유일한 계약입니다.
 
 | 필드 | 값 | 동작 |
 |---|---|---|
-| `type` | `rule`/`guidance`/`procedure`/`memory`/`contract`/`spec`/`decision`/`reference`/`skill-manifest`/`agent` | 라우팅 시작점 |
+| `type` | `rule`·`guidance`·`procedure`·`memory`·`contract`·`spec`·`backlog`·`reference`·`decision`·`skill-manifest`·`agent` | 라우팅 시작점 |
 | `scope` | kebab-case 도메인 | skill 묶음 단위 |
-| `status` | `draft`/`stable`/`deprecated` | **`stable` 만 컴파일·강제** |
+| `status` | `draft`·`stable`·`deprecated` | **`stable` 만 컴파일·강제** |
 | `compiles-to` | `skill` | 있어야 스킬 포함 |
-| `enforced-by` | 검증자 id | rule 필수. `agents/` 에 없으면 경고 |
-| `skill-name`·`skill-description` | — | skill-manifest 필수 |
-| `title` | 사람용 제목 | 규칙 섹션 헤딩 |
+| `enforced-by` | 검증자 id | rule 필수(`agents/` 에 없으면 경고) |
 | `check-deny`·`check-require` | 정규식/목록 | 린터 위반 판정(deny=있으면, require=없으면) |
-| `check-glob`·`check-exclude` | glob/목록 | 검사 대상 한정 — **glob 없으면 검사 비활성** |
-| `check-hint` | 문구 | 위반 시 수정 안내 |
+| `check-glob`·`check-exclude`·`check-hint` | glob·문구 | 검사 대상 한정(**glob 없으면 검사 비활성**)·수정 안내 |
 
 **type 별 필수 필드**
 - `rule`: `type scope status enforced-by compiles-to`
-- `guidance`: `type scope status compiles-to` (enforced-by 불요 — 강제 게이트 아닌 작업 규율)
+- `guidance`·`procedure`: `type scope status compiles-to`
 - `skill-manifest`: `type scope skill-name skill-description`
-- `memory`/`contract`: `type status` (+`title`) · `agent`/`decision`: `type`
+- `memory`·`contract`·`spec`·`backlog`·`reference`: `type status` (+`title`) · `agent`·`decision`: `type`
 
-## 검증: 에러 vs 경고
+**Obsidian 저작**: 이 폴더 자체가 볼트(`.obsidian/` 포함). 명령 팔레트 → *Insert template* 로 frontmatter
+를 채워 시작. 위키링크 `[[노트]]` 는 컴파일러가 평탄화. 저작 후 `make build`/`/dw-install`.
 
-| 상황 | 기본 | `--strict` |
-|---|---|---|
-| `type:rule` 인데 `enforced-by` 없음 | **에러(exit 1)** | 에러 |
-| `enforced-by` 가 `agents/` 에 없음 | 경고 | **에러** |
-| skill-manifest 필수 필드 누락 / scope 중복 / 고아 노트 | **에러** | 에러 |
-| dataview/embed 정제, manifest 만 있고 규칙 없는 scope | 경고 | **에러** |
+> seed 는 제네릭 축-B 만 배포합니다(엔지니어링 규율 + 검증자·하네스). 프로젝트 특화 규칙·계약·스펙은
+> 사용자가 작성하며 공개 플러그인엔 포함되지 않습니다.
 
-불변식 9개 + 설계 근거(스킬 body 비자동로드 → SessionStart 주입, 자동 비준 등)는 [BOOTSTRAP.md](./BOOTSTRAP.md) 참조.
+---
+
+## 더 깊이
+
+- **설계 원리·불변식(9개)·아키텍처 근거** → [BOOTSTRAP.md](./BOOTSTRAP.md)
+- **개발·빌드 규약** → [CLAUDE.md](./CLAUDE.md)
+- **변경 이력** → [CHANGELOG.md](./CHANGELOG.md)
