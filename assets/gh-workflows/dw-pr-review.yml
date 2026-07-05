@@ -1,0 +1,127 @@
+name: PR Review (denver-workflow)
+
+# denver-workflow 11단계 중 ⑥단계(PR + 리뷰 + CI)를 GitHub Actions 에서 자동화하는 워크플로우다.
+# PR 이 열리거나 갱신되면 Claude(anthropics/claude-code-action)가 PR 브랜치를 실제로 checkout 한
+# 워킹트리에서 코드를 읽어 리뷰하고, 인라인 코멘트 + 최종 요약(PASS/FAIL 판정)을 남긴다.
+# 판정이 FAIL 이면 이 job 이 실패하므로, main 브랜치 보호 규칙의 required check 에 이 job("review")을
+# 넣으면 리뷰 통과 전 머지를 막을 수 있다(브랜치 보호는 저장소 관리자 설정 — 사람 영역).
+#
+# ── 설치·전제(플러그인 /dw-ci-review 가 안내) ──────────────────────────────
+#   1) 저장소 시크릿에 CLAUDE_CODE_OAUTH_TOKEN 등록 (Claude Pro/Max 구독 토큰 — 리뷰에 쓸 Claude
+#      호출용. 별도 API 과금 없이 구독으로 동작). 로컬에서 `claude setup-token` 으로 토큰을 만든 뒤:
+#         gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo <owner/repo>
+#      멀티레포면 조직(org) 시크릿으로 한 번만 등록해 여러 레포가 공유할 수 있다.
+#   2) (선택) main 브랜치 보호의 required status check 에 "review" 추가 → 리뷰 통과 전 머지 차단.
+#
+# ── generic 원칙 ──────────────────────────────────────────────────────────
+#   리뷰 기준은 특정 언어/프레임워크에 묶지 않는다. Claude 가 이 저장소에 커밋된 거버넌스
+#   (.claude/skills·.claude/dw-checks.json·CLAUDE.md)를 먼저 찾아 그 기준으로 리뷰하고,
+#   없으면 일반 시니어 엔지니어링 원칙으로 리뷰한다. (denver-workflow: 특정 프로젝트 종속 금지)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write          # claude-code-action 요구
+
+concurrency:
+  group: dw-pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12     # 도구 사용(파일 탐색) 리뷰라 여유
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Claude Code review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            당신은 denver-workflow 의 코드 리뷰어입니다. 이 PR 의 브랜치는 현재 워킹트리에 checkout 되어
+            있습니다. `gh pr diff` 로 변경을 확인하고, 필요하면 파일을 직접 읽어 맥락을 검증하세요.
+
+            **리뷰 기준(이 저장소의 거버넌스를 먼저 따른다):**
+            먼저 이 저장소에 커밋된 거버넌스가 있는지 확인하세요 —
+            `.claude/skills/`(설치된 SSOT 규칙), `.claude/dw-checks.json`(결정론 검사 규칙), `CLAUDE.md`.
+            존재하면 **그 규칙을 리뷰 기준으로 삼습니다**(위반을 출처 규칙과 함께 지적). 없으면 아래
+            일반 원칙으로 리뷰합니다.
+
+            **검토 범위 — 본 PR diff 의 변경 라인만.** 기존 코드/다른 PR 의 패턴은 finding 으로 올리지
+            않습니다. 검토 영역:
+            (1) 정확성/버그 — 로직 오류·엣지케이스·회귀 위험
+            (2) 코드 품질 — SOLID/DRY/명료성, 불필요한 복잡도
+            (3) 아키텍처 — 책임 분리·계층 경계·계약(API/envelope) 정합
+            (4) 보안 — 입력 검증·인젝션(파라미터라이즈드 쿼리)·출력 이스케이프·인증/인가·비밀/PII 누출
+            (5) 테스트 — 변경에 대한 테스트 유무·회귀 가드
+
+            **중요:** finding 을 올리기 전 반드시 워킹트리의 실제 코드를 읽어 확인하세요(추측성 finding
+            금지 — 이미 처리된 것을 오탐하면 리뷰 신뢰를 잃습니다). 확실치 않으면 파일을 grep/read 로 검증.
+
+            구체적 코드 이슈는 `mcp__github_inline_comment__create_inline_comment` (confirmed: true) 로
+            인라인 코멘트를 답니다.
+            마지막에 `gh pr comment` 로 top-level 요약을 작성하되, **첫 줄에 반드시 아래 마커**(이번
+            commit 의 리뷰임을 표시 — verdict 파서가 stale 코멘트와 구분)를 넣고 **정확히 이 형식**으로:
+            ```
+            <!-- review-sha: ${{ github.event.pull_request.head.sha }} -->
+            ## Summary
+            (1줄)
+            ## Severity
+            (CRITICAL / HIGH / MEDIUM / LOW / INFO 중 worst case 하나)
+            ## Findings
+            (각 issue 별 [severity] 표시. 없으면 "없음")
+            ## Verdict: PASS
+            ```
+            마지막 라인은 반드시 `## Verdict: PASS` 또는 `## Verdict: FAIL`.
+            **판정 규칙(엄격히):** CRITICAL 또는 HIGH 1개 이상 → FAIL · MEDIUM 3개 이상 → FAIL · 그 외 → PASS.
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"
+
+      - name: Determine verdict + fail check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # 이번 commit(SHA) 마커가 있는 코멘트만 선택 — synchronize 재push 시 직전 run 의
+          # PASS 코멘트를 집어 false-PASS 되는 stale-comment 우회 차단.
+          BODY=$(gh pr view "$PR" --json comments \
+            --jq '[.comments[] | select(.body | contains("review-sha: " + env.SHA))] | last | .body' 2>/dev/null || echo "")
+          echo "----- review verdict comment (tail) -----"
+          echo "$BODY" | tail -15
+
+          # fail-safe — 이번 commit 의 코멘트/Verdict 부재 → FAIL (LLM/Action 실패를 PASS 로 흘리지 않음).
+          if [ -z "$BODY" ]; then
+            echo "::error::이번 commit(${SHA}) 의 review 코멘트(review-sha 마커) 미발견 — FAIL (안전 default)."
+            exit 1
+          fi
+          # 1) Verdict FAIL 명시
+          if echo "$BODY" | grep -qiE "Verdict:[[:space:]*]*FAIL"; then
+            echo "::error::Verdict FAIL — PR comment 확인 + fix 후 재 push."
+            exit 1
+          fi
+          # 2) Severity CRITICAL/HIGH (verdict 누락 보호)
+          if echo "$BODY" | grep -iA1 "## *Severity" | grep -qiE "\b(CRITICAL|HIGH)\b"; then
+            echo "::error::Severity CRITICAL/HIGH 감지 — FAIL."
+            exit 1
+          fi
+          # 3) Verdict PASS 명시 부재 → FAIL (불완전 응답 보호)
+          if ! echo "$BODY" | grep -qiE "Verdict:[[:space:]*]*PASS"; then
+            echo "::error::Verdict PASS 미확인 — FAIL (안전)."
+            exit 1
+          fi
+          echo "✅ Verdict PASS — review 통과."

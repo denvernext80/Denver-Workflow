@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.6.0 — 2026-07-05
+
+### 추가
+- **GitHub Actions Claude PR 리뷰어(선택 기능).** 11단계 ⑥(PR + 리뷰 + CI)를 CI 에서 자동화하는
+  Claude 기반 PR 리뷰 워크플로우를 플러그인이 저장소에 설치할 수 있다. PR 이 열리거나 갱신되면
+  `anthropics/claude-code-action` 이 PR 브랜치를 checkout 한 워킹트리에서 코드를 읽어 인라인 코멘트 +
+  최종 요약(PASS/FAIL 판정)을 남기고, 불합격이면 `review` job 이 실패한다(브랜치 보호 required check 에
+  넣으면 리뷰 통과 전 머지 차단).
+  - **`assets/gh-workflows/dw-pr-review.yml`** — generic 템플릿. 리뷰 기준을 특정 언어에 묶지 않고,
+    리뷰어가 저장소에 커밋된 거버넌스(`.claude/skills`·`.claude/dw-checks.json`·`CLAUDE.md`)를 먼저
+    발견해 그 기준으로 리뷰하고 없으면 일반 시니어 원칙으로 폴백(레포마다 커밋 상태가 달라 자기적응형).
+    검증된 verdict 기계장치(이번-commit review-sha stale 코멘트 가드·응답 부재 시 fail-safe FAIL·
+    severity 판정)는 보존. 인증은 **Claude Pro/Max OAuth 토큰**(`CLAUDE_CODE_OAUTH_TOKEN` — 별도 API
+    과금 없이 구독으로).
+  - **`_build/dw-ci-review.py`** — `.github/workflows/dw-pr-review.yml` no-clobber 설치(저장소 소유
+    커밋 코드라 install-project 재생성·seed 대상이 아님). `--project`·`--apply`.
+  - **`/dw-ci-review` 커맨드** — 저장소별 옵인 설치 + 사람 작업(토큰 시크릿·커밋·브랜치 보호) 안내.
+  - **`/dw-setup`** 에 선택 단계로 편입(설치 시 옵셔널), `/denver-workflow` ⑥단계에 옵션 언급.
+
 ## 2.5.2 — 2026-07-05
 
 ### 추가

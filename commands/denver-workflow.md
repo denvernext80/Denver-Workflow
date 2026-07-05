@@ -117,6 +117,11 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
 따르게** 하고, 완료 검증은 항상 그 레포의 `<repo>/.claude/dw-checks.json` + `enforced-by` 검증자로
 한다(orchestrator §4). 머지·배포 게이트(마이그레이션·시크릿·authz·데이터 손실)는 사용자 동의.
 
+> **(선택) GitHub Actions Claude PR 리뷰어** — ⑥단계 리뷰를 CI 에서 자동화하려면 `/dw-ci-review` 로
+> 저장소에 Claude 기반 PR 리뷰 워크플로우(`.github/workflows/dw-pr-review.yml`)를 설치할 수 있다.
+> PR 마다 Claude 가 그 레포 커밋 거버넌스(skills·dw-checks·CLAUDE.md) 기준으로 리뷰하고 합격/불합격을
+> 판정 — 브랜치 보호 required check(`review`)에 넣으면 리뷰 통과 전 머지 차단. 저장소별 옵인이다.
+
 ## advisor 에스컬레이션 트리거
 
 ```

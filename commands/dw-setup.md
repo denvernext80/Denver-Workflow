@@ -169,7 +169,27 @@ graphify 는 optional — 감지될 때만 사용자에게 등록을 제안한�
   자체 산출물이다 — 워크스페이스 루트엔 그래프가 없어 문구가 거짓일 수 있다. 그래프 라우팅 정본은
   digest guidance(지식=기본 그래프 / 코드=`project_path`)이며 CLAUDE.md 블록에 의존하지 않는다.
 
+## (선택) GitHub Actions Claude PR 리뷰어 설치
+
+11단계 ⑥(PR + 리뷰 + CI)를 GitHub 에서 자동화하는 **Claude 기반 PR 리뷰어**를 설치할 수 있다.
+PR 이 열리면 Claude 가 코드를 읽어 리뷰하고 합격/불합격을 판정한다. **선택 기능** — 대상 저장소가
+GitHub 저장소이고 사용자가 원할 때만 제안한다(비용·시크릿이 걸린 바깥 설정이라 강제하지 않는다).
+
+1. 대상이 GitHub 저장소인지 확인(`.git` 존재 + GitHub 리모트). 아니면 이 단계 건너뛴다.
+2. 사용자에게 "PR 이 열리면 Claude 가 자동으로 코드 리뷰하고 합격/불합격을 매기는 기능을 켤까요?
+   (Claude Pro/Max 구독 토큰이 필요합니다)" 확인. 원하면:
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-ci-review.py" --project "$(pwd)"          # 미리보기
+   python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-ci-review.py" --project "$(pwd)" --apply  # 설치(no-clobber)
+   ```
+3. 설치 후 사람 작업(토큰 등록·커밋·머지 게이트)은 **`/dw-ci-review` 커맨드가 안내하는 절차**와 동일
+   하다 — 그 안내(① `claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN` 시크릿, ② 커밋·푸시, ③ 선택:
+   브랜치 보호 required check 에 `review` 추가)를 따르게 한다.
+
+나중에 다른 저장소에 켜거나 다시 설정하려면 **`/dw-ci-review`** 를 쓰면 된다.
+
 ## 마무리 보고
 
 설치·설정된 항목을 표로 요약하고, 다음 행동을 안내한다:
 "이제 `/denver-workflow` 를 실행하면 기능 개발 전체 과정(요구사항 → 배포)을 안내해 드립니다."
+필요하면 `/dw-ci-review` 로 GitHub PR 자동 리뷰어를 저장소별로 켤 수 있음을 함께 알린다.
