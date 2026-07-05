@@ -14,6 +14,10 @@ title: 백로그·후속 항목은 vault 로 — 프로젝트 repo 에 Backlog �
 LIVE(status:stable)로 남아 `dw_search`·`dw_list(note_type=backlog)` 로 즉시 조회된다. item=무엇을
 해야 하나, context=어디서 나왔나·왜(file:line·커밋).
 
+**완료 처리**: 항목을 다 하면 `dw_resolve(name, resolution)` 로 `project/backlog/archive/` 로 옮긴다 —
+`status`(비준상태)로는 완료/미완료를 못 나누므로, 완료는 archive 이동으로 표현한다(활성 목록엔 미완료만
+남는다). 같은 방식으로 spec(구현/적용 완료)·contract(완결)도 `dw_resolve` 로 archive 한다.
+
 경계: README·CHANGELOG 등 코드-인접 관례 문서, 그리고 코드 안의 인라인 `// TODO:` 주석은 대상이
 아니다(이건 코드의 일부). 금지 대상은 **후속작업 목록을 담은 별도 마크다운 파일**이다. durable
 분석/스펙/계획 문서 전반의 vault-우선 규율은 [[artifact-locations]] 를 따른다.

@@ -27,7 +27,7 @@ title: vault 구성 원칙 (폴더 택소노미 + frontmatter 계약)
 | `project/contracts/` | 백엔드↔앱 등 인터페이스 계약(`archive/` 포함) | `contract` | ❌ LIVE |
 | `project/specs/` | 계획·스펙·설계(`archive/` 포함) | `spec` | ❌ LIVE |
 | `project/memory/` | 에이전트 학습(날짜별, `archive/` 포함) | `memory` | ❌ LIVE |
-| `project/backlog/` | 후속·백로그 항목(범위 밖 할일 — repo 파일 대신 여기) | `backlog` | ❌ LIVE |
+| `project/backlog/` | 후속·백로그 항목(범위 밖 할일 — repo 파일 대신 여기, `archive/`=완료) | `backlog` | ❌ LIVE |
 
 ### 예외 — `repo-map` (프로젝트 토폴로지/설정)
 | 폴더 | 용도 | type | 컴파일 |

@@ -203,7 +203,8 @@ def dw_write_backlog(scope: str, title: str, item: str,
     **프로젝트 repo 에 BACKLOG.md·TODO 류 파일을 만들지 마라** — worktree 청소·브랜치 삭제 시
     휘발하고 팀이 못 본다. 나중에 다룰 후속 작업(발견했지만 이번 범위 밖)은 여기 vault 로 남긴다.
     backlog 는 비컴파일 LIVE 라 강제되지 않으므로 사람 비준 불요. item=무엇을 해야 하나,
-    context=어디서 나왔나·왜(file:line·커밋·연관)."""
+    context=어디서 나왔나·왜(file:line·커밋·연관). **완료하면 `dw_resolve(name)` 로 archive 이동**
+    (status 는 비준상태라 완료 표시가 아니다 — 완료/미완료는 archive 이동으로 구분한다)."""
     today = datetime.date.today().isoformat()
     fm = {"type": "backlog", "status": "stable", "scope": scope or "general",
           "agent": agent or "mcp-client", "date": today, "title": title, "source": "ssot mcp"}
@@ -214,11 +215,53 @@ def dw_write_backlog(scope: str, title: str, item: str,
     return f"기록됨: {path} — LIVE 백로그라 dw_search/dw_list(note_type=backlog)로 즉시 조회됩니다(비준 불요)."
 
 
+# project/ LIVE 산출물 중 완료/적용 라이프사이클이 있는 타입 — archive/ 관례로 완료를 표현한다.
+# (memory·decision 은 완료 개념이 없어 제외. status 는 비준상태라 완료 표시가 아님 → 이동으로 구분.)
+_RESOLVABLE_DIRS = ["project/backlog", "project/specs", "project/contracts"]
+
+
+@mcp.tool()
+def dw_resolve(name: str, resolution: str = "") -> str:
+    """LIVE 프로젝트 산출물(백로그·스펙/계획·계약)을 완료/적용 처리한다 — 해당 폴더의 `archive/` 로
+    옮겨 활성 목록에서 내린다. `status`(비준상태)로는 완료/미완료를 못 나눠서, 완료는 archive 이동으로
+    표현한다(dw_search·dw_list·세션 다이제스트 모두 archive 제외 → 활성 뷰엔 미완료만 남음).
+
+    name=파일명 stem 또는 상대경로. resolution=어떻게 됐나(구현 PR·커밋·결정 — 이력에 남긴다).
+    대상: backlog(완료)·spec(구현/적용 완료)·contract(완결). 완료분은 경로로 직접 `dw_read` 는 가능."""
+    stem = name[:-3] if name.endswith(".md") else name
+    base_dir: Path | None = None
+    target: Path | None = None
+    for d in _RESOLVABLE_DIRS:
+        base = VAULT / d
+        if not base.is_dir():
+            continue
+        for p in sorted(base.glob("*.md")):  # 최상위만 매칭 = 활성(archive/ 하위 자동 제외)
+            if p.stem == stem or p.name == name or str(p.relative_to(VAULT)) == name:
+                base_dir, target = base, p
+                break
+        if target:
+            break
+    if target is None:
+        return (f"(찾을 수 없음: {name}) — 활성 backlog/specs/contracts 에 없습니다. "
+                "이미 완료(archive)됐거나 이름이 다를 수 있습니다. dw_list 로 확인하세요.")
+    today = datetime.date.today().isoformat()
+    note = resolution.strip() or "완료"
+    text = target.read_text(encoding="utf-8").rstrip() + f"\n\n**완료/적용:** {note} ({today})\n"
+    archive = base_dir / "archive"
+    archive.mkdir(parents=True, exist_ok=True)
+    (archive / target.name).write_text(text, encoding="utf-8")
+    target.unlink()
+    rel = base_dir.relative_to(VAULT).as_posix()
+    return (f"완료 처리: {target.name} → {rel}/archive/ 로 이동했습니다. "
+            "활성 목록(dw_search·dw_list)에서 내려갔고, 원문은 경로로 dw_read 하면 이력이 남습니다.")
+
+
 @mcp.tool()
 def dw_write_contract(direction: str, kind: str, title: str, body: str, scope: str = "") -> str:
     """백엔드↔앱 계약(요청/회신/sign-off)을 vault contracts/ 에 기록한다(status:stable — LIVE 라 즉시 사용 가능).
     direction=backend-to-app|app-to-backend|shared, kind=request|reply|signoff|contract|notice.
-    계약은 비컴파일 LIVE SSOT 라 사람 비준 불요. 완결분만 contracts/archive/ 로 옮긴다(활성 검색 제외)."""
+    계약은 비컴파일 LIVE SSOT 라 사람 비준 불요. **완결분은 `dw_resolve(name)` 로 contracts/archive/ 이동**
+    (활성 검색 제외)."""
     if direction not in DIRECTIONS:
         return f"(거부) direction 은 {sorted(DIRECTIONS)} 중 하나여야 합니다."
     if kind not in KINDS:
@@ -237,6 +280,8 @@ def dw_write_spec(scope: str, title: str, body: str, kind: str = "spec") -> str:
 
     스펙·계획은 vault SSOT 에 둔다 — repo/worktree 에 두면 worktree 청소 시 휘발된다.
     kind=plan|spec|design. spec 은 비컴파일 LIVE 라 사람 비준 불요. repo 코드 경로는 본문에 링크로 남긴다.
+    **구현/적용 완료하면 `dw_resolve(name)` 로 specs/archive/ 이동**(status 는 비준상태라 적용완료 표시가
+    아니다 — 적용 여부는 archive 이동으로 구분한다).
     """
     if kind not in SPEC_KINDS:
         return f"(거부) kind 는 {sorted(SPEC_KINDS)} 중 하나여야 합니다."

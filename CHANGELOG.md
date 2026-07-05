@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.5.1 — 2026-07-05
+
+### 추가
+- **`dw_resolve(name, resolution)` — LIVE 프로젝트 산출물 완료/적용 처리.** backlog·spec·contract 는
+  모두 `status:stable`(비준상태)만 있어 **완료/미완료·적용 여부를 표시할 수 없던** 갭을 닫는다. 항목을
+  해당 폴더의 `archive/` 로 옮기고 본문에 `**완료/적용:** {resolution} ({날짜})` 를 남긴다. `_iter_notes`·
+  지식 인덱스·세션 다이제스트가 `archive/` 를 이미 제외하므로 **활성 뷰(dw_search·dw_list)엔 미완료만**
+  남고, 완료분은 경로로 직접 `dw_read` 하면 이력이 보존된다. 대상: backlog(완료)·spec(구현/적용 완료)·
+  contract(완결). memory·decision 은 완료 개념이 없어 제외.
+  - `dw_write_backlog`·`dw_write_spec` 도크스트링에 완료 시 `dw_resolve` 안내 추가. `dw_write_contract`
+    는 기존 "완결분 archive 이동" 약속을 실제 도구(`dw_resolve`)로 연결.
+  - `no-project-backlog-files` rule 에 완료 라이프사이클(dw_resolve) 명시. seed `project/backlog/archive/` 추가.
+
 ## 2.5.0 — 2026-07-05
 
 ### 추가
