@@ -112,8 +112,9 @@ jobs:
             echo "::error::이번 commit(${SHA}) 의 github-actions review 코멘트(review-sha 마커) 미발견 — FAIL (안전 default)."
             exit 1
           fi
-          # 1) Verdict FAIL 명시
-          if echo "$BODY" | grep -qiE "Verdict:[[:space:]]*FAIL"; then
+          # 1) Verdict FAIL 명시 — 판정 '라인'만(`^[## ]Verdict: FAIL`). 리뷰어가 finding 산문에서
+          #    `## Verdict: FAIL` 을 인용해도(백틱, 줄 중간) 매치하지 않아 오탐 FAIL 을 막는다.
+          if echo "$BODY" | grep -qiE "^[[:space:]]*#*[[:space:]]*Verdict:[[:space:]]*FAIL"; then
             echo "::error::Verdict FAIL — PR comment 확인 + fix 후 재 push."
             exit 1
           fi
@@ -130,9 +131,9 @@ jobs:
             echo "::error::MEDIUM finding ${MED}개(≥3) — FAIL."
             exit 1
           fi
-          # 4) Verdict PASS 명시 부재 → FAIL (불완전 응답 보호)
-          if ! echo "$BODY" | grep -qiE "Verdict:[[:space:]]*PASS"; then
-            echo "::error::Verdict PASS 미확인 — FAIL (안전)."
+          # 4) Verdict PASS '라인' 부재 → FAIL (불완전 응답 보호). #1 과 동일하게 라인앵커.
+          if ! echo "$BODY" | grep -qiE "^[[:space:]]*#*[[:space:]]*Verdict:[[:space:]]*PASS"; then
+            echo "::error::Verdict PASS 라인 미확인 — FAIL (안전)."
             exit 1
           fi
           echo "✅ Verdict PASS — review 통과."
