@@ -31,7 +31,7 @@ VAULT = Path(_args.vault).resolve()
 CONTENT_DIRS = ["governance/rules", "governance/guidance", "governance/procedures",
                 "governance/_skills", "governance/agents",
                 "project/memory", "project/contracts", "project/specs",
-                "project/decisions", "project/backlog"]
+                "project/decisions", "project/backlog", "project/reference"]
 DIRECTIONS = {"backend-to-app", "app-to-backend", "shared"}
 KINDS = {"request", "reply", "signoff", "contract", "notice"}
 SPEC_KINDS = {"plan", "spec", "design"}
@@ -164,7 +164,7 @@ def dw_read(name: str) -> str:
 
 @mcp.tool()
 def dw_list(note_type: str = "") -> list[dict]:
-    """SSOT vault 노트 목록(선택: note_type=rule|guidance|memory|contract|decision|backlog 으로 필터). 둘러볼 때 쓴다."""
+    """SSOT vault 노트 목록(선택: note_type=rule|guidance|memory|contract|decision|backlog|reference 으로 필터). 둘러볼 때 쓴다."""
     out = []
     for p in _iter_notes():
         fm = _frontmatter(p.read_text(encoding="utf-8"))
@@ -222,8 +222,32 @@ def dw_write_backlog(scope: str, title: str, item: str,
     return f"기록됨: {path} — LIVE 백로그라 dw_search/dw_list(note_type=backlog)로 즉시 조회됩니다(비준 불요)."
 
 
+@mcp.tool()
+def dw_write_reference(scope: str, title: str, body: str, source: str = "", agent: str = "") -> str:
+    """스냅샷형 참조 문서를 vault reference/ 에 기록한다(status:stable — LIVE 라 즉시 검색 가능).
+
+    reference = **현재 시스템 상태의 스냅샷 추출** — DB 스키마 덤프, API 전수 인덱스, 아키텍처
+    다이어그램 등. "할 일"(backlog)이나 "구현 계획"(spec)이 아니라 "지금 시스템이 어떻게 생겼나"의
+    캡처다. **완료/미완료가 없다** — 오직 최신 vs 드리프트(stale)만 있으므로 `dw_resolve` 대상이
+    아니다(archive 라이프사이클 없음). 드리프트 감지 시 **재추출(같은 title 로 새 스냅샷 교체)**이
+    정본 조치 — 재추출이 당장 안 되면 본문 상단에 스테일 경고만 붙이고 유지한다(삭제/archive 하면
+    유일한 참조를 잃음). source=추출 근거·시점(덤프 명령·커밋·날짜). 계획/설계면 dw_write_spec 을 쓴다."""
+    today = datetime.date.today().isoformat()
+    fm = {"type": "reference", "status": "stable", "scope": scope or "general",
+          "agent": agent or "mcp-client", "date": today, "title": title, "source": "ssot mcp"}
+    text = body.strip()
+    if source.strip():
+        text += f"\n\n**추출 근거:** {source.strip()}"
+    # 날짜 없는 slug 파일명 — reference 는 "최신 1개"라 같은 title 재추출 시 덮어써 교체한다
+    # (추출 시점은 frontmatter date 가 추적). date-prefix 면 재추출이 교체가 아니라 중복이 됨.
+    path = _emit("project/reference", f"{_slugify(title)}.md", fm, text)
+    return (f"기록됨: {path} — LIVE 참조라 dw_search/dw_list(note_type=reference)로 즉시 조회됩니다(비준 불요). "
+            "드리프트 시 같은 title 로 다시 부르면 이 파일을 덮어써 교체합니다(완료 개념 없음 — dw_resolve 대상 아님).")
+
+
 # project/ LIVE 산출물 중 완료/적용 라이프사이클이 있는 타입 — archive/ 관례로 완료를 표현한다.
-# (memory·decision 은 완료 개념이 없어 제외. status 는 비준상태라 완료 표시가 아님 → 이동으로 구분.)
+# (memory·decision 은 완료 개념이 없어 제외. reference 는 완료가 아니라 최신/드리프트만 있어 제외 —
+#  드리프트는 재추출로 교체. status 는 비준상태라 완료 표시가 아님 → 이동으로 구분.)
 _RESOLVABLE_DIRS = ["project/backlog", "project/specs", "project/contracts"]
 
 

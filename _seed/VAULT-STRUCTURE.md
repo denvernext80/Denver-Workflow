@@ -28,6 +28,7 @@ title: vault 구성 원칙 (폴더 택소노미 + frontmatter 계약)
 | `project/specs/` | 계획·스펙·설계(`archive/` 포함) | `spec` | ❌ LIVE |
 | `project/memory/` | 에이전트 학습(날짜별, `archive/` 포함) | `memory` | ❌ LIVE |
 | `project/backlog/` | 후속·백로그 항목(범위 밖 할일 — repo 파일 대신 여기, `archive/`=완료) | `backlog` | ❌ LIVE |
+| `project/reference/` | 스냅샷형 참조 문서(DB 스키마·API 인덱스·아키텍처 다이어그램 등 — "할 일"이 아니라 현재 상태 추출) | `reference` | ❌ LIVE |
 
 ### 예외 — `repo-map` (프로젝트 토폴로지/설정)
 | 폴더 | 용도 | type | 컴파일 |
@@ -36,10 +37,20 @@ title: vault 구성 원칙 (폴더 택소노미 + frontmatter 계약)
 
 `repo-map` 은 axis-A(프로젝트 종속)지만 **digest 로 주입되는 유일한 예외**다 — "프로젝트 지식"이 아니라
 "프로젝트 설정/토폴로지"라 orchestrator 가 매 디스패치마다 always-on 으로 필요하기 때문. 다른 axis-A
-타입(spec/contract/memory/decision)은 비컴파일 원칙 유지. 생성은 `/denver-workflow` 0단계 대화식 부트스트랩.
+타입(spec/contract/memory/decision/reference)은 비컴파일 원칙 유지. 생성은 `/denver-workflow` 0단계 대화식 부트스트랩.
+
+### `reference` 의 라이프사이클 — spec 과 다름 (완료 판정 대상 아님)
+`spec`(계획·설계)은 구현되면 `dw_resolve` 로 `archive/` 이동 — "완료"가 존재한다. `reference` 는
+**"할 일"이 아니라 현재 시스템 상태의 스냅샷 추출**(DB 스키마 덤프, API 전수 인덱스, 아키텍처
+다이어그램 등)이라 완료/미완료가 성립하지 않는다 — 오직 **최신 vs 드리프트(stale)** 만 있다.
+- 신규 노트가 "구현 계획/설계"면 → `specs/`. "지금 시스템이 어떻게 생겼나"의 캡처면 → `reference/`.
+- 드리프트 감지 시 archive 이동이 아니라 **재추출(새 스냅샷으로 교체)**이 정본 조치. 재추출이
+  당장 안 되면 문서 상단에 스테일 경고만 추가하고 유지(삭제/archive 하면 유일한 참조를 잃음).
+- 따라서 `reference` 는 `dw_resolve` 대상이 아니다(archive 라이프사이클 없음).
 
 ## 분류 규칙 (신규 노트가 어디로)
-- 특정 기능/엔티티/계약에 종속 → **축 A**(spec/contract/decision/memory).
+- 특정 기능/엔티티/계약에 종속된 **계획·합의·결정·학습** → **축 A**(spec/contract/decision/memory).
+- 특정 시점 시스템 상태의 **스냅샷 캡처**(완료 판정 대상 아님) → **축 A**(`reference`).
 - "다음에도 이렇게 일한다"는 절차·규칙·원칙 → **축 B**(procedure/rule/guidance).
 - 강제하고 싶으면 `rules/`(+ enforced-by 검증자 또는 결정론 검사), 강제 아닌 재사용 절차면 `procedures/`.
 

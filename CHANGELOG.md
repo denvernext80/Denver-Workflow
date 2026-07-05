@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.7.0 — 2026-07-05
+
+### 추가
+- **`reference` 타입 + `project/reference/` — 스냅샷형 참조 문서.** DB 스키마 덤프·API 전수 인덱스·
+  아키텍처 다이어그램 등 "현재 시스템 상태의 캡처"를 두는 LIVE 타입. "할 일"(backlog)이나 "구현
+  계획"(spec)이 아니라 "지금 어떻게 생겼나"라, **완료/미완료가 없고 최신 vs 드리프트(stale)만 있다** —
+  따라서 `dw_resolve`/archive 대상이 아니다.
+  - **`dw_write_reference(scope, title, body, source)`** — `project/reference/{slug}.md`(날짜 없는
+    파일명)로 기록. 드리프트 시 **같은 title 로 다시 부르면 덮어써 교체**(최신 1개 유지, 추출 시점은
+    frontmatter `date` 가 추적). 계획/설계면 `dw_write_spec`.
+  - `CONTENT_DIRS`·`dw_list` 필터에 `reference` 추가(dw_search·dw_list 로 조회). `_RESOLVABLE_DIRS`
+    에는 **미포함**(reference 는 resolvable 아님).
+  - seed `project/reference/`(archive/ 없음 — 라이프사이클상 불필요), VAULT-STRUCTURE 에 타입·분류
+    규칙·라이프사이클 문서화.
+
 ## 2.6.0 — 2026-07-05
 
 ### 추가
