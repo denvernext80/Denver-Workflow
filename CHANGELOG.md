@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.7.1 — 2026-07-05
+
+### 보안
+- **PR 리뷰어 verdict 게이트 하드닝(3건).** 새 리뷰어를 balipick-app #441 에 적용하자 리뷰어가 **자기
+  워크플로우를 리뷰하며 실제 결함을 발견**(자기 도입 PR 을 CRITICAL 로 FAIL — 도구 정상 작동). 발견분 수정:
+  - **[CRITICAL] 작성자 미검증 게이트 우회** — verdict 스텝이 `review-sha` 마커 코멘트를 작성자 확인
+    없이 채택 → PR 코멘트 권한자가 위조 `## Verdict: PASS` 로 게이트 통과 가능. `jq select` 에
+    `author.login == "github-actions"` 필터 추가(실측: `gh --json` 은 `[bot]` 접미 없이 반환).
+  - **[MEDIUM] Findings 교차검증 부재** — overall Verdict 가 PASS 라도 본문에 `[CRITICAL]`/`[HIGH]`
+    태그가 있으면 FAIL(prompt-injection 등으로 overall 만 뒤집히는 것 차단).
+  - **[LOW] Severity 백업체크** `grep -A1`→`-A2`(헤더-값 사이 빈 줄 대비).
+  - 템플릿 + 이미 열린 3개 PR 브랜치(Balipick #616·App #441·chat #21)에 모두 반영.
+
 ## 2.7.0 — 2026-07-05
 
 ### 추가

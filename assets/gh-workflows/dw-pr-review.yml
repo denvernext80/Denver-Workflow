@@ -97,16 +97,19 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          # 이번 commit(SHA) 마커가 있는 코멘트만 선택 — synchronize 재push 시 직전 run 의
-          # PASS 코멘트를 집어 false-PASS 되는 stale-comment 우회 차단.
+          # 코멘트 선택 — 두 조건 모두 만족해야 신뢰:
+          #  (a) 작성자 = github-actions (이 워크플로우가 GITHUB_TOKEN 으로 남긴 것) — PR 코멘트
+          #      권한자가 위조 마커+"Verdict: PASS" 로 게이트를 우회하는 것을 차단(작성자 검증).
+          #      ※ gh --json 의 author.login 은 '[bot]' 접미 없이 'github-actions' 로 나온다(실측).
+          #  (b) 이번 commit(SHA) 마커 — synchronize 재push 시 직전 run 의 PASS 를 집는 stale 우회 차단.
           BODY=$(gh pr view "$PR" --json comments \
-            --jq '[.comments[] | select(.body | contains("review-sha: " + env.SHA))] | last | .body' 2>/dev/null || echo "")
+            --jq '[.comments[] | select(.author.login == "github-actions" and (.body | contains("review-sha: " + env.SHA)))] | last | .body' 2>/dev/null || echo "")
           echo "----- review verdict comment (tail) -----"
           echo "$BODY" | tail -15
 
-          # fail-safe — 이번 commit 의 코멘트/Verdict 부재 → FAIL (LLM/Action 실패를 PASS 로 흘리지 않음).
+          # fail-safe — 이번 commit 의 (신뢰 작성자) 코멘트/Verdict 부재 → FAIL (LLM/Action 실패를 PASS 로 흘리지 않음).
           if [ -z "$BODY" ]; then
-            echo "::error::이번 commit(${SHA}) 의 review 코멘트(review-sha 마커) 미발견 — FAIL (안전 default)."
+            echo "::error::이번 commit(${SHA}) 의 github-actions review 코멘트(review-sha 마커) 미발견 — FAIL (안전 default)."
             exit 1
           fi
           # 1) Verdict FAIL 명시
@@ -114,12 +117,18 @@ jobs:
             echo "::error::Verdict FAIL — PR comment 확인 + fix 후 재 push."
             exit 1
           fi
-          # 2) Severity CRITICAL/HIGH (verdict 누락 보호)
-          if echo "$BODY" | grep -iA1 "## *Severity" | grep -qiE "\b(CRITICAL|HIGH)\b"; then
+          # 2) Findings 개별 태그 교차검증 — overall Verdict 가 PASS 라도 [CRITICAL]/[HIGH] 태그가
+          #    본문에 있으면 FAIL (prompt-injection 등으로 overall 만 PASS 로 뒤집히는 것 차단).
+          if echo "$BODY" | grep -qiE "\[(CRITICAL|HIGH)\]"; then
+            echo "::error::Findings 에 [CRITICAL]/[HIGH] 태그 존재 — FAIL (overall Verdict 와 무관)."
+            exit 1
+          fi
+          # 3) Severity CRITICAL/HIGH (verdict 누락 보호). -A2: 헤더-값 사이 빈 줄 대비.
+          if echo "$BODY" | grep -iA2 "## *Severity" | grep -qiE "\b(CRITICAL|HIGH)\b"; then
             echo "::error::Severity CRITICAL/HIGH 감지 — FAIL."
             exit 1
           fi
-          # 3) Verdict PASS 명시 부재 → FAIL (불완전 응답 보호)
+          # 4) Verdict PASS 명시 부재 → FAIL (불완전 응답 보호)
           if ! echo "$BODY" | grep -qiE "Verdict:[[:space:]*]*PASS"; then
             echo "::error::Verdict PASS 미확인 — FAIL (안전)."
             exit 1
