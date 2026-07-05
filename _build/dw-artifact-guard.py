@@ -23,6 +23,9 @@ DURABLE = re.compile(
     r"(^|/)docs/|analysis|spec|plan|design|gaps?|proposal|rfc|adr|decision|architecture"
     r"|audit|review|roadmap|설계|계획|분석|스펙|명세|제안|감사",
     re.IGNORECASE)
+# 후속·백로그 파일 신호 — repo 에 두지 말고 vault backlog 로. (generic todo 는 제외: 인라인 주석·
+# 관례 파일이 많아 오탐/노이즈. 'backlog/백로그' 파일명·경로만 좁게 잡는다.)
+BACKLOG = re.compile(r"backlog|백로그", re.IGNORECASE)
 # 제외(코드-인접·관례 문서는 repo 에 남는다)
 EXCLUDE = re.compile(r"(^|/)(README|CHANGELOG|LICENSE|NOTICE|CONTRIBUTING|CODEOWNERS)", re.IGNORECASE)
 
@@ -74,14 +77,23 @@ def main() -> int:
         rel = fpath.relative_to(project.resolve()).as_posix()
     except ValueError:
         rel = fpath.name
-    if rel.startswith(".claude/") or EXCLUDE.search(rel) or not DURABLE.search(rel):
+    is_backlog = bool(BACKLOG.search(rel))
+    if rel.startswith(".claude/") or EXCLUDE.search(rel):
+        return 0
+    if not is_backlog and not DURABLE.search(rel):
         return 0
 
-    out = {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-           f"SSOT 산출물 가드: '{rel}' 는 durable 분석/스펙/계획 문서로 보입니다. "
-           "repo docs/ 는 worktree 청소·브랜치 삭제 시 휘발합니다 — 이 워크스페이스 규율상 durable 한 건 "
-           "**vault SSOT** 가 단일 출처입니다. `dw_write_spec`(계획·스펙·설계) 또는 `dw_write_memory`"
-           "(학습)로 vault 에 기록하세요. repo 사본은 코드 경로 링크용으로만 두고, 정본은 vault 에 둡니다."}}
+    if is_backlog:
+        ctx = (f"SSOT 산출물 가드: '{rel}' 는 백로그/후속 항목 파일로 보입니다. repo 에 두면 worktree "
+               "청소·브랜치 삭제 시 휘발하고 팀이 못 봅니다 — 이 워크스페이스 규율상 백로그는 "
+               "**vault SSOT** 가 단일 출처입니다. `dw_write_backlog(scope, title, item, context)` 로 "
+               "vault `project/backlog/` 에 기록하세요(정본은 [[no-project-backlog-files]] 규칙).")
+    else:
+        ctx = (f"SSOT 산출물 가드: '{rel}' 는 durable 분석/스펙/계획 문서로 보입니다. "
+               "repo docs/ 는 worktree 청소·브랜치 삭제 시 휘발합니다 — 이 워크스페이스 규율상 durable 한 건 "
+               "**vault SSOT** 가 단일 출처입니다. `dw_write_spec`(계획·스펙·설계) 또는 `dw_write_memory`"
+               "(학습)로 vault 에 기록하세요. repo 사본은 코드 경로 링크용으로만 두고, 정본은 vault 에 둡니다.")
+    out = {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": ctx}}
     print(json.dumps(out, ensure_ascii=False))
     return 0
 

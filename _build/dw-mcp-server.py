@@ -30,7 +30,8 @@ VAULT = Path(_args.vault).resolve()
 
 CONTENT_DIRS = ["governance/rules", "governance/guidance", "governance/procedures",
                 "governance/_skills", "governance/agents",
-                "project/memory", "project/contracts", "project/specs", "project/decisions"]
+                "project/memory", "project/contracts", "project/specs",
+                "project/decisions", "project/backlog"]
 DIRECTIONS = {"backend-to-app", "app-to-backend", "shared"}
 KINDS = {"request", "reply", "signoff", "contract", "notice"}
 SPEC_KINDS = {"plan", "spec", "design"}
@@ -161,7 +162,7 @@ def dw_read(name: str) -> str:
 
 @mcp.tool()
 def dw_list(note_type: str = "") -> list[dict]:
-    """SSOT vault 노트 목록(선택: note_type=rule|guidance|memory|contract|decision 으로 필터). 둘러볼 때 쓴다."""
+    """SSOT vault 노트 목록(선택: note_type=rule|guidance|memory|contract|decision|backlog 으로 필터). 둘러볼 때 쓴다."""
     out = []
     for p in _iter_notes():
         fm = _frontmatter(p.read_text(encoding="utf-8"))
@@ -192,6 +193,25 @@ def dw_write_memory(scope: str, title: str, learning: str,
         body += f"\n\n**적용:** {apply.strip()}"
     path = _emit("project/memory", f"{today}-{_slugify(title)}.md", fm, body)
     return f"기록됨: {path} — LIVE 메모리라 dw_search 로 즉시 검색됩니다(비준 불요)."
+
+
+@mcp.tool()
+def dw_write_backlog(scope: str, title: str, item: str,
+                     context: str = "", agent: str = "") -> str:
+    """후속·백로그 항목을 vault backlog/ 에 기록한다(status:stable — LIVE 라 즉시 검색 가능).
+
+    **프로젝트 repo 에 BACKLOG.md·TODO 류 파일을 만들지 마라** — worktree 청소·브랜치 삭제 시
+    휘발하고 팀이 못 본다. 나중에 다룰 후속 작업(발견했지만 이번 범위 밖)은 여기 vault 로 남긴다.
+    backlog 는 비컴파일 LIVE 라 강제되지 않으므로 사람 비준 불요. item=무엇을 해야 하나,
+    context=어디서 나왔나·왜(file:line·커밋·연관)."""
+    today = datetime.date.today().isoformat()
+    fm = {"type": "backlog", "status": "stable", "scope": scope or "general",
+          "agent": agent or "mcp-client", "date": today, "title": title, "source": "ssot mcp"}
+    body = item.strip()
+    if context.strip():
+        body += f"\n\n**맥락:** {context.strip()}"
+    path = _emit("project/backlog", f"{today}-{_slugify(title)}.md", fm, body)
+    return f"기록됨: {path} — LIVE 백로그라 dw_search/dw_list(note_type=backlog)로 즉시 조회됩니다(비준 불요)."
 
 
 @mcp.tool()

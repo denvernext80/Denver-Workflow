@@ -19,6 +19,12 @@
         "hooks": [
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-graphify-gate.py\"", "timeout": 15 }
         ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-graphify-gate.py\"", "timeout": 15 }
+        ]
       }
     ],
     "PostToolUse": [

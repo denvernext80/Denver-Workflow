@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.5.0 — 2026-07-05
+
+### 추가
+- **vault 전용 backlog + 프로젝트 Backlog 파일 금지(rule).** 후속·백로그 항목을 프로젝트 repo 에
+  `BACKLOG.md`·`TODO.md` 류로 흩뿌리면 worktree 청소·브랜치 삭제 시 휘발하고 팀·다음 세션이 못 본다 —
+  대신 **vault SSOT** 로 남긴다.
+  - 새 MCP 도구 **`dw_write_backlog(scope, title, item, context)`** — vault `project/backlog/` 에
+    LIVE(status:stable)로 기록, `dw_search`·`dw_list(note_type=backlog)`로 즉시 조회. memory 패턴(비준 불요).
+  - 새 rule **`no-project-backlog-files`**(enforced-by: code-review) — repo 에 백로그 파일 작성 금지,
+    vault backlog 로 유도. README·CHANGELOG·인라인 `// TODO` 주석은 대상 아님(경계 명시).
+  - `dw-artifact-guard.py`(PostToolUse)가 vault 밖 `backlog`/`백로그` 파일 쓰기를 감지해
+    `dw_write_backlog` 로 유도(차단 아님, additionalContext). generic todo 는 노이즈라 제외.
+- **코드 탐색 Grep→graphify MCP 게이트.** `dw-graphify-gate.py`(PreToolUse)가 이제 `Grep` 도구도 가로챈다 —
+  패턴이 **심볼형**(식별자·점경로)일 때만 "raw grep·graphify CLI 대신 세션 graphify MCP(`query_graph`/
+  `get_neighbors`, `project_path`)로" nudge. 리터럴 문자열·정규식·구절(에러메시지·설정키·주석)은 AST
+  그래프가 답 못 하니 **침묵**(과다발화로 무시당하는 것 방지). graphify 미등록 세션 무영향(불변식).
+
+### 변경
+- **guidance `graphify-search`** — 코드 **구조** 탐색은 세션 graphify **MCP**(CLI 셸아웃·raw grep 아님),
+  grep 은 리터럴 문자열 전용임을 명시. `hooks.json` 에 PreToolUse `Grep` 매처 추가.
+
 ## 2.4.3 — 2026-07-04
 
 ### 추가
