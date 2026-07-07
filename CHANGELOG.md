@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.7.4 — 2026-07-07
+
+### 추가
+- **범용 do-er/reviewer 3종 seed 승격 — senior-mobile·perf-tester·design-review.** vault 에만 있던
+  에이전트를 프로젝트 종속을 걷어내고 `_seed/governance/agents/` 로 올려, 신규 vault scaffold(`/dw-setup`)가
+  이들을 받도록 seed 자기충족 세트를 보강했다.
+  - `senior-mobile-engineer`: 발리픽/Flutter 종속 제거, 스택 무관(Flutter·RN·네이티브 iOS/Android)으로
+    재작성. codegen 전체 재생성·공유 에뮬 경합·adb 드리프트·DNS flaky·실기기 빌드 등 모바일 특화 지혜는
+    일반화해 보존. `install: always`.
+  - `perf-tester`: 종속 0 이라 verbatim 승격.
+  - `design-review`: `BalipickColors`·`Pretendard`·다크모드-위반 제거 → 토큰/폰트/테마 정책 일반화.
+    "정적 grep 가능분만 강제, 시각 심사는 사람 몫" 원칙 보존.
+  - 기존 프로젝트·개인 vault 는 무변경(프로젝트 전용본 유지). `make seed-check` green.
+
+### 수정
+- **dw-pr-review 하드닝 마감.** 유예됐던 verdict 게이트 하드닝 3건 반영 + MEDIUM 카운트 교차검증의
+  `grep -c`/`set -e` 상호작용 오탐 FAIL 수정.
+
+### 문서
+- `roster/` 디렉토리 개념 폐기 정리(에이전트 정본 = `governance/agents/`), BOOTSTRAP·README 최신화
+  (backlog·reference 타입, 11 도구, `dw_resolve`), PDCA 용어 정합.
+
 ## 2.7.3 — 2026-07-05
 
 ### 수정
