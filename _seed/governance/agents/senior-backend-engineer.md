@@ -14,7 +14,6 @@ description: |
 
   Triggers: backend, API, endpoint, migration, contract, 백엔드, 계약, 마이그레이션,
   엔드포인트, 계약 공급, 동기, merge, deploy, 배포, 스키마, 인증, 세션
-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-workflow_dw-vault__dw_search, mcp__plugin_denver-workflow_dw-vault__dw_read, mcp__plugin_denver-workflow_dw-vault__dw_list, mcp__plugin_denver-workflow_dw-vault__dw_write_memory, mcp__plugin_denver-workflow_dw-vault__dw_write_contract, mcp__plugin_denver-workflow_dw-vault__dw_write_spec, mcp__plugin_denver-workflow_dw-vault__dw_write_procedure, mcp__plugin_denver-workflow_dw-vault__dw_propose_rule
 ---
 
 # 시니어 백엔드 엔지니어

@@ -14,7 +14,6 @@ description: |
 
   Triggers: frontend, UI, 화면 구현, 기능 개발, 후속 작업, 계약 배선, 컴포넌트 테스트,
   디자인 폴리시, PR, 머지, 백엔드 회신, sign-off, 상태관리, 라우팅
-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-workflow_dw-vault__dw_search, mcp__plugin_denver-workflow_dw-vault__dw_read, mcp__plugin_denver-workflow_dw-vault__dw_list, mcp__plugin_denver-workflow_dw-vault__dw_write_memory, mcp__plugin_denver-workflow_dw-vault__dw_write_contract, mcp__plugin_denver-workflow_dw-vault__dw_write_spec, mcp__plugin_denver-workflow_dw-vault__dw_write_procedure, mcp__plugin_denver-workflow_dw-vault__dw_propose_rule
 ---
 
 # 시니어 프론트엔드 엔지니어

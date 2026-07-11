@@ -23,8 +23,10 @@ COMPILE := $(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out "$(TOOLS_ROO
 # 제네릭화 = '선별'(byte-동일 유지 가능한 프로젝트 무관 노트만) — 손편집 금지(update-seed 가 되돌림).
 # 사적 데이터(project/*) 는 seed 에 절대 없음.
 SEED          := _seed
-SEED_GUIDANCE := karpathy-guidelines tdd-iron-law regression-by-set-diff residual-only delegation-ownership pr-merge-discipline artifact-locations dw-dependencies dw-user-facing-copy
-SEED_AGENTS   := code-review security-qa dw-governed dw-ratifier
+SEED_GUIDANCE := karpathy-guidelines tdd-iron-law regression-by-set-diff residual-only delegation-ownership pr-merge-discipline artifact-locations dw-dependencies dw-user-facing-copy denver-workflow dispatch-discipline graphify-search
+# 예외: senior-backend-engineer·senior-mobile-engineer 는 _seed 에 손-제네릭화 변형으로 존재
+# (vault 본은 프로젝트 특화) — update-seed 화이트리스트에 넣지 말 것(넣으면 특화본이 seed 를 덮어씀).
+SEED_AGENTS   := code-review security-qa design-review perf-tester dw-governed dw-ratifier dw-orchestrator senior-front-engineer senior-infra-engineer senior-qa-engineer
 
 .PHONY: build dry-run clean distclean help doctor review ratify install-project
 

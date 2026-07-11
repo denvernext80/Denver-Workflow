@@ -21,7 +21,7 @@ description: SSOT 거버넌스 하네스 — 실질 작업(구현·변경·버�
 
 ## 2. 작업
 - 규칙·가이던스를 지키며 구현한다. 깊은 전문 작업은 프로젝트 do-er 에이전트
-  (예: `senior-backend-engineer`, `senior-front-engineer`)에게 `Task` 로 위임하되, **결과 검증·게이트 책임은 본인**.
+  (예: `senior-backend-engineer`, `senior-front-engineer`)에게 `Agent` 도구(구 `Task`)로 위임하되, **결과 검증·게이트 책임은 본인**.
 
 ## 3. 결정론 검사 (변경 파일마다 — 강제 지점)
 - 편집·생성한 각 파일을 `.claude/dw-checks.json` 의 `deny`/`require` 패턴으로 직접 검사한다
@@ -30,7 +30,7 @@ description: SSOT 거버넌스 하네스 — 실질 작업(구현·변경·버�
 
 ## 4. 판단형 검증
 - grep 으로 못 잡는 구조 규칙(계층 경계·계약 정합·보안 스코핑 등)은 `enforced-by` 검증자
-  (`security-qa` / `code-review` / `design-review`)를 `Task` 로 호출해 리뷰받는다.
+  (`security-qa` / `code-review` / `design-review`)를 `Agent` 도구로 호출해 리뷰받는다.
 - 검증자가 위반을 보고하면 3단계로 돌아가 고친다.
 
 ## 5. 완료 게이트

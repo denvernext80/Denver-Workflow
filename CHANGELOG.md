@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.8.0 — 2026-07-11
+
+### 개선 — 에이전트·스킬 전수 점검(최신화·전문화)
+- **검증자(reviewer) 4종 전문화 — code-review·security-qa·design-review·perf-tester.** 2~4줄 요약문이던
+  에이전트를 실전 검증자로 재작성: 검토 절차(diff 실측→항목별 검사), 보고 형식(🔴 차단/🟡 권고 ·
+  file:line · 근거 규칙), 오탐 규율(증거 없는 지적 금지·확인 필요 표기), "구현하지 않는다" 역할 경계.
+  vault 와 seed 를 byte-동일로 재정렬(verbatim 화이트리스트 불변식 복원).
+- **도구명 최신화 `Task` → `Agent`.** Claude Code 서브에이전트 도구 개명 반영 — dw-governed·
+  dw-orchestrator·dispatch-discipline·agent-delegation-preference 의 위임/디스패치 문구 갱신(구명 병기).
+- **죽은 `tools:` frontmatter 제거(에이전트 6종).** 컴파일러는 name/description 만 emit 하고 설치
+  에이전트는 세션 도구 전체를 상속(MCP 포함) — 오해 유발 메타데이터를 소스에서 제거하고
+  `_templates/agent.md` 에 명문화.
+- **senior-backend-engineer 리뷰 경로 갱신.** `bkit:code-analyzer` 1순위 참조를 dw 자체 검증자
+  (`code-review`·`security-qa`) 1순위로 교체(bkit 은 설치 시 병행 옵션으로 강등).
+- **dw-ratifier 죽은 타깃 수정.** 존재하지 않는 `make install` 참조 → `make ratify` + `/dw-install`.
+
+### 수정 — seed 파이프라인 정합
+- **Makefile 화이트리스트 stale 해소.** `SEED_AGENTS` 4→10종(승격된 do-er/reviewer 반영),
+  `SEED_GUIDANCE` 9→12종(denver-workflow·dispatch-discipline·graphify-search). 손-제네릭화 변형
+  (senior-backend·senior-mobile)은 화이트리스트 제외를 주석으로 명문화 — update-seed 가 특화본으로
+  seed 를 덮어쓰는 사고 방지.
+- **live vault 결손 복구.** seed 에만 있던 guidance 2종(dw-dependencies·dw-user-facing-copy)을 vault 에
+  복사, 구판으로 드리프트된 denver-workflow guidance·engineering 차터를 seed 신판으로 동기.
+- 검증: `make dry-run`(에러 0·경고 0) · `make seed-check` green · 추적 4개 프로젝트 재설치 완료.
+
 ## 2.7.4 — 2026-07-07
 
 ### 추가

@@ -16,7 +16,6 @@ description: |
   Triggers: mobile, 모바일, 앱, Flutter, React Native, iOS, Android, 화면 구현, 기능 개발,
   후속 작업, 계약 배선, 위젯 테스트, 에뮬레이터 QA, 실기기 빌드, PR, 머지, 백엔드 회신,
   sign-off, 상태관리, 라우팅
-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-workflow_dw-vault__dw_search, mcp__plugin_denver-workflow_dw-vault__dw_read, mcp__plugin_denver-workflow_dw-vault__dw_list, mcp__plugin_denver-workflow_dw-vault__dw_write_memory, mcp__plugin_denver-workflow_dw-vault__dw_write_contract, mcp__plugin_denver-workflow_dw-vault__dw_write_spec, mcp__plugin_denver-workflow_dw-vault__dw_write_procedure, mcp__plugin_denver-workflow_dw-vault__dw_propose_rule
 ---
 
 # 시니어 모바일 엔지니어

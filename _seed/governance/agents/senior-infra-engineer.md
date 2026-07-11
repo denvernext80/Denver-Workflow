@@ -14,7 +14,6 @@ description: |
 
   Triggers: CI, CD, 배포, deploy, 파이프라인, pipeline, 시크릿, secret, 마이그레이션, migration,
   인프라, infra, IaC, 릴리스, release, 게이트, 환경변수, 운영, 운영 검증
-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill, WebFetch, mcp__plugin_denver-workflow_dw-vault__dw_search, mcp__plugin_denver-workflow_dw-vault__dw_read, mcp__plugin_denver-workflow_dw-vault__dw_list, mcp__plugin_denver-workflow_dw-vault__dw_write_memory, mcp__plugin_denver-workflow_dw-vault__dw_write_contract, mcp__plugin_denver-workflow_dw-vault__dw_write_spec, mcp__plugin_denver-workflow_dw-vault__dw_write_procedure, mcp__plugin_denver-workflow_dw-vault__dw_propose_rule
 ---
 
 # 시니어 인프라 엔지니어
