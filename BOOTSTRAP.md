@@ -90,7 +90,7 @@ LIVE(memory·contract·spec·backlog·reference)는 **컴파일하지 않는다*
 **스킬 body 는 자동 로드되지 않는다(progressive disclosure, 불변식 7)** — description 만 항상 컨텍스트에 있고, body(규칙 전문·누적 지식 인덱스)는 스킬 활성화 시에만 로드된다. 그래서 컴파일된 규칙·지식을 세션에 닿게 하려면 SessionStart 다이제스트 주입(레이어 5)이 필요하다. `/dw-install`(`make install-project`)이 프로젝트별 다이제스트
 (`.claude/dw-session-digest.md`: 항상-적용 guidance + 강제 규칙 목록 + 누적 지식 인덱스)를 만들고,
 `dw-session-context.py`(SessionStart 훅)가 이를 **세션 시작 시 컨텍스트에 직접 주입**한다 —
-additionalContext 는 body 와 달리 항상 주입된다(bkit 등 검증된 메커니즘). 전문은 `dw_read`/스킬로 pull.
+additionalContext 는 body 와 달리 항상 주입된다. 전문은 `dw_read`/스킬로 pull.
 
 ## MCP 게이트웨이 — `dw-vault`
 

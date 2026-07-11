@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.8.1 — 2026-07-11
+
+### 제거 — bkit 의존 폐기 (팀 결정: bkit 미사용)
+- `/denver-workflow` 외부 플러그인 의존에서 bkit 설치 블록 제거 — ⑥ PR 리뷰는 dw 자체 검증자
+  (`code-review`·`security-qa`) + `/dw-ci-review`(GH Actions Claude PR 리뷰어)가 담당.
+- vault `senior-backend-engineer` 의 bkit 병행 옵션 문구, `backend-reply-via-real-channel` guidance 의
+  bkit 각주, worktree TDD procedure 의 bkit 가드 유래 표기 정리. BOOTSTRAP 의 bkit 인용 제거.
+- `project/specs/archive/` 의 과거 기록은 보존(역사 문서). 4개 추적 프로젝트 재설치 완료.
+
 ## 2.8.0 — 2026-07-11
 
 ### 개선 — 에이전트·스킬 전수 점검(최신화·전문화)

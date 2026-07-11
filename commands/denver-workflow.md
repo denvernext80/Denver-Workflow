@@ -157,8 +157,6 @@ claude plugin install superpowers@claude-plugins-official
 # impeccable (③): UI 설계/비평
 claude plugin marketplace add pbakaus/impeccable && claude plugin install impeccable@impeccable
 
-# bkit (⑥ 리뷰 미러·auto-iterate): code-analyzer·pdca-iterator
-claude plugin marketplace add popup-studio-ai/bkit-claude-code && claude plugin install bkit@bkit-marketplace
 
 # gstack (③③.5⑦.5⑧, 프론트/앱 작업 시): design-consultation·design-html·design-review·browse·qa
 #   → 플러그인 아님. 유저 스코프 스킬로 git clone 후 setup. 업그레이드는 /gstack-upgrade
