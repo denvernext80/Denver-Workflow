@@ -196,7 +196,10 @@ def main() -> int:
                           count=1, flags=re.MULTILINE)
             if canon != str(fm.get("scope") or "").strip():
                 head = re.sub(r"^scope:\s*.+$", f"scope: {canon}", head, count=1, flags=re.MULTILINE)
-            new = head + text[fm_end:]
+            # 이전 run 의 hold 주석 제거(승격됐으므로 더는 유효하지 않음).
+            body = re.sub(r"<!-- ratify-hold:.*?-->\n*", "", text[fm_end:].lstrip("\n"),
+                          flags=re.DOTALL)
+            new = head + "\n" + body
             if not args.dry_run:
                 p.write_text(new, encoding="utf-8")
             promoted.append(rel)
@@ -204,7 +207,7 @@ def main() -> int:
     # 승격분 검증 — 컴파일 깨지면 롤백
     rolled_back = False
     if promoted and not args.dry_run:
-        r = subprocess.run([sys.executable, str(vault / "_build" / "dw-compile.py"),
+        r = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "dw-compile.py"),
                             "--vault", str(vault), "--out", str(vault / ".claude" / "skills"),
                             "--dry-run", "--strict"], capture_output=True, text=True)
         if r.returncode != 0:
