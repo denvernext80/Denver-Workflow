@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.8.2 — 2026-07-15
+
+### 수정 — 자동 비준(dw-ratify) 컴파일 검증 경로버그 (모든 버전 영향)
+- `dw-ratify.py` 가 승격분 검증 시 존재하지 않는 `{vault}/_build/dw-compile.py` 를 실행 →
+  항상 `Errno 2`/returncode≠0 → **모든 승격이 무조건 롤백**. 컴파일러는 플러그인 디렉터리에만
+  있고 vault(지식 폴더)엔 없으므로, 2.0.0 이래 자동 비준이 실질적으로 한 번도 성공한 적이 없었고
+  OBEY draft 가 "컴파일 strict 실패"로 거짓 hold 되어 누적돼 왔음.
+- 검증기를 스크립트 자신과 같은 디렉터리의 `dw-compile.py` 로 지정(`Path(__file__)`).
+- 부수: 승격 시 이전 run 의 stale `<!-- ratify-hold -->` 주석 제거(promotion path).
+- ⚠️ 기존 설치본은 `plugin-update` 로 이 버전을 받아야 수정 반영됨.
+
 ## 2.8.1 — 2026-07-11
 
 ### 제거 — bkit 의존 폐기 (팀 결정: bkit 미사용)
