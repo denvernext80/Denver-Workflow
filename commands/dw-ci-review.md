@@ -56,5 +56,25 @@ denver-workflow 11단계 중 **⑥단계(PR + 리뷰 + CI)** 를 GitHub Actions 
   엔지니어링 원칙으로 리뷰한다.
 - 포크(fork)에서 온 PR 은 GitHub 이 시크릿을 주지 않아 리뷰가 안전하게 불합격 처리된다 — 내부 팀
   브랜치 PR 에서 정상 동작한다.
+- **비용(러너 분) 줄이기 — self-hosted 러너(선택)**: public 레포는 러너 분이 무료지만 private 레포는
+  과금된다. 부담되면 대상 레포에 **self-hosted 러너**를 등록하고 워크플로우의 `runs-on` 을
+  `[self-hosted, <팀-러너-라벨>]` 로 바꾸면 러너 분 요금이 0 이 된다(기능은 전부 동일). 러너 등록:
+  대상 레포 Settings → Actions → Runners → *New self-hosted runner*. macOS/Windows 러너면 `node`·`gh`
+  CLI 가 PATH 에 있어야 리뷰 도구·verdict 스텝이 동작한다(GitHub-hosted 는 preinstall). **보안 —
+  self-hosted 는 '외부 포크 PR 을 받지 않는 내부 신뢰 팀 레포'에서만**: `pull_request` 는 PR head 의
+  워크플로우를 *머지 전* 실행하므로 write 권한자가 워크플로우를 고쳐 러너 호스트에서 임의 명령을
+  돌릴 수 있다(브랜치보호는 '머지' 게이트라 이 실행 벡터를 못 막고, GitHub Free 플랜 private 레포엔
+  설정도 불가). 러너는 배포 크레덴셜이 없는 **전용 저권한 계정**으로 돌리고, 러너 머신은 **상시
+  가동**이어야 한다(꺼지면 체크가 큐에 걸려 머지 블록). 상세 주석은 워크플로우 템플릿의 `runs-on` 위.
+  - **처리량**: self-hosted 러너 1개는 잡을 **순차** 실행한다(PR 의 여러 잡·동시 PR 이 큐에 쌓임).
+    같은 라벨로 **러너 인스턴스를 여러 개** 등록하면 GitHub 이 잡을 분산해 병렬 처리된다.
+  - **개인(User) 계정은 org 러너가 없어** 러너를 **레포별로** 등록해야 한다(레포마다 토큰 발급·등록).
+  - 리뷰어 자체는 파일만 읽어 **아키텍처 무관**이지만, 같은 self-hosted 방식으로 **다른 CI 워크플로우**
+    (테스트·빌드·배포)까지 옮길 땐 주의: (a) `services:`(서비스 컨테이너)·`container:` 는 **Linux 러너
+    전용**(macOS 러너 불가) — Mac 이면 Linux VM/컨테이너 안에서 러너를 돌려야 한다, (b) 산출물
+    아키텍처가 x86_64 인데 러너가 arm64 면 크로스컴파일/에뮬레이션이 필요하니 **타깃 arch 와 러너
+    arch 를 맞춘다**, (c) 배포 등 **프로덕션 시크릿을 쓰는 잡은 untrusted PR 코드가 도는 러너와 분리**
+    (전용 러너), (d) self-hosted 에선 ssh 가 ssh-agent 를 자동으로 안 집는 경우가 있어 배포 키는
+    **파일+`ssh -i`(또는 ~/.ssh/config IdentityFile)** 로 명시하는 편이 안전하다.
 - 템플릿 원본: `${CLAUDE_PLUGIN_ROOT}/assets/gh-workflows/dw-pr-review.yml`. 초기 설정 위저드
   `/dw-setup` 의 선택 단계에서도 이 설치를 제안한다.

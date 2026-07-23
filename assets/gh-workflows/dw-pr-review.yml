@@ -33,6 +33,25 @@ concurrency:
 
 jobs:
   review:
+    # ── 러너 선택(비용) ───────────────────────────────────────────────────────
+    #   기본: GitHub-hosted(ubuntu-latest). public 레포는 러너 분당 무료.
+    #   private 레포는 러너 분이 과금되므로, 비용이 부담되면 팀의 self-hosted 러너로
+    #   바꾸면 러너 분 요금이 0 이 된다(기능은 전부 동일 — claude-code-action·인라인 코멘트·
+    #   verdict 게이트 그대로). 전환은 이 한 줄만:
+    #       runs-on: [self-hosted, <팀-러너-라벨>]
+    #   (러너 등록: 대상 레포 Settings → Actions → Runners → New self-hosted runner.
+    #    macOS/Windows 러너면 잡이 그 OS 에서 돌므로 node·gh CLI 가 PATH 에 있어야 한다 —
+    #    GitHub-hosted 는 preinstall 이지만 맨 머신엔 없다.)
+    #
+    #   ⚠️ self-hosted 방어수단은 '신뢰 + 러너 격리'다(브랜치보호가 아니다):
+    #    · pull_request 는 PR head 의 워크플로우를 '머지 전'에 즉시 실행한다 → write 권한이
+    #      있는 사람은 이 워크플로우 파일을 고쳐 러너 호스트에서 임의 명령을 돌릴 수 있다.
+    #      그러므로 self-hosted 는 '외부 포크 PR 을 받지 않는 내부 신뢰 팀 레포'에서만 쓴다.
+    #      (브랜치보호/CODEOWNERS 는 '머지' 게이트라 이 '실행' 벡터를 막지 못하고, GitHub Free
+    #       플랜의 private 레포에선 애초에 설정도 불가하다 — 방어수단으로 의존하지 말 것.)
+    #    · 러너는 배포 크레덴셜·개인 토큰이 없는 '전용 저권한 계정'으로 돌려 호스트 비밀
+    #      노출을 줄인다(같은 머신을 배포에도 쓴다면 특히).
+    #    · 러너 머신이 꺼지거나 절전이면 이 체크가 큐에 걸려 머지가 막힐 수 있다(상시 가동 전제).
     runs-on: ubuntu-latest
     timeout-minutes: 12     # 도구 사용(파일 탐색) 리뷰라 여유
 
