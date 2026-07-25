@@ -1,5 +1,52 @@
 # Changelog
 
+## 2.9.0 — 2026-07-25
+
+### 변경 — 컨텍스트 rightsizing (Claude 5 세대 프롬프트 원칙 반영)
+
+컴파일러는 "모델이 스스로 검색하지 않는다"를 전제로 **모든 것을 앞에 싣는** 설계였다. 지금은
+`dw_search`·`dw_list`·`dw_read` + graphify 그래프가 있고 모델이 필요할 때 당겨 쓴다 → **항상
+로드되는 표면은 압축하고, 전문은 필요할 때 펼치도록** 뒤집는다(progressive disclosure).
+vault 노트·frontmatter·비준 상태는 **건드리지 않는다** — 산출 방식만 바뀐다.
+
+- **SessionStart 다이제스트: 484줄/55,288자 → 190줄/16,176자** (실측, balipick scope union)
+  - 학습(memory) 제목 **전량 250건 나열 → 분포(상위 8 scope) + 최근 20건**. 나머지는
+    `dw_search`/graphify 로 찾는다. scope 는 자유 입력이라 1건짜리 꼬리가 길어(실측 89개)
+    상위만 이름을 싣고 나머지는 개수로 접는다.
+  - `dw-session-context.py` 의 `MAX_BYTES`(60,000자) 대비 **92% → 27%** — 무성 잘림 위험 해소.
+    (직전 상태는 아직 잘리지 않았으나 여유가 약 45건뿐이었다.)
+  - **조건부 guidance 4건의 `digest: full` 해제**(vault frontmatter, 사용자 승인) — 각각 조건이
+    성립할 때만 필요하고 그 조건을 이미 다른 장치가 정확한 시점에 처리한다:
+    `graphify-search`(본문이 "graphify 설치 시"로 시작 + `dw-graphify-gate` 훅이 `dw_search`·`Grep`
+    직전에 동일 안내 주입) · `dispatch-discipline`(`dw-worktree-guard` 가 `Agent` 매처로 개입) ·
+    `denver-workflow`(`/denver-workflow` 커맨드가 같은 내용 보유) · `dw-dependencies`(`dw-doctor`
+    가 SessionStart 에서 미설치 항목 보고). 유지: `karpathy-guidelines`·`artifact-locations`·
+    `dw-user-facing-copy`·`tdd-iron-law`(모든 작업에 실제로 걸린다).
+  - 제목+요지로만 싣는 guidance 행에 **전문 경로를 명시**(`전문: 스킬 body|vault dw_read(name)`).
+    `compiles-to: skill` 이 없는 노트(예: `dw-dependencies`)는 `dw_read` 가 유일 경로라 강등 시
+    전문이 사라질 수 있었다.
+- **스킬 body 합계: 1,988줄 → 857줄** (`dev-engineering-charter` 854 → 350줄)
+  - `procedure` 는 특정 작업에서만 필요한 긴 단계 문서 → **`references/<노트>.md` 로 분리**하고
+    body 엔 제목+요지+경로 인덱스만. "TDD 규율 보러 왔는데 iOS 제출 절차까지 읽는" 상태 제거.
+    charter 는 절차 22건이 references 로 내려갔다.
+  - `digest: full` guidance 는 다이제스트로 이미 항상 주입된다 → 스킬 body 엔 포인터만(중복 제거).
+    `digest: full` 표기 자체는 그대로 존중한다(노트 저자의 의도적 선택).
+  - vault 에서 사라진 절차의 `references/` 잔재 파일 정리 추가(`clean()` 은 스킬 디렉터리 단위라
+    살아 있는 디렉터리 안쪽을 보지 않는다).
+- **인덱스 요지(`_gist`) 수정 2건.** 인덱스는 모델이 "어느 파일을 펼칠지" 고르는 라우팅 표면이라
+  텍스트 품질이 곧 라우팅 품질이다.
+  - 어절/문장 경계에서 절단 + 말줄임(기존: 90자에서 단어 중간 절단).
+  - 하이픈을 보존한다 — 마크다운 마커를 문자 단위로 전부 지워 `docs-only`→`docsonly`,
+    `do-er`→`doer` 로 용어가 망가지고 있었다. 줄머리 마커만 걷는다.
+
+총 산출 바이트는 260,760 → 275,205(+5.5%, 파일 7 → 55개) — 절차 전문이 references 로 **이동**
+했을 뿐 스킬에서 삭제된 내용은 없다. 다이제스트에서 줄어든 분량(학습 제목 약 230행)은 vault 에
+그대로 있고 `dw_search`/`dw_read` 로 도달한다.
+
+검증: `make dry-run`(strict) 에러 0·경고 0(embed 평탄화 경고 2건은 변경 전후 동일) · `make seed-check` 통과.
+
+⚠️ 기존 설치본은 `plugin-update` + 프로젝트별 재설치(`make install-project`)로 반영된다.
+
 ## 2.8.2 — 2026-07-15
 
 ### 수정 — 자동 비준(dw-ratify) 컴파일 검증 경로버그 (모든 버전 영향)

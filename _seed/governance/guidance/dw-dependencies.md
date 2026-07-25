@@ -2,7 +2,6 @@
 type: guidance
 scope: engineering
 status: stable
-digest: full
 title: 외부 의존 자가치유 — 미설치 발견 시 그 자리에서 설치
 ---
 
