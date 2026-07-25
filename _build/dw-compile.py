@@ -252,16 +252,29 @@ def is_compilable_rule(n: Note) -> bool:
 # ---------------------------------------------------------------------------
 LIVE_TYPES = {"memory": "학습", "contract": "계약", "spec": "스펙"}
 INDEX_CAP = 20    # scope 당 스킬 body 인덱스 최대 항목(스킬 body 는 자동로드 안 되므로 보수적)
-DIGEST_CAP = 250  # SessionStart 다이제스트 — 학습(memory) 제목 전체 노출. 폭주 방지 backstop.
+# SessionStart 다이제스트는 **항상 컨텍스트에 들어가는 유일한 표면**이다 → 가장 압축돼야 한다.
+# 과거엔 학습 제목을 250건까지 전량 노출했다(모델이 스스로 검색하지 않을 것을 전제). 지금은
+# dw_search·dw_list·graphify 그래프가 있고 모델이 필요할 때 당겨 쓰므로, 분포 + 최근 N 만 싣는다.
+DIGEST_MEM_RECENT = 20  # 다이제스트에 제목까지 싣는 최근 학습 건수(나머지는 분포 + 검색 안내)
+DIGEST_SCOPE_TOP = 8    # 학습 분포에 이름까지 싣는 상위 scope 수(꼬리는 "외 N개 scope")
 DIGEST_OTHER_CAP = 15  # 다이제스트의 계약·스펙은 최근 N 만(작업 시 특정 건 pull 이 자연스러움)
 
 
 def _gist(body: str) -> str:
-    """본문에서 한 줄 요지 추출(인덱스용)."""
+    """본문에서 한 줄 요지 추출(인덱스용).
+
+    인덱스는 모델이 '어느 파일을 펼칠지' 고르는 라우팅 표면이라, 단어 중간에서 끊기면
+    판단을 방해한다 → 상한 근처의 어절/문장 경계에서 자르고 말줄임을 붙인다.
+    """
     for line in body.splitlines():
         s = re.sub(r"[#>*`\-]", "", line).strip()
-        if len(s) > 8:
-            return s[:90]
+        if len(s) <= 8:
+            continue
+        if len(s) <= 90:
+            return s
+        head = s[:90]
+        cut = max(head.rfind(" "), head.rfind("."), head.rfind(","), head.rfind("·"))
+        return (head[:cut].rstrip() if cut >= 60 else head.rstrip()) + "…"
     return ""
 
 
@@ -352,10 +365,24 @@ def build_session_digest(notes: list["Note"], scopes: set[str]) -> str:
     mem = [n for n in live if n.type == "memory"]          # 학습 — 전체 항상 노출
     other = [n for n in live if n.type != "memory"]        # 계약·스펙 — 최근 N (date desc 정렬 유지)
     if mem:
-        L += ["", f"## 누적 학습 (memory {len(mem)}건 — 제목 전체 항상 노출, 전문은 `dw_read`)"]
-        L += [row(n) for n in mem[:DIGEST_CAP]]
-        if len(mem) > DIGEST_CAP:
-            L.append(f"- … 외 {len(mem) - DIGEST_CAP}건 — `dw_search`/`dw_list`")
+        by_scope: dict[str, int] = {}
+        for n in mem:
+            key = canonical_scope(n.scope) or "(scope 없음)"
+            by_scope[key] = by_scope.get(key, 0) + 1
+        # scope 는 자유 입력이라 1건짜리 꼬리가 길다(실측 89개) — 상위만 싣고 나머지는 개수로 접는다.
+        ranked = sorted(by_scope.items(), key=lambda kv: (-kv[1], kv[0]))
+        dist = " · ".join(f"{k} {v}" for k, v in ranked[:DIGEST_SCOPE_TOP])
+        if len(ranked) > DIGEST_SCOPE_TOP:
+            dist += f" · 외 {len(ranked) - DIGEST_SCOPE_TOP}개 scope"
+        L += [
+            "",
+            f"## 누적 학습 (memory {len(mem)}건 — 검색해서 찾는다)",
+            "> 제목 전량 나열은 걷었다. 지금 하는 일과 관련된 학습이 있는지는 graphify 그래프 또는",
+            f"> `dw_search(키워드)` 로 찾고 `dw_read(name)` 로 전문을 펼친다. 분포: {dist}",
+            "",
+            f"최근 {min(len(mem), DIGEST_MEM_RECENT)}건:",
+        ]
+        L += [row(n) for n in mem[:DIGEST_MEM_RECENT]]
     if other:
         L += ["", f"## 계약·스펙 (최근 {min(len(other), DIGEST_OTHER_CAP)}건 — 작업 관련 건은 `dw_read`/`dw_search`)"]
         L += [row(n) for n in other[:DIGEST_OTHER_CAP]]
@@ -408,11 +435,28 @@ def emit(
         if manifest_body:
             parts += ["", manifest_body]
 
-        for r in rules:
+        # progressive disclosure: 절차(procedure)는 특정 작업에서만 필요한 긴 단계 문서다.
+        # 스킬 body 에 전부 이어붙이면 "TDD 규율을 보러 왔는데 iOS 제출 절차까지 읽는" 상태가 된다
+        # → body 엔 인덱스만 두고 전문은 references/ 로 내린다(필요한 파일만 펼쳐 읽음).
+        procs = [r for r in rules if r.type == "procedure"]
+        inline = [r for r in rules if r.type != "procedure"]
+
+        for r in inline:
             title = str(r.meta.get("title", r.path.stem)).strip()
             enforcer = str(r.meta.get("enforced-by", "")).strip()
             # rule 은 enforced-by 를 표기, guidance 등은 출처만(검증자 없음).
             src = f"> 출처: `{r.path}`" + (f" · enforced-by: `{enforcer}`" if enforcer else "")
+            # digest:full guidance 는 SessionStart 다이제스트로 **이미 항상 주입**된다.
+            # body 에 전문을 또 넣으면 같은 텍스트가 컨텍스트에 두 번 들어간다 → 포인터만 둔다.
+            if r.type == "guidance" and str(r.meta.get("digest", "")).strip() == "full":
+                parts += [
+                    "",
+                    f"## {title}",
+                    src,
+                    "",
+                    f"이 규율은 세션 다이제스트(`.claude/dw-session-digest.md`)에 전문이 항상 주입된다 — {_gist(r.body)}",
+                ]
+                continue
             rule_body = transform(r.body, r.path, diag)
             parts += [
                 "",
@@ -421,6 +465,29 @@ def emit(
                 "",
                 rule_body,
             ]
+
+        ref_files: dict[str, str] = {}   # {파일명: 내용}
+        if procs:
+            parts += [
+                "",
+                "## 절차 인덱스 (procedure — 필요한 것만 펼쳐 읽는다)",
+                "> 전문은 아래 `references/` 파일에 있다. 지금 하는 일에 해당하는 항목만 Read 한다.",
+                "",
+            ]
+            used: set[str] = set()
+            for p in procs:
+                title = str(p.meta.get("title", p.path.stem)).strip()
+                fname = f"{p.path.stem}.md"
+                if fname in used:   # 서로 다른 폴더의 동명 노트 — 충돌 회피
+                    fname = f"{p.path.parent.name}--{p.path.stem}.md"
+                used.add(fname)
+                parts.append(f"- **{title}** — {_gist(p.body)}  ·  `references/{fname}`")
+                ref_files[fname] = "\n".join([
+                    f"# {title}",
+                    f"> 출처: `{p.path}` · 생성 파일 — 직접 편집 금지(vault 에서 컴파일).",
+                    "",
+                    transform(p.body, p.path, diag),
+                ]).rstrip() + "\n"
 
         # LIVE 지식 인덱스 — pull-only 였던 memory/contract/spec 을 자동로드 스킬에 카탈로그로 노출.
         parts += build_knowledge_index(notes, scope, set(manifests))
@@ -432,6 +499,19 @@ def emit(
             skill_dir = out / skill_name
             skill_dir.mkdir(parents=True, exist_ok=True)
             (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+            # references/ 동기화 — vault 에서 사라진 절차의 잔재 파일을 남기지 않는다
+            # (clean() 은 스킬 디렉토리 단위라 살아 있는 디렉토리 안쪽은 보지 않는다).
+            ref_dir = skill_dir / "references"
+            if ref_files:
+                ref_dir.mkdir(parents=True, exist_ok=True)
+                for fname, body in ref_files.items():
+                    (ref_dir / fname).write_text(body, encoding="utf-8")
+                for stale in ref_dir.glob("*.md"):
+                    if stale.name not in ref_files:
+                        stale.unlink()
+            elif ref_dir.is_dir():
+                shutil.rmtree(ref_dir, ignore_errors=True)
 
     return emitted
 
