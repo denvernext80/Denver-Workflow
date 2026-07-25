@@ -3,7 +3,6 @@ type: guidance
 scope: engineering
 status: stable
 compiles-to: skill
-digest: full
 title: denver-workflow — 신규 기능 풀사이클 11단계(멀티레포)
 ---
 신규 기능은 **요구사항 → 배포** 11단계 풀사이클로 진행한다(typo·1줄 fix·docs-only 단발 수정은

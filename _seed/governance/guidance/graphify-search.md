@@ -3,7 +3,6 @@ type: guidance
 scope: engineering
 status: stable
 compiles-to: skill
-digest: full
 title: 지식 탐색은 graphify 그래프 우선 (활성 시)
 ---
 정본은 graphify 유무와 무관하다: 규칙 강제는 **컴파일 스킬 + 세션 다이제스트**, 계약·스펙·메모리 원문은

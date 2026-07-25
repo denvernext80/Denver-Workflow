@@ -3,7 +3,6 @@ type: guidance
 scope: engineering
 status: stable
 compiles-to: skill
-digest: full
 title: 서브에이전트 디스패치 규율 (절대경로·워크트리·검사·기록)
 ---
 do-er(구현·진단·QA·배포·리뷰 서브에이전트)에게 `Task`/`Agent` 로 위임할 때, 디스패치 프롬프트에

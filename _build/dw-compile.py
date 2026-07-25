@@ -267,7 +267,10 @@ def _gist(body: str) -> str:
     판단을 방해한다 → 상한 근처의 어절/문장 경계에서 자르고 말줄임을 붙인다.
     """
     for line in body.splitlines():
-        s = re.sub(r"[#>*`\-]", "", line).strip()
+        # 줄머리 마크다운 마커만 걷고, 강조/코드 표시는 지운다. 하이픈은 **남긴다** —
+        # 전부 지우면 "docs-only"→"docsonly", "do-er"→"doer" 로 용어가 망가진다.
+        s = re.sub(r"^[\s#>*\-]+", "", line)
+        s = s.replace("`", "").replace("**", "").strip()
         if len(s) <= 8:
             continue
         if len(s) <= 90:
@@ -353,7 +356,10 @@ def build_session_digest(notes: list["Note"], scopes: set[str]) -> str:
             if str(n.meta.get("digest", "")).strip() == "full":
                 L += ["", f"### {title}", n.body.strip(), ""]
             else:
-                L.append(f"- **{title}** — {_gist(n.body)}")
+                # 제목+요지로만 싣는 규율은 전문에 닿는 경로를 함께 준다. compiles-to:skill 이면
+                # 스킬 body 에 전문이 있고, 아니면 dw_read 가 유일한 경로다 — 둘 다 명시.
+                where = "스킬 body" if str(n.meta.get("compiles-to", "")).strip() == "skill" else "vault"
+                L.append(f"- **{title}** — {_gist(n.body)}  ·  전문: {where} `dw_read({n.path.stem})`")
     if rules:
         L += ["", "## 이 프로젝트의 강제 규칙 (위반 시 검사·검증자가 차단 — 전문은 스킬)"]
         for n in rules:
