@@ -371,24 +371,33 @@ def build_session_digest(notes: list["Note"], scopes: set[str]) -> str:
     mem = [n for n in live if n.type == "memory"]          # 학습 — 전체 항상 노출
     other = [n for n in live if n.type != "memory"]        # 계약·스펙 — 최근 N (date desc 정렬 유지)
     if mem:
-        by_scope: dict[str, int] = {}
-        for n in mem:
-            key = canonical_scope(n.scope) or "(scope 없음)"
-            by_scope[key] = by_scope.get(key, 0) + 1
-        # scope 는 자유 입력이라 1건짜리 꼬리가 길다(실측 89개) — 상위만 싣고 나머지는 개수로 접는다.
-        ranked = sorted(by_scope.items(), key=lambda kv: (-kv[1], kv[0]))
-        dist = " · ".join(f"{k} {v}" for k, v in ranked[:DIGEST_SCOPE_TOP])
-        if len(ranked) > DIGEST_SCOPE_TOP:
-            dist += f" · 외 {len(ranked) - DIGEST_SCOPE_TOP}개 scope"
-        L += [
-            "",
-            f"## 누적 학습 (memory {len(mem)}건 — 검색해서 찾는다)",
-            "> 제목 전량 나열은 걷었다. 지금 하는 일과 관련된 학습이 있는지는 graphify 그래프 또는",
-            f"> `dw_search(키워드)` 로 찾고 `dw_read(name)` 로 전문을 펼친다. 분포: {dist}",
-            "",
-            f"최근 {min(len(mem), DIGEST_MEM_RECENT)}건:",
-        ]
-        L += [row(n) for n in mem[:DIGEST_MEM_RECENT]]
+        hidden = len(mem) - DIGEST_MEM_RECENT
+        if hidden <= 0:
+            # 전부 실을 수 있으면 압축한 척하지 않는다. 신규 프로젝트(학습 소수)에서
+            # "전량 나열은 걷었다"면서 전량을 나열하고 1개 scope 분포까지 붙는 자기모순 방지.
+            L += ["", f"## 누적 학습 (memory {len(mem)}건 — 전문은 `dw_read(name)`)"]
+            L += [row(n) for n in mem]
+        else:
+            by_scope: dict[str, int] = {}
+            for n in mem:
+                key = canonical_scope(n.scope) or "(scope 없음)"
+                by_scope[key] = by_scope.get(key, 0) + 1
+            # scope 는 자유 입력이라 1건짜리 꼬리가 길다(실측 89개) — 상위만 싣고 나머지는 개수로 접는다.
+            ranked = sorted(by_scope.items(), key=lambda kv: (-kv[1], kv[0]))
+            dist = " · ".join(f"{k} {v}" for k, v in ranked[:DIGEST_SCOPE_TOP])
+            if len(ranked) > DIGEST_SCOPE_TOP:
+                dist += f" · 외 {len(ranked) - DIGEST_SCOPE_TOP}개 scope"
+            L += [
+                "",
+                f"## 누적 학습 (memory {len(mem)}건 — 최근 {DIGEST_MEM_RECENT}건만 제목 노출, 나머지 {hidden}건은 검색)",
+                "> 지금 하는 일과 관련된 학습은 graphify 그래프 또는 `dw_search(키워드)` 로 찾고",
+                "> `dw_read(name)` 로 전문을 펼친다.",
+            ]
+            # 분포는 scope 가 2개 이상일 때만 — 1개면 위의 총건수와 같은 말이다.
+            if len(ranked) >= 2:
+                L.append(f"> 분포: {dist}")
+            L += ["", f"최근 {DIGEST_MEM_RECENT}건:"]
+            L += [row(n) for n in mem[:DIGEST_MEM_RECENT]]
     if other:
         L += ["", f"## 계약·스펙 (최근 {min(len(other), DIGEST_OTHER_CAP)}건 — 작업 관련 건은 `dw_read`/`dw_search`)"]
         L += [row(n) for n in other[:DIGEST_OTHER_CAP]]
