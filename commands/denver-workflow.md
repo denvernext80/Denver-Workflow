@@ -92,20 +92,23 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
 | 3 | UI/UX 시안(앱) | `impeccable` + `gstack:design-consultation` | 시안·critique |
 | 3.5 | 디자인 HTML | `gstack:design-html` + advisor | HTML/CSS 목업(레퍼런스) |
 | 4 | 업무 배분 + 브랜치 | `superpowers:using-git-worktrees`(do-er 가 자기 레포에서) | do-er별 worktree |
-| 🔒 | **GATE: BFF 계약** | vault `contracts/` + advisor 합의 | `dw_write_contract` |
+| 🔒 | **GATE: BFF 계약** | vault `contracts/` + advisor 합의 (진입 전 `API 명세 — 전체 인덱스` 읽기) | `dw_write_contract` |
 | 5 | 구현 + 회귀가드 | `superpowers:subagent-driven-development`(순차) + advisor | 구현 + 회귀가드 |
 | 6 | PR + 리뷰 + CI | `gh pr create` → 레포별 CI | PR + 대상 레포 checks green |
 | 7 | 기획↔구현 비교 | advisor + 수동 체크리스트 | PR diff vs plan |
 | 7.5 | 디자인 QA | `gstack:design-review` + `gstack:browse` | 3.5 목업 vs 구현 |
 | 8 | 기능 QA | `gstack:qa` + `gstack:browse` | 앱/웹 스모크 |
 | 8.5 | 회귀 스위트 | 대상 레포 테스트 전체 | 기존 기능 깨짐 차단 |
-| 9 | 머지 + 배포 | 레포별 git/PR/deploy 규율 | 배포 |
+| 9 | 머지 + 배포 | 레포별 git/PR/deploy 규율 | 배포 + **API 명세 갱신·변경 이력 기록**(`dw_write_reference`) |
 
 ## 핵심 규칙 (정본 참조 — 여기서 재정의하지 않음)
 
 1. **gitflow + PR 의무 · `--admin` 금지 · 머지 보류 게이트** → `guidance/pr-merge-discipline.md`
 2. **worktree 격리(do-er 가 자기 레포에서)** → `guidance/worktree-isolation.md` + orchestrator §3
-3. **API 계약 GATE = vault contracts/ SSOT** → orchestrator §5. shape 확정 전 ⑤ 진입 금지
+3. **API 계약 GATE = vault contracts/ SSOT** → orchestrator §5. shape 확정 전 ⑤ 진입 금지.
+   계약은 **앞으로 만들 것**(협상·signoff·완결 시 archive), vault `reference/API 명세 — *` 는
+   **이미 머지된 현재 상태**다. GATE 진입 전 명세 인덱스를 읽어 기존 엔드포인트·규약과 충돌하는지
+   확인하고, ⑨ 머지 후 명세를 갱신해야 GATE 가 닫힌다(api-spec-update)
 4. **순차 디스패치(병렬 금지)** → orchestrator §3. 계약 먼저 → 백엔드 → 앱/채팅
 5. **회귀 2지점** → `guidance/tdd-iron-law.md`·`regression-by-set-diff.md`. ⑤ 사고 fix 는 RED 먼저 / ⑧.5 배포 전 전체 green
 6. **완료 게이트 = 대상 레포 checks** → orchestrator §4. green 전 완료 선언 금지
