@@ -99,7 +99,7 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
 | 7.5 | 디자인 QA | `gstack:design-review` + `gstack:browse` | 3.5 목업 vs 구현 |
 | 8 | 기능 QA | `gstack:qa` + `gstack:browse` | 앱/웹 스모크 |
 | 8.5 | 회귀 스위트 | 대상 레포 테스트 전체 | 기존 기능 깨짐 차단 |
-| 9 | 머지 + 배포 | 레포별 git/PR/deploy 규율 | 배포 + **API 명세 갱신·변경 이력 기록**(`dw_write_reference`) |
+| 9 | 머지 + 배포 | 레포별 git/PR/deploy 규율 | 배포 + **API·배치/크론 명세 갱신·변경 이력 기록**(`dw_write_reference`) |
 
 ## 핵심 규칙 (정본 참조 — 여기서 재정의하지 않음)
 

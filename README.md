@@ -58,6 +58,7 @@
 | `/dw-scope` | 플러그인 활성화 범위 설정 (사용자 전역 vs 현재 프로젝트 한정) |
 | `/dw-ci-review` | **(선택) GitHub PR 자동 리뷰어** 설치 — PR 생성 시 Claude가 브랜치 단위 코드 리뷰 수행 |
 | `/dw-api-spec` | **API 명세 점검·갱신** — 코드와 vault 명세가 어긋났는지 확인(인자 없음), `재추출`·`<도메인>` 으로 다시 훑기 |
+| `/dw-batch-spec` | **배치·크론 명세 점검·갱신** — 실제 도는 정기 실행과 명세 대조(인자 없음), `재추출`·`<그룹>` 으로 다시 훑기 |
 
 ---
 
@@ -124,7 +125,7 @@
 | `project/contracts/` | 백엔드 ↔ 앱/프론트엔드 간의 인터페이스 계약 (SSOT) | `contract` | 완료 시 `dw_resolve` ➔ archive |
 | `project/specs/` | 기능 계획, 스펙 및 아키텍처 설계 문서 (휘발 방지) | `spec` | 완료 시 `dw_resolve` ➔ archive |
 | `project/backlog/` | 후속 작업 및 To-Do (코드 내 BACKLOG 주석 대신 여기에 관리) | `backlog` | 완료 시 `dw_resolve` ➔ archive |
-| `project/reference/` | 현재 시스템 스냅샷 (**API 명세 3종**, DB 스키마 등 추출 데이터) | `reference` | 최신 데이터 재추출 시 덮어쓰기 (단 `API 명세 — 변경 이력` 은 append-only 누적) |
+| `project/reference/` | 현재 시스템 스냅샷 (**API 명세 3종**, **배치·크론 명세 3종**, DB 스키마 등 추출 데이터) | `reference` | 최신 데이터 재추출 시 덮어쓰기 (단 `— 변경 이력` 노트는 append-only 누적) |
 | `project/decisions/` | 아키텍처 결정 기록 (ADR) | `decision` | Append-only (누적) |
 | `project/repo-map.md` | 멀티레포 라우팅 토폴로지 구조 정의 | `repo-map` | 다이제스트로 자동 주입 |
 
@@ -179,6 +180,7 @@ Pull Request가 생성되거나 업데이트되면, GitHub Actions가 자동으�
 * **결정론적 린터 (PostToolUse Hook):** 지식 노트에 선언된 정적 규칙 위반 패턴(`check-deny`/`check-require`)을 실시간 검사하여 위반 발생 시 에이전트에게 즉각적인 피드백을 제공하고 자가 치유(Self-correct)를 유도합니다.
 * **Worktree 오염 방지 가드 (PreToolUse Hook):** 변경 범위 격리(Worktree) 없이 공유 체크아웃 환경에서 다이렉트로 파일을 수정하려는 서브에이전트 스폰 시도를 감지하여 즉시 차단하고, 사용자 동의(`ask`)를 구합니다.
 * **오탐 방지 장치:** 모든 정적 검사는 `check-glob`을 통해 지정된 파일 포맷으로 타깃을 한정하며, `check-exclude`를 통해 빌드 산출물이나 테스트 정본 파일 등은 검사 대상에서 제외합니다.
+* **배치·크론 명세 하네스:** 정기 실행되는 작업(배치·크론)을 vault `project/reference/` 에 **현재 상태 + 변경 이력**으로 유지합니다. `/dw-setup` 최초 1회에 CI 스케줄·타이머 유닛·예약 잡·앱 스케줄러·크론 설치 스크립트를 전 표면으로 훑습니다. **API 와 달리 정본이 레포 밖(호스트 크론)에도 있어**, 레포 선언분과 호스트 설치분을 분리해 세고 확인하지 못한 호스트는 `미확인(최종 확인일·사유)` 으로 남깁니다 — 없다고 단정하지 않습니다. 호스트 설치분이 명세와 다르면 **임의로 맞추지 않고 사용자 판단을 받습니다**(무단 변경이 조용히 정본이 되는 것을 막습니다). 꺼진 잡도 `비활성` 상태와 사유로 남아 "이거 왜 꺼져 있죠?" 에 답할 수 있습니다. 점검은 `/dw-batch-spec`.
 * **API 명세 하네스:** 프로젝트의 모든 API 를 vault `project/reference/` 에 **현재 상태 + 변경 이력**으로 유지합니다. `/dw-setup` 최초 1회에 기존 API 를 전수로 훑어 명세 3종(전체 인덱스 · 도메인별 상세 · 변경 이력)을 만들고, 이후 API 작업은 **인덱스를 읽는 것으로 시작해 명세 갱신으로 끝납니다**. 읽기 규율은 세션 다이제스트에 전문이 항상 주입되고(`api-spec-first`), 갱신 누락은 PR 리뷰에서 차단됩니다(`api-spec-sync-required`, enforced-by `code-review`). 명세가 코드와 벌어졌는지는 `/dw-api-spec` 으로 언제든 점검합니다. **삭제된 엔드포인트도 변경 이력에는 영구히 남아** "이 API 가 왜 없어졌나" 에 답할 수 있습니다.
 
 ---
