@@ -124,29 +124,67 @@ def _emit(folder: str, fname: str, fm: dict, body: str) -> str:
 
 
 # --- read tools ------------------------------------------------------------
+def _score(query: str, title_low: str, text_low: str) -> tuple[int, int]:
+    """(관련도 점수, 스니펫 앵커 위치). 점수 0 = 미매치.
+
+    ⚠️ 종전 구현은 `query` **전체 문자열**을 본문에서 substring 으로만 찾았다. 어순·띄어쓰기까지
+    정확히 일치해야 해서 자연어 다단어 질의가 **조용히 0 건**을 반환했고, 그 0 건이 "vault 에 없다"
+    로 오독돼 중복 노트 생성·기록된 함정 재발을 실제로 일으켰다(백로그 2026-07-30, 3회 재현).
+    그래서 토큰 단위 OR + 관련도 정렬로 바꾼다.
+    """
+    q = query.lower().strip()
+    if not q:
+        return 0, 0
+    score, anchor, whole = 0, -1, text_low.find(q)
+    if whole >= 0:            # 질의 전체가 연속 등장 — 가장 강한 신호(종전의 유일한 조건).
+        score += 10
+        anchor = whole
+    if q in title_low:
+        score += 10
+    tokens = [t for t in q.split() if t]
+    hit = 0
+    for t in tokens:
+        if t in title_low:    # 제목 일치는 본문보다 무겁게.
+            score += 3
+        pos = text_low.find(t)
+        if pos >= 0:
+            score += 1
+            hit += 1
+            if anchor < 0:
+                anchor = pos
+    if tokens and hit:        # 커버리지 — 질의 토큰을 많이 덮을수록 위로.
+        score += int(6 * hit / len(tokens))
+    matched = hit > 0 or whole >= 0 or q in title_low
+    return (score if matched else 0), max(anchor, 0)
+
+
 @mcp.tool()
 def dw_search(query: str, limit: int = 20) -> list[dict]:
-    """SSOT vault(규칙·원칙·메모리·계약)에서 query 를 검색한다. 작업 전 관련 학습·규칙·계약을 찾을 때 쓴다."""
-    q = query.lower()
-    out: list[dict] = []
+    """SSOT vault(규칙·원칙·메모리·계약)에서 query 를 검색한다. 작업 전 관련 학습·규칙·계약을 찾을 때 쓴다.
+
+    공백으로 나눈 토큰 중 **하나라도** 맞으면 후보이고, 관련도(제목 일치·질의 전체 일치·토큰 커버리지)
+    순으로 정렬해 상위 limit 개를 돌려준다. 종전처럼 앞에서부터 limit 개를 채우고 끊지 않으므로
+    가장 관련 있는 노트가 순회 뒤쪽에 있어도 누락되지 않는다.
+    """
+    scored: list[tuple[int, dict]] = []
     for p in _iter_notes():
         try:
             text = p.read_text(encoding="utf-8")
         except OSError:
             continue
-        if q not in text.lower():
-            continue
         fm = _frontmatter(text)
-        idx = text.lower().find(q)
-        out.append({
+        title = fm.get("title") or fm.get("name") or p.stem
+        s, idx = _score(query, title.lower(), text.lower())
+        if s <= 0:
+            continue
+        scored.append((s, {
             "path": str(p.relative_to(VAULT)),
             "type": fm.get("type") or ("auto-memory" if fm.get("name") else ""),
-            "title": fm.get("title") or fm.get("name") or p.stem,
+            "title": title,
             "snippet": text[max(0, idx - 40): idx + 120].replace("\n", " "),
-        })
-        if len(out) >= limit:
-            break
-    return out
+        }))
+    scored.sort(key=lambda x: (-x[0], x[1]["path"]))
+    return [d for _, d in scored[:limit]]
 
 
 @mcp.tool()
