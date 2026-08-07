@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.11.2 — 2026-08-07
+
+### 추가 — 워크플로우 텔레메트리 + SSOT 쓰기 가드 + graphify 하드 게이트
+
+진단에서 세 병목이 관측됐고 근본은 하나였다 — **조언(additionalContext)형 훅은 라우팅당한다.**
+에이전트는 넛지를 읽고도 원래 하려던 도구를 그대로 호출한다. 강제하려면 PostToolUse(이미 일어난 뒤)
+가 아니라 **PreToolUse 에서 결정**을 내려야 한다.
+
+- **텔레메트리**(`dw-telemetry.py`, PostToolUse·비파괴): graphify / dw_* / Grep / vault 파일 접근을
+  `<vault>/.dw-state/access.jsonl` 에 기록. 결코 차단하지 않는다(항상 exit 0). vault 밖 코드
+  Read/Edit 는 노이즈라 미기록. `dw-workflow-report.py` + `make workflow-report` 로 3대 규율
+  준수율과 절차·memory 재사용을 집계한다.
+- **SSOT 쓰기 가드**(`dw-vault-write-guard.py`, PreToolUse): OBEY(rule/guidance/procedure) 직접편집
+  차단, LIVE(memory/contract/spec/…) 통과. 기존 `dw-vault-guard` 는 PostToolUse 라 구조적으로
+  조언만 가능했고 우회를 못 막았다.
+- **graphify 게이트 v2**(`dw-graphify-gate.py`): 세션에 graphify 미사용이면 `dw_search`·심볼 grep 을
+  차단한다. 한 번 쓰면 텔레메트리 세션 로그로 판별해 조언 모드로 self-release. graphify 미등록이나
+  로그 부재 시 침묵(안전 폴백).
+
+**automode 인지**: `permission_mode` 를 읽어 `auto`/`dontAsk`/`bypassPermissions`(쓰기 가드는
+`acceptEdits` 도)에서 `ask` → `deny` 로 상향한다. automode 에선 `ask` 가 auto-approve 로 폴백돼
+무력화되지만 훅의 `deny` 는 bypassPermissions 에서도 항상 차단된다(훅이 권한모드보다 상위).
+`DW_GATE_HARD=1|0` 로 명시 오버라이드 — 러너 런처에 `export DW_GATE_HARD=1` 권장.
+
+`wire-hook.py` 의 `WIRING` 을 event→(matcher, hooks) 단일 튜플에서 **(matcher, hooks) 리스트**로
+넓혔다. 같은 PreToolUse 라도 worktree 가드는 `Agent|Task`, 쓰기 가드는 `Edit|Write|MultiEdit` 를
+봐야 한다. 멱등성은 마커가 그 이벤트의 어느 그룹에든 있으면 skip 으로 유지.
+
+⚠️ **marketplace.json 이 2.11.0 에 멈춰 있던 것을 함께 정정**했다(2.11.1 릴리스 때 누락). 캐시
+갱신은 version 비교로 이뤄지므로 어긋나 있으면 `claude plugin update` 가 조용히 no-op 한다.
+
+관찰(수정 안 함): 텔레메트리의 graphify target 추출이 `query|node|symbol|start` 만 봐서
+`query_graph` 의 `question` 을 못 잡아 target 이 빈다. 리포트는 graphify 를 개수만 세고 target 은
+vault 노트 재사용 분석에만 쓰므로 기능 영향 0.
+
 ## 2.11.1 — 2026-08-03
 
 ### 수정 — `dw_search` 가 자연어 질의에 조용히 0 건을 반환하던 결함
