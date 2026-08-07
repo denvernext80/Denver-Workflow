@@ -18,6 +18,7 @@ import fnmatch
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -31,6 +32,53 @@ def _project_dir(payload: dict) -> Path:
         or payload.get("cwd")
         or os.getcwd()
     )
+
+
+def _git(args: list[str], cwd: Path):
+    """git 한 줄 조회. 실패·타임아웃·git 부재는 전부 None(훅은 절대 죽지 않는다)."""
+    try:
+        r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
+                           text=True, timeout=3)
+        out = r.stdout.strip()
+        return out if r.returncode == 0 and out else None
+    except Exception:
+        return None
+
+
+def _roots(file_path: Path, payload: dict) -> tuple[Path, Path]:
+    """(work_root, checks_root) — **둘은 다를 수 있다.**
+
+    do-er 서브에이전트는 git worktree 에서 돈다. 워크트리는 `.claude/` 가 gitignore 라 체크아웃되지
+    않아 `<worktree>/.claude/dw-checks.json` 이 **없다** → 종전 코드는 조용히 통과했다. 결정론 검사가
+    정작 작업이 일어나는 곳에서 죽어 있었던 것이다(2026-08-07 실측).
+
+    - work_root  : 상대경로 계산 기준. 워크트리 루트여야 `lib/main.dart` 같은 rel 이 나온다.
+    - checks_root: 매니페스트 위치. 워크트리엔 없으므로 **본체 레포**(git-common-dir 의 부모)를 본다.
+
+    레포 안(`<repo>/.claude/worktrees/x`)·밖(`/tmp/x`) 워크트리 양쪽에서 동작한다.
+    """
+    explicit = _project_dir(payload)
+    start = file_path.parent if file_path.parent.is_dir() else explicit
+
+    work_root = explicit
+    top = _git(["rev-parse", "--show-toplevel"], start)
+    if top:
+        work_root = Path(top)
+
+    # ① work_root 에 매니페스트가 있으면 그대로(본체 체크아웃의 정상 경로).
+    if (work_root / CHECKS_REL).exists():
+        return work_root, work_root
+    # ② 워크트리 → 본체 레포(git-common-dir 의 부모).
+    common = _git(["rev-parse", "--git-common-dir"], start)
+    if common:
+        cp = Path(common)
+        if not cp.is_absolute():
+            cp = (start / cp).resolve()
+        main_repo = cp.parent
+        if (main_repo / CHECKS_REL).exists():
+            return work_root, main_repo
+    # ③ 폴백: 명시 프로젝트(종전 동작).
+    return work_root, explicit
 
 
 def _rel_posix(file_path: Path, project: Path) -> str:
@@ -64,8 +112,9 @@ def main() -> int:
         return 0
     file_path = Path(fp)
 
-    project = _project_dir(payload)
-    checks_file = project / CHECKS_REL
+    # work_root = rel 계산 기준(워크트리 루트), checks_root = 매니페스트 위치(본체 레포일 수 있다).
+    project, checks_root = _roots(file_path, payload)
+    checks_file = checks_root / CHECKS_REL
     if not checks_file.exists():
         return 0
     try:
