@@ -25,6 +25,12 @@
         "hooks": [
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-graphify-gate.py\"", "timeout": 15 }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-vault-write-guard.py\"", "timeout": 10 }
+        ]
       }
     ],
     "PostToolUse": [
@@ -34,6 +40,12 @@
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-lint.py\"", "timeout": 15 },
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-vault-guard.py\"", "timeout": 15 },
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-artifact-guard.py\"", "timeout": 15 }
+        ]
+      },
+      {
+        "matcher": "mcp__.*graphify.*|mcp__.*dw-vault__dw_.*|Grep|Read|Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-telemetry.py\"", "timeout": 10 }
         ]
       }
     ]
