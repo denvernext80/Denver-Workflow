@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.11.4 — 2026-08-07
+
+### 수정 — dw-lint 가 do-er 워크트리에서 조용히 죽어 있던 결함
+
+`dw-lint` 는 `<project>/.claude/dw-checks.json` 을 읽는데, **워크트리는 `.claude/` 가 gitignore 라
+체크아웃되지 않는다.** 매니페스트가 없으면 `return 0` 으로 조용히 통과하므로, **do-er 서브에이전트가
+일하는 바로 그곳에서 결정론 검사 전량이 inert** 였다. 오탐이 아니라 무발화라 아무도 못 알아챈다
+(실제로 2026-08-07 PR 검증 중 "둘 다 통과" 로 보이는 거짓 green 을 만들어 발견됐다).
+
+`_roots(file_path, payload) -> (work_root, checks_root)` 신설 — **두 루트를 분리**한다:
+- `work_root` = `git rev-parse --show-toplevel`. 상대경로 계산 기준이라 워크트리 루트여야
+  `lib/main.dart` 같은 rel 이 나오고 경로 glob 이 맞는다.
+- `checks_root` = work_root 에 매니페스트가 없으면 `git rev-parse --git-common-dir` 의 부모(본체 레포).
+
+레포 안(`<repo>/.claude/worktrees/x`)·밖(`/tmp/x`) 워크트리 양쪽에서 동작한다. git 이 없거나 실패하면
+전부 종전 동작으로 폴백(fail-open — 훅은 절대 죽지 않는다, `subprocess` 타임아웃 3s).
+
+검증 4/4: 레포 안 워크트리→포착(rel `lib/_probe.dart` 정확) · 레포 밖 워크트리→포착 ·
+본체 체크아웃→회귀 없음 · git 아닌 디렉토리→침묵.
+
+⚠️ 같은 뿌리의 잔여: 다른 훅들(`dw-vault-guard`·`dw-artifact-guard`·`dw-telemetry`·게이트 2종)은
+`dw-config.json` 을 못 찾아도 `DW_VAULT_DIR` env 폴백으로 살아난다 — 그래서 이 결함은 `dw-lint`
+단독이었다. env 가 없는 환경에서는 그쪽도 같은 방식으로 죽는다(별건).
+
 ## 2.11.3 — 2026-08-07
 
 ### 수정 — graphify 게이트가 do-er 워크트리에서 발화하지 않던 구간
