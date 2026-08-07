@@ -75,15 +75,73 @@ def _hard(payload) -> bool:
     return str(payload.get("permission_mode") or "") in {"auto", "dontAsk", "bypassPermissions"}
 
 
-def _graphify_registered(project: Path) -> bool:
+def _ancestors(p: Path, limit: int = 8):
+    """cwd 와 그 조상들(제한적). do-er 는 `<repo>/.claude/worktrees/<n>` 에서 돌아 위를 봐야 한다."""
+    cur = p.resolve()
+    for _ in range(limit):
+        yield cur
+        if cur.parent == cur:
+            return
+        cur = cur.parent
+
+
+def _mcp_has_graphify(d: Path) -> bool:
     try:
-        p = project / ".mcp.json"
+        p = d / ".mcp.json"
         if not p.exists():
             return False
         servers = json.loads(p.read_text(encoding="utf-8")).get("mcpServers", {})
         return isinstance(servers, dict) and "graphify" in servers
     except Exception:
         return False
+
+
+def _log_has_any_graphify(vault) -> bool:
+    """이 환경에서 graphify 가 **한 번이라도** 쓰였나 = MCP 서버가 실재한다는 증거.
+
+    훅 payload 에는 세션 MCP 목록이 없어 서버 도달성을 직접 못 읽는다. 텔레메트리 로그가 그 대리
+    증거다 — 누군가 실제로 호출해 기록이 남았다면 서버는 이 환경에 있다.
+    """
+    if vault is None:
+        return False
+    log = vault / ".dw-state" / "access.jsonl"
+    if not log.is_file():
+        return False
+    try:
+        lines = log.read_text(encoding="utf-8").splitlines()[-4000:]
+    except Exception:
+        return False
+    for line in reversed(lines):
+        try:
+            if json.loads(line).get("kind") == "graphify":
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _graphify_applicable(project: Path, vault) -> bool:
+    """이 위치에서 게이트를 걸어야 하나 — **유용하고(그래프 존재) 도달 가능할 때만**.
+
+    ① 명시 등록: cwd 나 조상의 `.mcp.json` 에 graphify(오케스트레이터 워크스페이스 경로).
+    ② 그래프 존재 + 환경 사용 증거: 조상에 `graphify-out/graph.json` 이 있고 로그에 graphify 이벤트가
+       있으면 do-er 가 워크트리에서 돌아도 건다. do-er 는 세션 MCP 를 **상속**하므로
+       `project_path=<repo>` 로 그 그래프를 호출할 수 있다 — 능력은 있는데 게이트만 없던 구간이다.
+
+    둘 다 아니면 침묵. graphify 는 옵셔널 불변식이라 미설치 환경을 막으면 안 된다(fail-open).
+    특히 automode 에선 이 판정이 deny 로 이어지므로, **그래프만 있고 서버가 없는 환경을 차단하지
+    않도록** ②는 사용 증거를 반드시 함께 요구한다.
+    """
+    try:
+        for d in _ancestors(project):
+            if _mcp_has_graphify(d):
+                return True
+        for d in _ancestors(project):
+            if (d / "graphify-out" / "graph.json").is_file():
+                return _log_has_any_graphify(vault)
+    except Exception:
+        return False
+    return False
 
 
 def _graphify_used_this_session(vault: Path, session: str) -> bool:
@@ -129,7 +187,9 @@ def main() -> int:
         if payload.get("hook_event_name") not in (None, "PreToolUse"):
             return 0
         project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd())
-        if not _graphify_registered(project):
+        # vault 를 먼저 해석한다 — 적용 판정(② 분기)이 텔레메트리 로그를 본다.
+        vault = _vault_root(project)
+        if not _graphify_applicable(project, vault):
             return 0
 
         tool = str(payload.get("tool_name") or "")
@@ -138,7 +198,6 @@ def main() -> int:
         if is_grep and not _SYMBOLISH.match(str(ti.get("pattern") or "")):
             return 0  # 리터럴 grep 은 그래프가 답 못 함 → 침묵
 
-        vault = _vault_root(project)
         session = payload.get("session_id") or ""
         used = _graphify_used_this_session(vault, session) if vault else False
         if used:
