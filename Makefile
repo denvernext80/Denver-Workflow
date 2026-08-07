@@ -28,16 +28,19 @@ SEED_GUIDANCE := karpathy-guidelines tdd-iron-law regression-by-set-diff residua
 # (vault 본은 프로젝트 특화) — update-seed 화이트리스트에 넣지 말 것(넣으면 특화본이 seed 를 덮어씀).
 SEED_AGENTS   := code-review security-qa design-review perf-tester dw-governed dw-ratifier dw-orchestrator senior-front-engineer senior-infra-engineer senior-qa-engineer
 
-.PHONY: build dry-run clean distclean help doctor review ratify install-project workflow-report
+.PHONY: build dry-run test clean distclean help doctor review ratify install-project workflow-report
 
 # venv 부트 — .stamp 는 $(VPY)(실제 바이너리)에 의존한다. 플러그인 설치가 stale .stamp 를
 # (바이너리 없이) 배포해도, $(VPY) 부재를 감지해 venv 를 재생성한다(부트 스킵 버그 방지).
 $(VPY):
 	$(PY) -m venv $(VENV)
 
+# mcp 는 <2 로 핀. 2.0.0 이 `mcp.server.fastmcp` 를 제거해 dw-mcp-server.py 가 임포트에서
+# 죽는다(신규 venv 에서만 발현 — 기존 venv 는 1.x 를 들고 있어 무증상). 서버를 2.x API 로
+# 마이그레이션한 뒤에만 핀을 풀어라. (dw-mcp-launch.sh 의 부트스트랩과 반드시 동일하게 유지.)
 $(VENV)/.stamp: $(VPY)
 	$(VPY) -m pip install --quiet --upgrade pip
-	$(VPY) -m pip install --quiet pyyaml mcp
+	$(VPY) -m pip install --quiet pyyaml "mcp<2"
 	@touch $(VENV)/.stamp
 
 build: $(VENV)/.stamp        ## vault 를 컴파일해 .claude/skills 생성
@@ -45,6 +48,11 @@ build: $(VENV)/.stamp        ## vault 를 컴파일해 .claude/skills 생성
 
 dry-run: $(VENV)/.stamp      ## 쓰기 없이 검증/요약(CI 용, 경고도 에러)
 	$(COMPILE) --dry-run --strict
+
+# 엔진 자기검사. 픽스처는 _seed 복사본 — 사용자 vault($(VAULT_DIR))는 건드리지 않는다.
+# (dry-run/doctor 는 live vault 를 컴파일할 뿐이라 엔진 동작을 증명하지 못한다 — 그 몫이 이 타깃.)
+test: $(VENV)/.stamp         ## 엔진 자기검사(stdlib unittest, 임시 vault 픽스처)
+	$(VPY) _build/dw-selftest.py
 
 .PHONY: scaffold-vault update-seed seed-check
 scaffold-vault: $(VENV)/.stamp  ## 빈/없는 vault 에 제네릭 seed(축B 거버넌스+폴더 구조+VAULT-STRUCTURE) 복사 (no-clobber)

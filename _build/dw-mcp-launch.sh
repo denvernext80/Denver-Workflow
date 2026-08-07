@@ -32,6 +32,8 @@ VENV="$ROOT/.venv"
 if [ ! -x "$VENV/bin/python" ]; then
   python3 -m venv "$VENV" >&2
   "$VENV/bin/pip" install --quiet --upgrade pip >&2
-  "$VENV/bin/pip" install --quiet pyyaml mcp >&2
+  # mcp<2 핀 — 2.0.0 은 mcp.server.fastmcp 를 제거해 서버가 임포트에서 즉사한다.
+  # (Makefile 의 $(VENV)/.stamp 와 동일하게 유지. 서버 2.x 마이그레이션 후에만 해제.)
+  "$VENV/bin/pip" install --quiet pyyaml "mcp<2" >&2
 fi
 exec "$VENV/bin/python" "$ROOT/_build/dw-mcp-server.py" --vault "$VAULT"
