@@ -28,7 +28,7 @@ SEED_GUIDANCE := karpathy-guidelines tdd-iron-law regression-by-set-diff residua
 # (vault 본은 프로젝트 특화) — update-seed 화이트리스트에 넣지 말 것(넣으면 특화본이 seed 를 덮어씀).
 SEED_AGENTS   := code-review security-qa design-review perf-tester dw-governed dw-ratifier dw-orchestrator senior-front-engineer senior-infra-engineer senior-qa-engineer
 
-.PHONY: build dry-run clean distclean help doctor review ratify install-project
+.PHONY: build dry-run clean distclean help doctor review ratify install-project workflow-report
 
 # venv 부트 — .stamp 는 $(VPY)(실제 바이너리)에 의존한다. 플러그인 설치가 stale .stamp 를
 # (바이너리 없이) 배포해도, $(VPY) 부재를 감지해 venv 를 재생성한다(부트 스킵 버그 방지).
@@ -121,6 +121,9 @@ ratify: $(VENV)/.stamp       ## (스케줄 권장) draft OBEY 자동 비준 → 
 	@echo ""
 	@echo "→ 컴파일·설치(승격분 + 사람 편집 stable 반영, 멱등)"
 	@echo "→ 설치 반영은 /dw-install (프로젝트별) 로 실행"
+
+workflow-report: $(VENV)/.stamp  ## dw 워크플로우 리포트(3대 규율 준수율·절차/memory 재사용). 사용: make workflow-report [V=/abs/vault] [DAYS=30]
+	$(VPY) _build/dw-workflow-report.py --vault "$(or $(V),$(VAULT_DIR))" --days $(or $(DAYS),30)
 
 clean:                       ## 산출물(.claude/skills) 제거
 	rm -rf .claude/skills

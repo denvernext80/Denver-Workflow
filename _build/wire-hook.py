@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """대상 프로젝트 .claude/settings.json 에 SSOT 훅을 멱등 병합.
 
-세 훅을 배선한다:
-  - dw-lint.py        (PostToolUse) : 편집한 프로젝트 코드 파일을 결정론적 검사
-  - dw-vault-guard.py (PostToolUse) : 편집한 vault(.md) 노트의 frontmatter 계약 + draft 게이트
-  - dw-worktree-guard.py (PreToolUse): Agent/Task spawn 시 worktree 격리 미확인이면 ask
+배선하는 훅:
+  - dw-lint.py             (PostToolUse) : 편집한 프로젝트 코드 파일을 결정론적 검사
+  - dw-vault-guard.py      (PostToolUse) : 편집한 vault(.md) 노트의 frontmatter 계약 + draft 게이트
+  - dw-artifact-guard.py   (PostToolUse) : 컴파일 산출물 직접편집 감지
+  - dw-telemetry.py        (PostToolUse) : 도구 사용 분포 관측(비파괴 — 결코 차단하지 않는다)
+  - dw-worktree-guard.py   (PreToolUse)  : Agent/Task spawn 시 worktree 격리 미확인이면 ask
+  - dw-vault-write-guard.py(PreToolUse)  : OBEY 노트 직접편집 차단(ask/deny)
 
-worktree 가드만 PreToolUse(spawn 시점에 끼어들어야 강제 가능 — PostToolUse 는 grep 할 파일
-자국이 없어 구조적으로 못 잡는다). 나머지는 PostToolUse 피드백 전용.
+**강제가 필요한 것은 PreToolUse 여야 한다.** PostToolUse 는 이미 일어난 뒤라 조언(additionalContext)
+밖에 못 하고, 조언은 라우팅당한다 — worktree 가드(spawn 시점에 끼어들어야 함)와 SSOT 쓰기 가드
+(편집 전에 막아야 함)가 그래서 PreToolUse 다. 나머지는 PostToolUse 피드백·관측 전용.
+
+⚠️ 이벤트당 매처가 여럿일 수 있다 — 같은 PreToolUse 라도 worktree 가드는 `Agent|Task`, 쓰기
+가드는 `Edit|Write|MultiEdit` 를 본다. WIRING 값이 **(matcher, hooks) 리스트**인 이유다.
 
 vault_root 가 주어지면 .claude/dw-config.json 에 기록해 가드가 vault 위치를 알게 한다.
 기존 설정(permissions, 다른 hooks)은 절대 덮어쓰지 않는다. 재실행 안전(멱등).
@@ -20,21 +27,34 @@ import json
 import sys
 from pathlib import Path
 
-# event -> (matcher, [(command, marker), ...]). matcher=None → 매처 없는 이벤트(SessionStart 등).
-POST_MATCHER = "Edit|Write|MultiEdit"
+# event -> [(matcher, [(command, marker), ...]), ...]. matcher=None → 매처 없는 이벤트(SessionStart 등).
+# 이벤트당 그룹이 여럿인 이유는 모듈 docstring 참조(같은 이벤트라도 훅마다 보는 도구가 다르다).
+EDIT_MATCHER = "Edit|Write|MultiEdit"
 PRE_MATCHER = "Agent|Task"
+# 텔레메트리는 '무엇을 썼나' 분포를 보는 것이라 관련 도구를 넓게 받는다(비파괴 — 항상 통과시킨다).
+TELEMETRY_MATCHER = "mcp__.*graphify.*|mcp__.*dw-vault__dw_.*|Grep|Read|Edit|Write|MultiEdit"
+
+
+def _cmd(name: str) -> tuple[str, str]:
+    return (f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{name}"', name)
+
+
 WIRING = {
-    "PostToolUse": (POST_MATCHER, [
-        ('python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/dw-lint.py"', "dw-lint.py"),
-        ('python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/dw-vault-guard.py"', "dw-vault-guard.py"),
-        ('python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/dw-artifact-guard.py"', "dw-artifact-guard.py"),
-    ]),
-    "PreToolUse": (PRE_MATCHER, [
-        ('python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/dw-worktree-guard.py"', "dw-worktree-guard.py"),
-    ]),
-    "SessionStart": (None, [
-        ('python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/dw-session-context.py"', "dw-session-context.py"),
-    ]),
+    "PostToolUse": [
+        (EDIT_MATCHER, [
+            _cmd("dw-lint.py"),
+            _cmd("dw-vault-guard.py"),
+            _cmd("dw-artifact-guard.py"),
+        ]),
+        (TELEMETRY_MATCHER, [_cmd("dw-telemetry.py")]),
+    ],
+    "PreToolUse": [
+        (PRE_MATCHER, [_cmd("dw-worktree-guard.py")]),
+        (EDIT_MATCHER, [_cmd("dw-vault-write-guard.py")]),
+    ],
+    "SessionStart": [
+        (None, [_cmd("dw-session-context.py")]),
+    ],
 }
 
 
@@ -97,17 +117,19 @@ def main() -> int:
         print(f"  SSOT 훅 제거: {n}건 → {settings_path} (플러그인이 전역 제공)")
     elif not config_only:
         hooks = settings.setdefault("hooks", {})
-        for event, (matcher, hook_list) in WIRING.items():
-            have = wired_markers(settings, event, hook_list)
+        for event, groups in WIRING.items():
             bucket = hooks.setdefault(event, [])
-            for cmd, marker in hook_list:
-                if marker in have:
-                    continue
-                group: dict = {"hooks": [{"type": "command", "command": cmd, "timeout": 15}]}
-                if matcher is not None:
-                    group["matcher"] = matcher
-                bucket.append(group)
-                added.append(marker)
+            for matcher, hook_list in groups:
+                # 멱등: 마커가 그 이벤트의 **어느 그룹에든** 이미 있으면 건너뛴다.
+                have = wired_markers(settings, event, hook_list)
+                for cmd, marker in hook_list:
+                    if marker in have:
+                        continue
+                    group: dict = {"hooks": [{"type": "command", "command": cmd, "timeout": 15}]}
+                    if matcher is not None:
+                        group["matcher"] = matcher
+                    bucket.append(group)
+                    added.append(marker)
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
