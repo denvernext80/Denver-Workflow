@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.11.5 — 2026-08-07
+
+### 수정 — 훅 5종이 워크트리에서 vault 를 못 찾던 잔여 맹점
+
+2.11.4 가 `dw-lint` 의 같은 결함을 닫았고, 이번엔 **나머지 5종**이다:
+`dw-vault-guard` · `dw-artifact-guard` · `dw-telemetry` · `dw-vault-write-guard` · `dw-graphify-gate`.
+
+`_vault_root()` 가 `<project>/.claude/dw-config.json` **한 곳만** 봤다. 워크트리는 `.claude/` 가
+gitignore 라 그 파일이 없어, 실환경에서는 `DW_VAULT_DIR` **env 폴백에만 의존**해 살아 있었다.
+env 가 없는 환경(러너·다른 셸·다른 사용자)에서는 vault 를 못 찾아 훅이 조용히 무력화된다 —
+차단이 아니라 무발화라 아무도 모른다.
+
+`_cfg_dirs(project)` 신설: `project` → 조상(최대 8) → **본체 레포**(`git rev-parse --git-common-dir`
+의 부모) 순으로 후보를 만들고 첫 번째로 발견되는 `dw-config.json` 을 쓴다. git 실패·타임아웃(3s)·
+비-git 디렉토리는 전부 종전 폴백으로 넘어간다(fail-open — 훅은 절대 죽지 않는다).
+
+`except` 절이 파일마다 달라(`(json.JSONDecodeError, OSError)` vs `Exception`) 각 파일의 기존 절을
+보존한 채 탐색부만 교체했다.
+
+검증(전부 `DW_VAULT_DIR` **제거** 상태 — 종전이라면 실패했을 조건):
+- 5/5 훅이 레포 안 워크트리에서 vault 해석 성공
+- 레포 밖 워크트리(`/tmp/...`)도 성공
+- 본체 체크아웃 회귀 없음 · 비-git 디렉토리는 `None`(fail-open)
+- e2e: 워크트리에서 OBEY 규칙 편집 시 `dw-vault-write-guard` 가 실제로 `ask` 반환
+
 ## 2.11.4 — 2026-08-07
 
 ### 수정 — dw-lint 가 do-er 워크트리에서 조용히 죽어 있던 결함
