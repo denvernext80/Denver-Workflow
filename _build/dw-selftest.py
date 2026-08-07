@@ -255,10 +255,18 @@ class ProposeRuleChecksTest(unittest.TestCase):
     def test_require_without_glob_is_rejected(self):
         self.assertIn("check_glob", self.reject("글롭없는 require 규칙", check_require=["ZZZ"]))
 
-    def test_hint_only_without_glob_is_allowed(self):
-        """deny/require 가 없으면 glob 불요 — 검사를 안 만들 뿐 규칙 제안 자체는 유효하다."""
-        rel = self.propose("힌트만 있는 규칙", check_hint="참고")
-        self.assertEqual(frontmatter(self.note(rel))["check-hint"], "참고")
+    def test_hint_only_is_rejected(self):
+        """check_hint 만 주면 collect_checks 가 항목을 아예 만들지 않는다(경고조차 없다)
+        → '검사처럼 생긴 죽은 키' 만 남는다. 다른 두 가드와 같은 이유로 거부한다."""
+        self.assertIn("check_deny", self.reject("힌트만 있는 규칙", check_hint="참고"))
+
+    def test_glob_only_is_rejected(self):
+        self.assertIn("check_deny", self.reject("글롭만 있는 규칙", check_glob=["*.dart"]))
+
+    def test_no_check_params_still_accepted(self):
+        """check_* 를 하나도 안 주면 검사 없는 서술 규칙으로 정상 수락된다(거부 아님)."""
+        rel = self.propose("서술만 하는 규칙")
+        self.assertNotIn("check-", self.note(rel))
 
     def test_invalid_deny_regex_is_rejected(self):
         """깨진 정규식은 dw-lint 의 re.finditer 에서 매 파일 터진다 — 입구에서 막는다."""

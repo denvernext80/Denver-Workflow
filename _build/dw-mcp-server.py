@@ -438,6 +438,13 @@ def dw_propose_rule(scope: str, title: str, rule: str, enforced_by: str,
         return ("(거부) check_deny/check_require 를 주려면 check_glob 도 필요합니다 "
                 "(대상 파일 미지정 = 컴파일 시 검사 비활성 → 규칙만 있고 검사는 없는 상태). "
                 "예: check_glob=['*.dart'] 또는 ['*.php']")
+    # glob/exclude/hint 만 주는 것도 막는다 — deny/require 가 없으면 collect_checks 가 항목을
+    # 아예 만들지 않아(경고조차 없이) '검사처럼 생긴 죽은 키' 가 프론트매터에 남는다.
+    if not (deny or require) and (glob or exclude or hint):
+        return ("(거부) check_glob/check_exclude/check_hint 는 check_deny 또는 check_require 와 "
+                "함께여야 의미가 있습니다 — 패턴이 없으면 검사 항목이 생성되지 않고 "
+                "'검사처럼 생긴 죽은 키' 만 남습니다. 강제할 패턴을 주시거나, "
+                "검사 없는 서술 규칙이면 check_* 를 모두 비우세요(교정 지침은 rule 본문에).")
 
     scope, note = _canonical_scope(scope)
     fm = {"type": "rule", "status": "draft", "scope": scope, "enforced-by": enforced_by,
