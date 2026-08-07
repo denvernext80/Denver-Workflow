@@ -24,9 +24,39 @@ import sys
 from pathlib import Path
 
 
+def _cfg_dirs(project):
+    """dw-config.json 을 찾을 후보 — project → 조상 → 본체 레포(git worktree 대응).
+
+    do-er 서브에이전트는 git worktree 에서 돈다. 워크트리는 `.claude/` 가 gitignore 라 체크아웃되지
+    않아 `<worktree>/.claude/dw-config.json` 이 **없다**. 종전엔 그때 `DW_VAULT_DIR` env 폴백에만
+    기댔고, env 가 없는 환경(러너·다른 셸)에서는 vault 를 못 찾아 훅이 조용히 무력화됐다.
+    """
+    out = []
+    cur = project.resolve()
+    for _ in range(8):
+        out.append(cur)
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+    try:
+        import subprocess
+        r = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=str(project),
+                           capture_output=True, text=True, timeout=3)
+        if r.returncode == 0 and r.stdout.strip():
+            cp = Path(r.stdout.strip())
+            if not cp.is_absolute():
+                cp = (project / cp).resolve()
+            out.append(cp.parent)          # 본체 레포 루트
+    except Exception:
+        pass
+    return out
+
+
 def _vault_root(project: Path):
-    cfg = project / ".claude" / "dw-config.json"
-    if cfg.exists():
+    for _d in _cfg_dirs(project):
+        cfg = _d / ".claude" / "dw-config.json"
+        if not cfg.exists():
+            continue
         try:
             v = json.loads(cfg.read_text(encoding="utf-8")).get("vault_root")
             if v and Path(v).is_dir():
