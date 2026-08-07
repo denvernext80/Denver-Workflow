@@ -30,6 +30,8 @@ ROOT = BUILD.parent
 SERVER = BUILD / "dw-mcp-server.py"
 COMPILER = BUILD / "dw-compile.py"
 LINTER = BUILD / "dw-lint.py"
+RATIFIER = BUILD / "dw-ratify.py"
+WIRE_HOOK = BUILD / "wire-hook.py"
 SEED = ROOT / "_seed"
 
 _counter = itertools.count()
@@ -291,6 +293,174 @@ class ProposeRuleChecksTest(unittest.TestCase):
             self.assertNotIn(k, required)
         for k in ("scope", "title", "rule", "enforced_by"):
             self.assertIn(k, required)
+
+
+class RatifyScanGateTest(unittest.TestCase):
+    """비준기의 check 검증이 **실제로 돌고**, 검증 불가를 통과로 보고하지 않는지.
+
+    종전엔 `make ratify` 가 `--project` 를 주지 않아 `scan_codebase` 의 루프가 한 번도 돌지 않고
+    `hits=[]` → 무조건 승격이었다(2026-08-07 실측). 그리고 SKIP 에 `ios`·`android` 가 있어
+    `--project` 를 줘도 `ios/**/project.pbxproj` 는 검사 대상 0 건이었다.
+
+    ⚠️ 전부 `--dry-run` + 임시 픽스처다. 실제 `make ratify` 는 vault 를 변형하므로 돌리지 않는다.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-ratify-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.vault = self.tmp / "vault"
+        shutil.copytree(SEED, self.vault)
+        self.proj = self.tmp / "repo"
+        (self.proj / "lib").mkdir(parents=True)
+
+    # --- helpers ----------------------------------------------------------
+    def write_rule(self, name: str, **fm_extra) -> str:
+        fm = {"type": "rule", "status": "draft", "scope": "engineering",
+              "enforced-by": "code-review", "compiles-to": "skill", "title": name}
+        fm.update(fm_extra)
+        body = "\n".join(f"{k}: {json.dumps(v, ensure_ascii=False)}" if isinstance(v, list)
+                         else f"{k}: {v}" for k, v in fm.items())
+        rel = f"governance/rules/{name}.md"
+        (self.vault / rel).write_text(f"---\n{body}\n---\n\n본문.\n", encoding="utf-8")
+        return rel
+
+    def register(self, *projects: Path) -> None:
+        """`.dw-state/projects.json` 레지스트리에 직접 등록(설치 경로와 동일한 정본)."""
+        d = self.vault / ".dw-state"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "projects.json").write_text(
+            json.dumps({"projects": [str(p) for p in projects]}, ensure_ascii=False),
+            encoding="utf-8")
+
+    def ratify(self, *extra: str) -> str:
+        r = subprocess.run(
+            [sys.executable, str(RATIFIER), "--vault", str(self.vault), "--dry-run", *extra],
+            capture_output=True, text=True)
+        self.assertIn(r.returncode, (0, 10), f"비준기 비정상 종료:\n{r.stdout}\n{r.stderr}")
+        return r.stdout
+
+    def assertHeld(self, out: str, rel: str, because: str) -> str:
+        self.assertIn(rel, out)
+        block = out.split(rel, 1)[1]
+        self.assertIn(because, block, f"hold 사유가 기대와 다르다:\n{block[:400]}")
+        self.assertNotIn(f"+ {rel}", out, "hold 되어야 하는데 승격됐다")
+        return block
+
+    # --- A/B 재현 ---------------------------------------------------------
+    def test_deny_matching_existing_code_is_held(self):
+        (self.proj / "lib" / "a.dart").write_text("var x = FORBIDDEN_XYZ;\n", encoding="utf-8")
+        self.register(self.proj)
+        rel = self.write_rule("금지패턴 매치 규칙",
+                              **{"check-deny": ["FORBIDDEN_XYZ"], "check-glob": ["*.dart"]})
+        out = self.ratify()
+        self.assertHeld(out, rel, "매치")
+        self.assertIn("검사대상 1건", out)
+
+    def test_clean_codebase_with_candidates_is_promoted(self):
+        (self.proj / "lib" / "a.dart").write_text("var x = 1;\n", encoding="utf-8")
+        self.register(self.proj)
+        rel = self.write_rule("깨끗한 규칙",
+                              **{"check-deny": ["FORBIDDEN_XYZ"], "check-glob": ["*.dart"]})
+        out = self.ratify()
+        self.assertIn(f"+ {rel}", out, f"승격되어야 한다:\n{out}")
+        # 승격 근거로 '무엇에 비추어 0 인가'가 함께 보고돼야 한다.
+        self.assertIn("검사대상 1건 · 위반 0", out)
+
+    # --- ③ 검증 불가를 통과로 보고하지 않는다 ------------------------------
+    def test_zero_projects_is_held_not_promoted(self):
+        """레지스트리가 비면 오탐 0 을 주장할 근거가 없다 — 종전엔 무조건 승격이었다."""
+        rel = self.write_rule("스캔대상 없는 규칙",
+                              **{"check-deny": ["FORBIDDEN_XYZ"], "check-glob": ["*.dart"]})
+        out = self.ratify()
+        self.assertHeld(out, rel, "스캔 대상 프로젝트 0")
+        self.assertIn("install-project", out, "조치 방법이 안내돼야 한다")
+
+    def test_glob_matching_zero_files_is_held(self):
+        """이번 사건의 핵심 — glob 이 아무 파일도 못 잡으면 '위반 0' 은 공허하다."""
+        (self.proj / "lib" / "a.dart").write_text("var x = 1;\n", encoding="utf-8")
+        self.register(self.proj)
+        rel = self.write_rule("대상 없는 glob 규칙",
+                              **{"check-deny": ["FORBIDDEN_XYZ"], "check-glob": ["*.kt"]})
+        out = self.ratify()
+        self.assertHeld(out, rel, "검사대상 파일 0건")
+
+    def test_zero_projects_does_not_hold_rules_without_checks(self):
+        """**큐 정체 방지** — check 패턴이 없는 서술 규칙·guidance·procedure 는
+        검증 대상이 없으므로 스캔 대상 0 이어도 정상 승격돼야 한다."""
+        rule = self.write_rule("검사 없는 서술 규칙")
+        (self.vault / "governance/guidance/실험용-지침.md").write_text(
+            "---\ntype: guidance\nstatus: draft\nscope: engineering\ncompiles-to: skill\n"
+            "title: 실험용 지침\n---\n\n본문.\n", encoding="utf-8")
+        (self.vault / "governance/procedures/실험용-절차.md").write_text(
+            "---\ntype: procedure\nstatus: draft\nscope: engineering\ncompiles-to: skill\n"
+            "title: 실험용 절차\n---\n\n1. 본문.\n", encoding="utf-8")
+        out = self.ratify()   # --project 없음, 레지스트리 없음
+        for rel in (rule, "governance/guidance/실험용-지침.md",
+                    "governance/procedures/실험용-절차.md"):
+            self.assertIn(f"+ {rel}", out, f"검사 없는 OBEY 가 hold 됐다(큐 정체):\n{out}")
+
+    # --- ② SKIP 좁히기: pbxproj 는 스캔되고 Pods 는 제외 --------------------
+    def test_pbxproj_is_scanned_but_pods_copy_is_skipped(self):
+        """`ios` 가 SKIP 에 있어 이 규칙은 검사 대상이 0 건이었다 — 이번 수정의 동기.
+        동시에 `ios/Pods/` 의 벤더된 pbxproj 사본(실측 3개)은 계속 건너뛰어야 한다."""
+        runner = self.proj / "ios" / "Runner.xcodeproj" / "project.pbxproj"
+        runner.parent.mkdir(parents=True)
+        runner.write_text("/* Runner */ shellScript = \"echo build\";\n", encoding="utf-8")
+        pods = self.proj / "ios" / "Pods" / "Pods.xcodeproj" / "project.pbxproj"
+        pods.parent.mkdir(parents=True)
+        pods.write_text("upload-symbols\n", encoding="utf-8")   # 여기 있으면 오탐이 된다
+        self.register(self.proj)
+        rel = self.write_rule("pbxproj 침묵 업로드 금지",
+                              **{"check-deny": ["upload-symbols"], "check-glob": ["*.pbxproj"]})
+        out = self.ratify()
+        # Pods 사본이 스캔됐다면 매치가 잡혀 hold 된다 → 승격 = Pods 제외 성공
+        self.assertIn(f"+ {rel}", out, f"Pods 의 벤더 pbxproj 가 오탐을 만들었다:\n{out}")
+        # 그리고 Runner.xcodeproj 는 **실제로** 검사 대상이어야 한다(공허한 0 이 아니어야 한다)
+        self.assertIn("검사대상 1건 · 위반 0", out)
+
+    def test_scan_prunes_heavy_trees(self):
+        """SKIP 트리는 walk 자체가 내려가지 않는다(rglob 사후필터 → 프루닝)."""
+        srv = load_ratifier()
+        for d in ("node_modules", "ios/Pods", "target", ".git", ".worktrees", "_worktrees"):
+            p = self.proj / d / "deep"
+            p.mkdir(parents=True)
+            (p / "x.dart").write_text("FORBIDDEN_XYZ\n", encoding="utf-8")
+        (self.proj / "lib" / "ok.dart").write_text("clean\n", encoding="utf-8")
+        hits, cand = srv.scan_codebase([self.proj], ["*.dart"], [], ["FORBIDDEN_XYZ"], [])
+        self.assertEqual(hits, [], f"프루닝돼야 할 트리에서 매치가 나왔다: {hits}")
+        self.assertEqual(cand, 1, "lib/ok.dart 만 검사 대상이어야 한다")
+
+    # --- 레지스트리: 설치가 곧 등록 ----------------------------------------
+    def test_install_registers_project_for_scanning(self):
+        """`make install-project` 경로(wire-hook.py <proj> <vault> --config-only)가
+        레지스트리에 역링크를 남겨야 한다 — 크론에서 인자 없이 동작하게 하는 정본."""
+        r = subprocess.run(
+            [sys.executable, str(WIRE_HOOK), str(self.proj), str(self.vault), "--config-only"],
+            capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        reg = json.loads((self.vault / ".dw-state" / "projects.json").read_text(encoding="utf-8"))
+        self.assertEqual(reg["projects"], [str(self.proj.resolve())])
+        # 멱등 — 두 번 돌려도 중복되지 않는다
+        subprocess.run([sys.executable, str(WIRE_HOOK), str(self.proj), str(self.vault),
+                        "--config-only"], capture_output=True, text=True)
+        reg2 = json.loads((self.vault / ".dw-state" / "projects.json").read_text(encoding="utf-8"))
+        self.assertEqual(reg2["projects"], reg["projects"])
+
+    def test_registry_is_outside_vault_content_dirs(self):
+        """레지스트리가 vault 콘텐츠를 오염시키면 검색·컴파일에 새어 나온다."""
+        subprocess.run([sys.executable, str(WIRE_HOOK), str(self.proj), str(self.vault),
+                        "--config-only"], capture_output=True, text=True)
+        self.assertTrue((self.vault / ".dw-state" / "projects.json").is_file())
+        for d in ("governance", "project"):
+            self.assertEqual(list((self.vault / d).rglob("projects.json")), [])
+
+
+def load_ratifier():
+    """dw-ratify.py 를 모듈로 로드(파일명에 하이픈이 있어 일반 import 불가)."""
+    spec = importlib.util.spec_from_file_location(f"dw_ratify_{next(_counter)}", RATIFIER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 if __name__ == "__main__":

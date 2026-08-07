@@ -124,8 +124,14 @@ review: $(VENV)/.stamp       ## OBEY draft 큐(자동 비준 대상/hold) + 헬�
 # 자동 비준 — 사람 비준 단계 제거. 결정론적으로 안전한 OBEY draft 를 승격하고, 항상 install.
 # (스케줄 권장: cron/launchd/CC schedule 로 주기 실행하면 사람·수동 compile 모두 불요.)
 # install 은 항상 돌려 에이전트 승격분 + 사람이 Obsidian 에서 고친 stable 변경까지 컴파일한다(멱등).
+#
+# check 패턴을 가진 규칙은 **실제 코드에 돌려 오탐 0** 을 확인한 뒤에만 승격된다. 스캔 대상 레포는
+# `<vault>/.dw-state/projects.json`(= `make install-project` 가 자동 등록)에서 읽으므로 크론에서도
+# 인자가 필요 없다. 일회성으로 다르게 주려면: make ratify RATIFY_PROJECTS="/abs/repo1 /abs/repo2"
+RATIFY_PROJECTS ?=
 ratify: $(VENV)/.stamp       ## (스케줄 권장) draft OBEY 자동 비준 → 항상 compile+install
-	-$(VPY) _build/dw-ratify.py --vault "$(VAULT_DIR)"
+	-$(VPY) _build/dw-ratify.py --vault "$(VAULT_DIR)" \
+		$(foreach p,$(RATIFY_PROJECTS),--project "$(p)")
 	@echo ""
 	@echo "→ 컴파일·설치(승격분 + 사람 편집 stable 반영, 멱등)"
 	@echo "→ 설치 반영은 /dw-install (프로젝트별) 로 실행"
