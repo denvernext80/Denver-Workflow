@@ -235,6 +235,7 @@ Denver는 자체 거버넌스 코어 및 하네스 엔진만 포함하고 있습
 ```bash
 make build                    # Vault 컴파일 ➔ .claude/skills 디렉토리로 빌드
 make dry-run                  # 실제 파일 수정 없이 규칙 유효성 및 빌드 검증 (CI 환경용, 경고 발생 시 에러 처리)
+make test                     # 엔진 자기검사(stdlib unittest, 임시 vault 픽스처 — 실제 Vault 무영향)
 make doctor                   # 콜드스타트 상태 진입 시 venv, 컴파일러, MCP 상태 전수 점검
 make ratify                   # Draft 규칙 자동 비준 스크립트 실행 (크론탭 등 스케줄러 등록 권장)
 make review                   # 사람의 판단이 필요한 수동 검토 큐 확인 및 시스템 상태 체크
@@ -244,6 +245,13 @@ make clean / make distclean   # 빌드 산출물 제거 / 빌드 산출물 및 �
 ```
 
 *(※ 외부 의존 패키지는 `pyyaml`과 `mcp` 뿐이며, `make` 명령어 실행 시 시스템 환경을 오염시키지 않고 프로젝트 로컬 가상환경(`.venv`)에 안전하게 자동 격리 설치됩니다.)*
+
+> ⚠️ **dw-vault MCP 도구가 세션에 보이지 않으면 `make distclean` 후 재빌드하세요.**
+> `mcp` 는 **`<2`** 로 핀되어 있습니다(2.0.0 이 `mcp.server.fastmcp` 를 제거해 서버가 기동하지
+> 못합니다 — 2.12.0 에서 수정). 다만 그 핀은 **새로 만드는 `.venv` 에만** 적용됩니다. 2.12.0 이전에
+> 만들어진 `.venv` 가 `mcp` 2.0.0 을 들고 있으면 그대로 남아 서버가 죽으므로, `make distclean` 으로
+> 가상환경을 지우고 다시 만들어야 합니다(플러그인으로 설치했다면 플러그인 캐시의 `.venv` 삭제 —
+> 런처가 다음 실행 때 핀으로 재생성합니다).
 
 ### 타깃 프로젝트에 거버넌스 배포 (Multi-Repo 배포)
 

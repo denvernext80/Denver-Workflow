@@ -391,17 +391,78 @@ def dw_write_procedure(scope: str, title: str, steps: str) -> str:
             "dw-ratifier 가 검증 통과 시 자동 stable·`make install` 합니다(사람 불요).")
 
 
+def _clean_patterns(v: list[str] | None) -> list[str]:
+    """빈/공백-only 항목 제거. 빈 정규식은 glob 내 **모든 파일**을 위반으로 만든다(재앙)."""
+    return [str(x) for x in (v or []) if str(x).strip()]
+
+
 @mcp.tool()
-def dw_propose_rule(scope: str, title: str, rule: str, enforced_by: str) -> str:
+def dw_propose_rule(scope: str, title: str, rule: str, enforced_by: str,
+                    check_deny: list[str] | None = None,
+                    check_require: list[str] | None = None,
+                    check_glob: list[str] | None = None,
+                    check_exclude: list[str] | None = None,
+                    check_hint: str = "") -> str:
     """규칙 변경을 vault rules/ 에 제안한다(항상 status:draft — 절대 stable 아님).
     draft 규칙은 컴파일되지 않아 강제되지 않는다. dw-ratifier 가 검증(스키마·enforced-by 실재·충돌 없음·
     check 패턴을 실제 코드에 돌려 오탐 0)을 통과시키면 자동 stable·컴파일한다 — 탈락 시 draft 유지·사유 주석.
-    enforced_by 는 실재 검증자(security-qa|code-review|design-review|perf-tester)여야 한다."""
+    enforced_by 는 실재 검증자(security-qa|code-review|design-review|perf-tester)여야 한다.
+
+    **결정론 검사(check_*)** — 주면 `.claude/dw-checks.json` 항목으로 컴파일돼 dw-lint 훅이
+    편집된 파일마다 자동 검사한다(사람·LLM 판단 없이 발화). 안 주면 검사 없는 서술 규칙이다.
+      check_deny    : 파일에 **있으면** 위반. 파이썬 정규식 **원문**(이스케이프 가공 없음).
+      check_require : 파일에 **없으면** 위반. 동일하게 정규식 원문.
+      check_glob    : 검사 대상 파일(fnmatch). deny/require 를 주면 **필수** — 없으면 컴파일러가
+                      검사를 비활성해 "규칙은 있는데 검사는 없는" 상태가 되므로 여기서 거부한다.
+      check_exclude : 예외 파일(fnmatch).
+      check_hint    : 위반 메시지에 붙는 한 줄 교정 지침.
+    glob/exclude 는 **프로젝트 상대 posix 경로와 basename 양쪽**에 매칭된다
+    (`'*.pbxproj'` 가 `ios/Runner.xcodeproj/project.pbxproj` 에 맞는다).
+    검사는 규칙이 **stable 로 비준된 뒤에만** 생성된다(draft 동안 강제 없음)."""
+    deny = _clean_patterns(check_deny)
+    require = _clean_patterns(check_require)
+    glob = _clean_patterns(check_glob)
+    exclude = _clean_patterns(check_exclude)
+    hint = (check_hint or "").strip()
+
+    # 깨진 정규식은 dw-lint 의 re.finditer 에서 **모든 프로젝트·모든 파일**마다 터진다 — 입구에서 막는다.
+    for pat in deny + require:
+        try:
+            re.compile(pat)
+        except re.error as e:
+            return (f"(거부) 정규식이 컴파일되지 않습니다: {pat!r} — {e}. "
+                    "check_deny/check_require 는 파이썬 정규식 원문입니다.")
+    # deny/require 가 있는데 glob 이 없으면 컴파일러가 warn 후 검사를 비활성한다(collect_checks)
+    # → 규칙만 남고 강제는 0 인 '살아 있는 척하는 가드'. 그 상태를 만들지 않는다.
+    if (deny or require) and not glob:
+        return ("(거부) check_deny/check_require 를 주려면 check_glob 도 필요합니다 "
+                "(대상 파일 미지정 = 컴파일 시 검사 비활성 → 규칙만 있고 검사는 없는 상태). "
+                "예: check_glob=['*.dart'] 또는 ['*.php']")
+    # glob/exclude/hint 만 주는 것도 막는다 — deny/require 가 없으면 collect_checks 가 항목을
+    # 아예 만들지 않아(경고조차 없이) '검사처럼 생긴 죽은 키' 가 프론트매터에 남는다.
+    if not (deny or require) and (glob or exclude or hint):
+        return ("(거부) check_glob/check_exclude/check_hint 는 check_deny 또는 check_require 와 "
+                "함께여야 의미가 있습니다 — 패턴이 없으면 검사 항목이 생성되지 않고 "
+                "'검사처럼 생긴 죽은 키' 만 남습니다. 강제할 패턴을 주시거나, "
+                "검사 없는 서술 규칙이면 check_* 를 모두 비우세요(교정 지침은 rule 본문에).")
+
     scope, note = _canonical_scope(scope)
     fm = {"type": "rule", "status": "draft", "scope": scope, "enforced-by": enforced_by,
           "compiles-to": "skill", "title": title}
+    # ⚠️ check-* 는 **맨 뒤에** 붙인다 — 미제공 시 종전과 바이트 동일한 산출물을 보장한다
+    # (_emit 의 yaml.safe_dump(sort_keys=False) 는 삽입 순서를 그대로 쓴다).
+    for key, val in (("check-deny", deny), ("check-require", require),
+                     ("check-glob", glob), ("check-exclude", exclude)):
+        if val:
+            fm[key] = val
+    if hint:
+        fm["check-hint"] = hint
+
     path = _emit("governance/rules", f"{_slugify(title)}.md", fm, rule)
-    return (f"제안됨(draft): {path} {note}— draft 라 아직 강제되지 않습니다. "
+    checks = (f" 결정론 검사(deny {len(deny)}·require {len(require)}) 포함 — 비준 후 dw-checks.json 에 반영."
+              if (deny or require)
+              else " (검사 없는 서술 규칙 — 자동 강제하려면 check_deny/check_glob 을 주세요.)")
+    return (f"제안됨(draft): {path} {note}— draft 라 아직 강제되지 않습니다.{checks} "
             "dw-ratifier 가 검증 통과 시 자동 stable·`make install` 합니다(사람 불요).")
 
 

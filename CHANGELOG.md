@@ -1,5 +1,63 @@
 # Changelog
 
+## 2.12.0 — 2026-08-07
+
+> ⚠️ **업데이트 후 조치 — `.venv` 를 가진 환경은 `make distclean` 이 필요할 수 있다.**
+> 이 릴리스 전에 만들어진 venv 는 `mcp` **2.0.0** 을 들고 있을 수 있고, 2.0.0 은
+> `mcp.server.fastmcp` 를 제거해 **dw-vault MCP 서버가 기동하지 못한다**. 아래 핀은 *새로 만드는*
+> venv 만 고친다(`$(VENV)/.stamp` 는 stamp 가 있으면 재설치하지 않고, 런처도 python 부재만 본다).
+> 증상: dw-vault 도구가 세션에 보이지 않음 / 서버 spawn 실패.
+> **해법: `make distclean` 후 재빌드**(플러그인 설치본이면 플러그인 캐시의 `.venv` 삭제 — 런처가
+> 다음 spawn 때 핀으로 다시 만든다).
+
+### 추가 — `dw_propose_rule` 이 결정론 검사를 제안할 수 있게 됐다 (규칙만 남고 강제는 0 이던 결함)
+
+`dw_propose_rule` 은 프론트매터를 **고정 딕셔너리**로 만들어 `check-*` 를 넣을 파라미터가 없었다.
+컴파일러 `collect_checks` 는 그 키를 **프론트매터에서만** 읽으므로 에이전트가 결정론 검사를 제안할
+경로가 **아예 없었다**(본문에 yaml 로 적어도 무시). 우회는 SSOT 가드가 차단한다 — 정상 동작이지만
+정상 경로가 없으니 막다른 길이었다.
+
+실증: 2026-08-07 dSYM 규칙 보강 제안이 stable 까지 갔는데도 `dw-checks.json` 의 pbxproj glob 항목은
+**0 건**. "규칙은 생겼는데 검사는 없는" 상태 — stable 규칙 「0건을 성공으로 보고하는 게이트 금지」와
+같은 실패형이다.
+
+- 옵션 파라미터 5개 — `check_deny`·`check_require`·`check_glob`·`check_exclude`(리스트) +
+  `check_hint`(문자열). 주어졌을 때만 프론트매터에 기록한다.
+  `check_require` 를 포함한 이유: `collect_checks` 는 `deny or require` 가 있어야 항목을 만들어서,
+  deny 만 열면 검사 어휘 절반이 계속 닫힌 채 남는다.
+- **`status: draft` 불변.** 이 도구는 stable 을 만들 수 없다(비준은 사람·비준기 몫).
+  검사는 규칙이 stable 로 비준된 뒤에만 생성된다(`is_compilable_rule`).
+- **입구 가드 3종** — 죽은 검사 양산 방지:
+  ① deny/require 를 주면서 `check_glob` 이 없으면 거부(컴파일러가 warn 후 검사 비활성 → 규칙만 남음)
+  ② 정규식이 `re.compile` 되지 않으면 거부(dw-lint 의 `re.finditer` 가 모든 프로젝트·모든 파일에서 터진다)
+  ③ 패턴 없이 `check_glob`/`check_exclude`/`check_hint` 만 주면 거부(항목이 생성되지 않고 경고조차
+  없어 '검사처럼 생긴 죽은 키' 만 남는다)
+- 하위호환 — `check-*` 를 프론트매터 **맨 뒤에** 조건부로 붙여, 파라미터 미제공 시 산출물이 종전과
+  **바이트 동일**하다(이전 버전 서버와 md5 대조 확인). 반환 문구에는 새 기능을 알리는 한 문장이 붙는다.
+- ⚠️ **MCP 도구 스키마는 서버 재시작 후 세션에 반영된다** — 스키마는 클라이언트가 서버를 spawn 할 때
+  읽힌다. 기존 세션은 계속 옛 시그니처를 본다.
+
+### 수정 — 콜드스타트가 깨진 MCP 서버를 설치하고 있었다
+
+`pip install mcp` 가 이제 **2.0.0** 을 가져오고, 2.0.0 은 `mcp.server.fastmcp` 를 **제거**해
+`dw-mcp-server.py` 가 임포트에서 즉사한다. 신규 venv 에서만 발현해(기존 venv 는 1.x 보유) 무증상이었다.
+
+- `Makefile`(`$(VENV)/.stamp`)·`_build/dw-mcp-launch.sh` 양쪽에 **`mcp<2` 핀**. 서버를 2.x API 로
+  마이그레이션한 뒤에만 해제(두 곳을 반드시 함께 유지).
+- 이미 오염된 venv 는 이 핀으로 치유되지 않는다 — 위 상단 조치 안내 참조.
+
+### 추가 — `make test`(엔진 자기검사) 신설
+
+레포에 테스트 하네스가 없었다(pytest·pyproject·conftest 부재). venv 에 의존성을 추가하지 않는
+**stdlib unittest** 로 `_build/dw-selftest.py` 를 만들고 `make test` 로 노출했다. 픽스처는 `_seed`
+복사본(`make seed-check` 가 strict 컴파일을 이미 보증) — **사용자 vault 는 읽지도 쓰지도 않는다.**
+
+16 케이스: 왕복(제안 → 프론트매터 5키 → 컴파일 → `dw-checks.json` 항목 실재 → **dw-lint 실제 발화**),
+draft 동안 검사 0, 파라미터 미제공 시 바이트 동일, 거부 6종, MCP 스키마에 옵션으로 노출.
+
+`make dry-run`·`make doctor` 는 live vault 를 컴파일할 뿐 엔진 동작을 증명하지 못한다(무회귀만) —
+그 몫이 `make test` 다.
+
 ## 2.11.7 — 2026-08-07
 
 ### 수정 — SSOT 쓰기 가드의 guidance 안내가 「금지」로만 끝나 사용자 지시까지 거절시켰다

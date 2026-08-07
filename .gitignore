@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 .DS_Store
 /tmp-fixture/
+/.worktrees/
 docs/superpowers/
 .impeccable/
 _build/.claude/
