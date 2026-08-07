@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.11.3 — 2026-08-07
+
+### 수정 — graphify 게이트가 do-er 워크트리에서 발화하지 않던 구간
+
+게이트가 `cwd/.mcp.json` 만 봐서, do-er 서브에이전트가 `<repo>/.claude/worktrees/<n>` 에서 도는
+동안에는 침묵했다. **do-er 는 세션 MCP 를 상속하므로 graphify 를 호출할 수 있다** —
+`project_path=<repo 절대경로>` 로 그 레포 그래프를 질의한다(실측: balipick 11,295노드 조회 성공).
+즉 능력은 있는데 게이트만 없는 구간이었다.
+
+`_graphify_registered(project)` → `_graphify_applicable(project, vault)` 로 교체:
+- ① cwd **와 그 조상**의 `.mcp.json` 에 graphify → 적용(워크스페이스 경로).
+- ② 조상에 `graphify-out/graph.json` 이 있고 **텔레메트리 로그에 graphify 이벤트가 있으면** 적용.
+  그래프 존재 = 유용함, 로그 이벤트 = 서버가 이 환경에 실재한다는 증거.
+
+②가 사용 증거를 함께 요구하는 이유: graphify 는 옵셔널 불변식이라 미설치 환경을 막으면 안 된다.
+그래프 파일만 보고 걸면 서버 없는 환경에서 `dw_search` 가 대안 없이 차단되고, automode 에선 그게
+`deny` 라 러너가 멈춘다. 사용 증거가 그 fail-open 을 지킨다.
+
+⚠️ 실환경에서 이 판정은 `DW_VAULT_DIR` 환경변수에 의존한다 — do-er 워크트리엔 `.claude/` 가
+gitignore 라 `dw-config.json` 이 없어 `_vault_root` 가 env 폴백으로만 vault 를 찾는다.
+(같은 이유로 워크트리에선 `dw-checks.json` 도 없어 dw-lint 가 조용히 통과한다 — 별건.)
+
 ## 2.11.2 — 2026-08-07
 
 ### 추가 — 워크플로우 텔레메트리 + SSOT 쓰기 가드 + graphify 하드 게이트
