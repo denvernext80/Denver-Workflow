@@ -174,8 +174,25 @@ def _graphify_applicable(project: Path, vault) -> bool:
     return False
 
 
+def _telemetry_observing(vault) -> bool:
+    """텔레메트리가 **실제로 관측 중인가** = access.jsonl 이 존재하는가.
+
+    로그가 없으면 "graphify 를 안 썼다" 가 아니라 **"알 수 없다"** 다. 둘을 구분하지 않으면
+    관측 부재를 위반으로 읽게 된다 — `_graphify_used_this_session()` 이 두 경우 모두 False 를
+    돌려주므로, 호출부가 이 함수로 갈라야 한다.
+    """
+    try:
+        return vault is not None and (vault / ".dw-state" / "access.jsonl").is_file()
+    except Exception:
+        return False
+
+
 def _graphify_used_this_session(vault: Path, session: str) -> bool:
-    """텔레메트리 로그 tail 에서 이번 세션의 graphify 이벤트 유무. 로그 없으면 False(→ ask)."""
+    """텔레메트리 로그 tail 에서 이번 세션의 graphify 이벤트 유무.
+
+    ⚠️ 로그 부재도 False 다 — 그건 "미사용" 이 아니라 "관측 불가" 이므로, 호출부는 반드시
+    `_telemetry_observing()` 으로 두 경우를 갈라야 한다(안 그러면 근거 없이 차단한다).
+    """
     if not session:
         return False
     log = vault / ".dw-state" / "access.jsonl"
@@ -232,8 +249,16 @@ def main() -> int:
         used = _graphify_used_this_session(vault, session) if vault else False
         if used:
             _emit_ctx(_GREP_NUDGE if is_grep else _NUDGE)  # 이미 썼으면 부드럽게
+        elif not _telemetry_observing(vault):
+            # 🔴 **관측 불가는 위반이 아니다.** 로그가 아예 없으면 graphify 사용 여부를 알 방법이
+            #    없는데, 종전 코드는 그것을 "미사용" 으로 단정해 차단했다 — automode 에선 deny 라
+            #    `dw_search` 가 **영영 열리지 않는다**(2026-08-07 실측: 서브에이전트가 이 게이트에
+            #    막혀 vault 를 직접 뒤져 우회했다). 텔레메트리와 이 게이트는 같은 릴리스에 실렸지만
+            #    훅은 새 세션부터 로드되므로 로그가 한 번도 안 써진 창이 **반드시** 생긴다.
+            #    ⇒ 관측이 없으면 조언까지만. 규율은 전하되 근거 없이 막지 않는다.
+            _emit_ctx(_GREP_NUDGE if is_grep else _NUDGE)
         else:
-            _emit_gate(_ASK, _hard(payload))  # 아직 안 썼으면 게이트(automode=deny, else ask)
+            _emit_gate(_ASK, _hard(payload))  # 관측 중인데 미사용 → 게이트(automode=deny, else ask)
     except Exception:
         return 0
     return 0
