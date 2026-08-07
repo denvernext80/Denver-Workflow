@@ -8,6 +8,9 @@
 정책(사용자 비준 모델과 일치):
   - OBEY = rule/guidance/procedure  → 컴파일/사람비준 대상. 직접편집 **ask 로 차단**,
     올바른 경로(dw_propose_rule / dw_write_procedure / vault 에서 사람 편집)로 유도.
+    ⚠️ ask 는 **금지가 아니라 사용자 결정 요청**이다. 사용자가 승인하면 편집은 그대로 진행된다.
+    메시지 문구가 이 사실을 감추면 에이전트가 사용자 지시까지 거절한다(2026-08-07 실측).
+    hard(automode 등)에서만 deny 로 상향돼 실제 차단이 된다.
   - LIVE = memory/contract/spec/decision/backlog/reference → 직접 쓰기 허용(통과).
   - vault 밖 코드 파일 → 통과.
 OBEY 판정: 파일 존재 시 frontmatter `type`, 없으면(신규) 경로 프리픽스(governance/rules|guidance|procedures).
@@ -29,7 +32,11 @@ OBEY_DIRS = ("governance/rules", "governance/guidance", "governance/procedures")
 TOOL_HINT = {
     "rule": "dw_propose_rule 로 draft 규칙을 제안하라(stable 승격은 사람).",
     "procedure": "dw_write_procedure 로 draft 절차를 기록하라(비준되면 스킬로 로드).",
-    "guidance": "guidance 는 사람이 vault 에서 저작한다 — 에이전트 직접편집 금지.",
+    # guidance 만 전용 dw_write_* 도구가 없다(rule=propose, procedure=write). 출구 없이 "금지" 로만
+    # 끝내면 에이전트가 사용자의 명시적 지시까지 거절한다 — 2026-08-07 실제 발생(왕복 1회 낭비).
+    # 승인 이야기는 여기 두지 마라 — TOOL_HINT 는 모드 무관이라 automode(승인자 부재)에서
+    # "사용자 승인을 받아라 / (automode → 차단)" 이라는 자기모순 문구가 된다. 모드별 문구는 tail.
+    "guidance": "guidance 는 전용 쓰기 도구가 없다 — 원칙은 사람이 vault 에서 저작한다.",
 }
 
 
@@ -147,7 +154,11 @@ def main() -> int:
                 "guidanc": "guidance", "procedure ": "procedure"}.get(kind, kind)
         hint = TOOL_HINT.get(kind, "dw 쓰기 도구를 사용하라.")
         hard = _hard(payload)
-        tail = "automode → 차단. 올바른 경로로 재시도하라." if hard else "정말 직접 편집이 필요하면 override."
+        # soft 는 ask 다 — 최종 결정권자는 사용자다. 종전 문구("…override.")는 주체가 없어
+        # 에이전트가 "나는 못 한다" 로 읽었다. 누가 푸는지 명시한다.
+        tail = ("automode → 실제 차단. 승인자가 없으니 올바른 경로로 재시도하라." if hard
+                else "ask 다 — 사용자가 승인하면 그대로 진행된다. 사용자 지시가 있었다면 "
+                     "'못 한다' 가 아니라 '승인해 주시면 넣겠다' 로 요청하라.")
         reason = (f"🔒 SSOT 가드: '{rels}' 는 OBEY 노트({kind})다 — 직접편집은 컴파일·비준을 우회한다. "
                   f"{hint} ({tail})")
         print(json.dumps({"hookSpecificOutput": {
