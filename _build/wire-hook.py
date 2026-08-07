@@ -39,6 +39,33 @@ def _cmd(name: str) -> tuple[str, str]:
     return (f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{name}"', name)
 
 
+def register_project(vault: Path, project: Path, remove: bool = False) -> str:
+    """`<vault>/.dw-state/projects.json` 에 프로젝트 절대경로를 멱등 등록/해제.
+
+    dw-ratify 가 check 패턴을 실제로 돌릴 레포 목록의 **정본**이다. 설치가 곧 등록이라
+    사람이 크론에서 인자를 줄 필요가 없다. vault CONTENT_DIRS 밖(.dw-state/)이라 검색·
+    graphify·컴파일을 오염시키지 않는다(dw_access_log.py 와 동일 규약).
+
+    실패해도 설치를 막지 않는다 — 다만 **조용히 넘기지 않고** 사유를 문자열로 돌려준다.
+    """
+    f = vault / ".dw-state" / "projects.json"
+    target = str(project.expanduser().resolve())
+    try:
+        cur: list[str] = []
+        if f.is_file():
+            cur = [str(x) for x in (json.loads(f.read_text(encoding="utf-8")).get("projects") or [])]
+        new = sorted(set(cur) - {target}) if remove else sorted(set(cur) | {target})
+        if new == sorted(set(cur)):
+            return f"레지스트리 변화 없음(멱등): {f}"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({"projects": new}, ensure_ascii=False, indent=2) + "\n",
+                     encoding="utf-8")
+        verb = "등록 해제" if remove else "등록"
+        return f"비준 스캔 대상 {verb}: {target} → {f} (총 {len(new)}개)"
+    except (OSError, json.JSONDecodeError) as e:
+        return f"⚠️ 비준 스캔 대상 등록 실패({type(e).__name__}: {e}) — dw-ratify 가 이 레포를 스캔하지 못한다"
+
+
 WIRING = {
     "PostToolUse": [
         (EDIT_MATCHER, [
@@ -138,6 +165,10 @@ def main() -> int:
         cfg = project / ".claude" / "dw-config.json"
         cfg.write_text(json.dumps({"vault_root": vault_root}, ensure_ascii=False, indent=2) + "\n",
                        encoding="utf-8")
+        # 역링크 등록 — dw-ratify 가 "이 vault 가 지배하는 레포" 를 크론에서도 알 수 있게.
+        reg_msg = register_project(Path(vault_root), project, remove=remove)
+        if reg_msg:
+            print(f"  {reg_msg}")
 
     if config_only:
         print(f"  config-only: dw-config.json 기록(훅은 플러그인 전역 제공) → {settings_path}")
