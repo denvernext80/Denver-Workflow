@@ -27,6 +27,8 @@ import json
 import sys
 from pathlib import Path
 
+import dw_state
+
 # event -> [(matcher, [(command, marker), ...]), ...]. matcher=None → 매처 없는 이벤트(SessionStart 등).
 # 이벤트당 그룹이 여럿인 이유는 모듈 docstring 참조(같은 이벤트라도 훅마다 보는 도구가 다르다).
 EDIT_MATCHER = "Edit|Write|MultiEdit"
@@ -40,30 +42,8 @@ def _cmd(name: str) -> tuple[str, str]:
 
 
 def register_project(vault: Path, project: Path, remove: bool = False) -> str:
-    """`<vault>/.dw-state/projects.json` 에 프로젝트 절대경로를 멱등 등록/해제.
-
-    dw-ratify 가 check 패턴을 실제로 돌릴 레포 목록의 **정본**이다. 설치가 곧 등록이라
-    사람이 크론에서 인자를 줄 필요가 없다. vault CONTENT_DIRS 밖(.dw-state/)이라 검색·
-    graphify·컴파일을 오염시키지 않는다(dw_access_log.py 와 동일 규약).
-
-    실패해도 설치를 막지 않는다 — 다만 **조용히 넘기지 않고** 사유를 문자열로 돌려준다.
-    """
-    f = vault / ".dw-state" / "projects.json"
-    target = str(project.expanduser().resolve())
-    try:
-        cur: list[str] = []
-        if f.is_file():
-            cur = [str(x) for x in (json.loads(f.read_text(encoding="utf-8")).get("projects") or [])]
-        new = sorted(set(cur) - {target}) if remove else sorted(set(cur) | {target})
-        if new == sorted(set(cur)):
-            return f"레지스트리 변화 없음(멱등): {f}"
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(json.dumps({"projects": new}, ensure_ascii=False, indent=2) + "\n",
-                     encoding="utf-8")
-        verb = "등록 해제" if remove else "등록"
-        return f"비준 스캔 대상 {verb}: {target} → {f} (총 {len(new)}개)"
-    except (OSError, json.JSONDecodeError) as e:
-        return f"⚠️ 비준 스캔 대상 등록 실패({type(e).__name__}: {e}) — dw-ratify 가 이 레포를 스캔하지 못한다"
+    """프로젝트를 비준 스캔·설치 대상 레지스트리에 멱등 등록/해제(계약은 dw_state.py)."""
+    return dw_state.register_project(vault, project, remove=remove)
 
 
 WIRING = {
@@ -80,7 +60,8 @@ WIRING = {
         (EDIT_MATCHER, [_cmd("dw-vault-write-guard.py")]),
     ],
     "SessionStart": [
-        (None, [_cmd("dw-session-context.py")]),
+        # dw-ratify-session: 세션 시작 시 자동 비준 + 산출물 설치(draft 0·최신이면 거의 비용 0).
+        (None, [_cmd("dw-session-context.py"), _cmd("dw-ratify-session.py")]),
     ],
 }
 

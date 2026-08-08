@@ -3,7 +3,8 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-session-context.py\"", "timeout": 15 }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-session-context.py\"", "timeout": 15 },
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-ratify-session.py\"", "timeout": 15 }
         ]
       }
     ],

@@ -23,6 +23,8 @@ from pathlib import Path
 import yaml
 from mcp.server.fastmcp import FastMCP
 
+import dw_verify  # check 패턴 검증 — 비준기와 공유하는 단일 정본(예측 ≠ 실제 를 막는다)
+
 _ap = argparse.ArgumentParser()
 _ap.add_argument("--vault", required=True)
 _args, _ = _ap.parse_known_args()
@@ -459,11 +461,20 @@ def dw_propose_rule(scope: str, title: str, rule: str, enforced_by: str,
         fm["check-hint"] = hint
 
     path = _emit("governance/rules", f"{_slugify(title)}.md", fm, rule)
-    checks = (f" 결정론 검사(deny {len(deny)}·require {len(require)}) 포함 — 비준 후 dw-checks.json 에 반영."
-              if (deny or require)
-              else " (검사 없는 서술 규칙 — 자동 강제하려면 check_deny/check_glob 을 주세요.)")
-    return (f"제안됨(draft): {path} {note}— draft 라 아직 강제되지 않습니다.{checks} "
-            "dw-ratifier 가 검증 통과 시 자동 stable·`make install` 합니다(사람 불요).")
+
+    # 비준기와 **동일한 검증**(dw_verify 단일 정본)을 지금 돌려 결과를 알려준다 — 제안자가
+    # 며칠 뒤에야 hold 를 발견하는 대신 이 턴에서 고칠 수 있게. status 는 draft 그대로다
+    # (승격은 제안한 에이전트의 턴 **밖** = 세션 시작 훅·`make ratify` 의 몫).
+    try:
+        verdict = dw_verify.verify_rule_checks(VAULT, deny=deny, require=require,
+                                               glob=glob, exclude=exclude)
+        predict = f" 검증 예측: {verdict.prediction}"
+    except Exception as e:  # 예측 실패가 제안을 막지 않는다(다만 조용히 넘기지 않는다)
+        predict = (f" (검증 예측 실패: {type(e).__name__}: {e} — 승격 시 비준기가 다시 검증합니다.)")
+
+    return (f"제안됨(draft): {path} {note}— draft 라 아직 강제되지 않습니다.{predict} "
+            "다음 세션 시작 시 비준기가 같은 검증을 다시 돌려 통과분만 자동 stable·설치합니다"
+            "(사람 불요).")
 
 
 if __name__ == "__main__":
