@@ -14,7 +14,7 @@ OBEY(rule/guidance/procedure) draft 를 검증해 **안전한 것만** 자동 st
                          매치가 있으면 hold — 진짜위반인지 오탐인지는 판단 필요(LLM/사람).
 
 승격 후 `compile --dry-run --strict` 로 검증한다. 깨지면 그 승격을 되돌린다(안전).
-이 스크립트는 status 만 바꾼다 — 실제 컴파일·설치(make install)는 호출자(make ratify)가 한다.
+이 스크립트는 status 만 바꾼다 — 실제 컴파일·설치는 호출자(`dw.py ratify` / `make ratify`)가 한다.
 
 usage: dw-ratify.py --vault . [--project PATH ...] [--dry-run]
 """
@@ -250,7 +250,7 @@ def main() -> int:
               + ", ".join(str(p) for p in projects))
     else:
         print(f"  ⚠️ 스캔 대상 프로젝트 0개 ({proj_src}) — check 패턴을 가진 규칙은 "
-              f"검증 불가로 hold 된다. `make install-project P=/절대경로` 로 등록하라.")
+              f"검증 불가로 hold 된다. `/dw-install` 로 등록하라.")
     for n in scan_notes:
         print(f"    ✓ {n}")
     if rolled_back:

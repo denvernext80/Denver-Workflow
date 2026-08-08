@@ -1,5 +1,150 @@
 # Changelog
 
+## 2.15.0 — 2026-08-08
+
+슬래시 커맨드의 **`make` 의존을 제거**했다(L3). 2.14.0 이 MCP 런처의 POSIX 셸 의존을 없앤 데 이어,
+남아 있던 마지막 구조적 툴 의존이다. **"Windows 지원" 이 아니다** — 실기 검증 수단이 여전히 없다
+(CI 워크플로우 부재 + 호스티드 러너 사용 불가). 검증/미검증을 아래에 분리해 적는다.
+
+### 수정 — 커맨드 10 개 중 7 개가 `make` 를 불러 Windows 에서 죽었다
+
+`/denver-workflow`·`/dw-build`·`/dw-install`·`/dw-ratify`·`/dw-review`·`/dw-scope`·`/dw-setup` 이
+`make -C "${CLAUDE_PLUGIN_ROOT}" <target>` 를 호출했다. **Git for Windows 는 `grep`·`uname`·`cp`·
+셸 치환을 주지만 `make` 는 주지 않는다** — 그래서 이식의 표적은 coreutils 가 아니라 `make` 였다.
+
+- **`_build/dw.py` 신설** — 이식 가능 CLI. 필요 타깃 9 개를 서브커맨드로 제공한다
+  (`build`·`dry-run`·`install-project`·`ratify`·`review`·`scaffold-vault`·
+  `plugin-scope-user|project|off`) + 파생 2 개(`doctor`·`bootstrap`).
+  **서브커맨드 이름은 make 타깃과 1:1 동일**하게 두었다 — 위임이 눈으로 감사되고 자기검사가
+  그 매핑을 기계적으로 고정할 수 있다.
+- **커맨드 문서는 이제 CLI 를 직접 부른다** —
+  `python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" <서브커맨드>`.
+- `/dw-build` 의 `dry-run && build` 를 **두 단계로 분리**했다 — `&&` 는 PowerShell 5.1 에 없다.
+  문서가 "1번이 에러 0 일 때만 2번" 을 지시한다.
+- **`$(pwd)` 제거** — CLI 는 `--project` 생략 시 현재 디렉토리를 기본값으로 삼는다. 예외는
+  `plugin-scope-off` 하나: 프로젝트 처리가 `<project>/.claude/settings.json` 을 **쓰는** 동작이라,
+  어쩌다 들어와 있는 디렉토리에 설정 파일을 조용히 만들지 않는다(명시적 `--project .`).
+
+### 구현은 하나 — `make` 는 CLI 에 얇게 위임한다
+
+⚠️ 이 레포에서 반복적으로 잡힌 결함 클래스가 "두 곳이 같은 일을 한다고 주장하다 갈라짐" 이다.
+그래서 **CLI 를 로직 정본**으로 두고 Makefile 은 `<target>: ; $(DW) <target>` 로만 남겼다.
+`make` 는 개발자 인터페이스로 **계속 동작한다**(`test`·`seed-check`·`update-seed`·`workflow-report`·
+`clean`·`distclean`·`plugin-update` 는 그대로).
+
+- `dw-selftest.py` 가 **Makefile 을 파싱해** 위임 타깃의 레시피가 CLI 호출뿐인지 검사한다
+  (`$(VPY)`·`$(COMPILE)`·`cp -R`·`mkdir -p`·`$(MAKE)` 재등장 금지). 구조적 드리프트 가드다.
+- **의도적 비대칭 1건**: `make install-project`/`plugin-scope-project` 는 `P` 없이 부르면 종전처럼
+  사용법을 내고 멈춘다(가드 유지). 없으면 무심한 `make install-project` 가 **플러그인 루트 자신**에
+  설치한다(make 의 cwd). 가드는 로직이 아니라 입력 검증이라 "구현 둘" 이 되지 않는다 —
+  자기검사가 가드 줄만 예외로 허용한다.
+- `make review` 끝의 `$(MAKE) -s doctor` 를 **제거**했다 — 헬스체크는 CLI 의 `review` 안에서
+  돈다. 남겨두면 두 번 출력된다.
+
+### 수정 — venv 부트스트랩·vault 해석의 정본을 하나로 (`_build/dw_runtime.py`)
+
+2.14.0 시점에 `mcp<2` 핀이 `Makefile` 과 런처 **두 곳**에 리터럴로 있었다(그 이중화를 당시
+CHANGELOG 에 적어 두었다). CLI 까지 세 번째 사본을 만들면 **신규 venv 에서만 발현하는** 조용한
+불일치가 된다(기존 venv 는 1.x 를 들고 있어 무증상).
+
+- `dw_runtime.py` 신설 — `DEPS`(핀)·`venv_python`·`ensure_venv`·`run_quiet`·`resolve_vault`·
+  `vault_target`·`expand_home_prefix` 의 **단일 정본**. 런처·CLI·(위임을 통해)Makefile 이 공유한다.
+- 런처(`dw-mcp-launch.py`)는 기동 분기(`execv` vs 자식 프로세스)만 남기고 얇아졌다.
+- Makefile 의 `$(VENV)/.stamp` 를 **없앴다** — "stamp 는 있는데 바이너리는 없는" 상태가 부트를
+  건너뛰게 만드는 버그 클래스였다. phony `venv` 타깃이 CLI 에 위임해 매번 실제 바이너리를 본다.
+- 자기검사를 **뒤집었다**: 종전엔 "Makefile 에 핀 리터럴이 있는지" 를 봤는데, 이제는 소비자 파일의
+  `pip install` 줄에 핀이 **재등장하지 않는지**를 본다(두 번째 설치 지점 금지).
+
+### 수정 — 파이프에서 출력 순서가 뒤집혔다 (개발 중 실측으로 밟음)
+
+CLI 가 자식(컴파일러·doctor 프로브)을 띄우기 전에 자기 버퍼를 비우지 않아, **stdout 이 파이프일 때**
+부모의 `print` 가 프로세스 종료 시점에야 나가면서 자식 출력 뒤로 밀렸다. `dw.py doctor | cat` 이
+헬스체크 헤더를 외부 의존 목록 **뒤에** 찍었다. tty 는 line-buffered 라 눈으로는 정상으로 보이는데,
+**에이전트(Bash 도구)가 보는 경로가 정확히 그 파이프 경로**다.
+
+- 자식 spawn 전에 `_flush()` 를 호출한다. 회귀는 파이프로 받아 첫 줄을 단정하는 테스트가 잡는다.
+
+### 수정 — `review` 가 vault 없는 머신에서 진단 전에 죽었다 (개발 중 실측으로 밟음)
+
+이식 과정에서 `review` 에 `_vault_required()`(vault 없으면 `SystemExit(1)`)를 붙였는데, 종전
+`make review` 는 vault 가 없어도 **빈 큐 + 헬스체크**를 보여줬다. 즉 신규 머신에서 `/dw-review` 가
+`[..] vault 없음 -> /dw-setup` 안내를 출력하기 **전에** 종료됐다 —
+**진단 도구가 진단이 필요한 상황에서 먼저 죽는** 형태다.
+
+- `review` 만 vault 부재를 **허용**한다(큐는 건너뛰고 이유를 밝히되 헬스체크는 끝까지 출력, rc 0 —
+  종전과 동일). 다른 서브커맨드는 그대로 시끄럽게 중단한다.
+- 회귀는 `HOME`·`DW_VAULT_DIR` 를 빈 곳으로 주입해 헬스체크 출력을 단정하는 테스트가 잡는다.
+
+### 수정 — 사용자 대면 문구가 make 없는 환경에 make 를 시켰다
+
+`make` 가 없을 수 있는 사용자에게 `make install-project` / `make ratify` / `make dry-run` 을 하라고
+안내하던 **출력 문구**들을 슬래시 커맨드 이름으로 고쳤다(7 파일 12 곳: `review-queue.py`·
+`dw_verify.py`·`dw-ratify.py`·`dw-install-registered.py`·`dw-compile.py`·`dw-migrate-vault.py`·
+`dw-mcp-server.py`). 문구가 실행 불가능한 조치를 지시하면 안내가 없는 것보다 나쁘다.
+
+### 추가 — 플랫폼 분기·문서
+
+- `commands/dw-setup.md`: OS 판별을 `uname -s` → `python3 -c "import platform…"` 으로 바꿨다
+  (`uname` 은 PowerShell 에 없다). Obsidian 설치는 **macOS(brew)·Windows(winget)·Linux(수동)**
+  까지만 이름을 대고 **그 밖의 플랫폼은 다운로드 페이지로 폴백**한다 — 아는 플랫폼만 안다고 말한다.
+  `dw-doctor.py` 가 Linux 를 항상 미설치로 보고한다는 사실도 문서에 명시했다.
+- "make 가 없는 환경이면 `mkdir -p && cp -Rn`" 폴백 줄을 **삭제**했다(CLI 가 그 일을 한다).
+- `docs/windows-smoke-checklist.md`: **6단계(슬래시 커맨드 경로)** 추가 — CLI `--help` → `/dw-review`
+  (첫 줄 검사) → `/dw-install`(산출물 + 멱등). 「전제 B(make)」를 **해소**로 갱신하고, Git Bash 가
+  coreutils 는 주지만 make 는 주지 않는다는 구분을 적었다.
+- README 「5. 플랫폼」·「주요 CLI 명령어」 갱신 — 두 인터페이스가 같은 코드를 쓴다는 점 명시.
+
+### 검증됨 (macOS, 실측)
+
+> ⚠️ **`make X` vs `dw.py X` 비교는 동어반복이다** — 위임 후엔 둘 다 CLI 를 돈다. CLI 의 argv
+> 조립이 `--agents-out` 을 빠뜨렸다면 양쪽이 똑같이 틀리고 비교는 통과한다. 그래서 이식 충실도는
+> **git 에서 꺼낸 변경 전 구현**(`git show 213a73c:Makefile`)과 비교해 확인했다.
+
+- **이식 충실도: 구 구현(213a73c) vs 새 CLI** — 임시 vault·임시 `CLAUDE_CONFIG_DIR` 격리, 전부 동일:
+  - `install-project`: 산출물 **19 파일 바이트 동일**(대상 경로 정규화 후) + vault 역등록
+    (`.dw-state`) 동일. `--scopes` 도 구 `SCOPES=` 와 동일하며, **없는 scope 로 프로브**해
+    플래그가 컴파일러에 실제로 닿는 것까지 확인했다(없는 scope → 양쪽 skill 0, 미지정 → 생성됨).
+  - `scaffold-vault`: 손으로 재구현한 `_copy_no_clobber` 가 구 `cp -Rn` 과 **59 파일 동일** +
+    사용자가 고친 파일을 양쪽 모두 보존 + 재실행 후 트리 동일.
+  - `plugin-scope-user|project|off`: 계정·프로젝트 `settings.json` 동일.
+  - `dry-run`: 출력 동일(컴파일 `--out` 이 같은 곳을 가리킨다).
+  - `ratify`: **임시 vault 픽스처**로 draft→stable 승격까지 포함해 vault 상태·설치 산출물·stdout
+    동일(구는 rc 분기를 셸로 했다). **실물 vault 는 대상이 아니었다** — 실행 후 실물 레지스트리
+    4 개 항목 불변 확인.
+- **위임 구조** — `make` 9 타깃이 CLI 를 부르는지 실행 비교(stdout 바이트 동일) + Makefile 파싱
+  테스트로 고정. `make` 의 P 가드 유지, 양쪽 재실행 멱등도 확인.
+- **프로덕션 호출 형태** — 슬래시 커맨드가 부르는 모양대로(절대 스크립트 경로, **cwd = 무관한
+  디렉토리**, `PYTHONPATH` 제거) `doctor`·`dry-run` 실행: 산출물이 플러그인 루트로 가고 cwd 아래엔
+  아무것도 생기지 않으며 출력 순서도 정상.
+- **MCP 회귀 없음** — `dw_runtime` 추출 후 런처 JSON-RPC handshake 재실측: `python3`(3.14.6)과
+  `/usr/bin/python3`(**3.9.6**) 양쪽에서 `serverInfo=dw-vault 1.29.0`, proto `2024-11-05`,
+  **도구 11 개**. 임의 cwd·`PYTHONPATH` 제거 상태로 실행해 `import dw_runtime` 가 CC 식 spawn 에서
+  성립함을 확인했다.
+- **CLI 가 3.9.6 에서 동작** — `--help`·`doctor` 실행 확인(배선·커맨드가 `python3` 을 부르므로
+  CC 가 해석한 아무 인터프리터에서 돌아야 한다).
+- `make test` **67/67 OK**(57 → 67, `PortableCliTest` 10 케이스 추가) · `make dry-run`(strict)
+  에러 0 · `make doctor` 전 항목 ok · `make seed-check` ok.
+
+### 미검증 (주장하지 않는 것)
+
+- **Windows 실기 전부.** 없앤 것은 "커맨드의 make 의존"(구조적)이다.
+- **Windows 의 `python3` 이름 해석** — 2.14.0 과 동일한 전제이며 이제 MCP 뿐 아니라 **슬래시 커맨드
+  전체**가 그 이름에 걸린다. python.org 판은 `python.exe`·`py.exe` 만 준다.
+- **PowerShell 경로에서의 커맨드 실행** — CC 의 Bash 도구는 Windows 에서 Git Bash 를 요구하므로
+  실제로는 Git Bash 경로가 쓰일 가능성이 높지만, 확인하지 못했다.
+
+### 의도적 잔여 (고치지 않았고, 그 이유)
+
+- **`make` 전용 개발자 타깃** — `seed-check`(`find|wc|tr`)·`update-seed`(`cp` 루프)는 POSIX 셸에
+  의존한다. 슬래시 커맨드가 부르지 않으므로 이식 범위 밖이다.
+- **커맨드 문서의 coreutils** — 레거시 감지 `grep -rlE`, 선택 단계의
+  `dw-graphify-register.py`/`dw-ci-review.py` 의 `--project "$(pwd)"`. Git Bash 가 제공하는
+  기능이라 `make` 만큼 치명적이지 않다.
+- **vault 해석 구현이 아직 넷** — `dw_runtime`(정본), `dw-doctor.py:20`(`expandvars`+`expanduser`),
+  `dw-graphify-register.py:_expand`, Makefile 의 shell eval. 이번에 통합하지 **않았다**:
+  `dw-doctor.py` 는 15 초 타임아웃 훅 안에서 돌고 `/dw-setup` 의 판단 근거라, 이식과 무관한 위험을
+  같은 PR 에 넣지 않는다. 관측 사실로 남긴다.
+
 ## 2.14.0 — 2026-08-08
 
 MCP 런처의 **POSIX 셸 의존을 구조적으로 제거**했다. **"Windows 지원" 이 아니다** — 실기 검증

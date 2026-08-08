@@ -11,18 +11,30 @@ denver-workflow 초기 설정 위저드다. 아래 단계를 **순서대로** �
 python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-doctor.py" --json
 ```
 결과의 `missing` 항목만 아래에서 설치한다. 전부 설치돼 있으면 4단계(프로젝트 설치)로 건너뛴다.
-OS 는 `uname -s`(Darwin=macOS) 로 판별한다. Linux 면: "Linux 는 지원 예정입니다 — Obsidian 만
-수동 설치(https://obsidian.md/download) 후 다시 실행해 주세요" 안내.
+
+OS 판별은 `uname` 대신 파이썬으로 한다(`uname` 은 PowerShell 에 없다):
+```bash
+python3 -c "import platform, sys; print(platform.system(), sys.version.split()[0])"
+```
+`Darwin`=macOS · `Windows` · `Linux`. **그 셋만 이름을 대고, 그 밖의 값이면** 자동 설치를
+시도하지 말고 https://obsidian.md/download 수동 설치를 안내한 뒤 doctor 를 재실행한다
+(아는 플랫폼만 안다고 말한다).
 
 ## 1단계 — Obsidian 설치 (필수 — 가장 먼저)
 
 Obsidian(팀 지식 vault 를 여는 노트 앱)이 없으면 vault 를 만들어도 사람이 볼 수 없다.
 **설치 확인 전에는 2단계로 넘어가지 않는다.**
 
-- macOS: `brew install --cask obsidian` — brew(맥용 프로그램 설치 도구)가 없으면
+- **macOS**: `brew install --cask obsidian` — brew(맥용 프로그램 설치 도구)가 없으면
   https://obsidian.md/download 를 안내하고 사용자가 설치를 마칠 때까지 대기 후 doctor 재실행.
-- Windows: `winget install --id Obsidian.Obsidian -e --accept-source-agreements --accept-package-agreements`
+- **Windows**: `winget install --id Obsidian.Obsidian -e --accept-source-agreements --accept-package-agreements`
+  — winget(Windows 패키지 관리자)이 없으면 https://obsidian.md/download 수동 설치를 안내한다.
+- **Linux**: 자동 설치를 시도하지 않는다(배포판마다 패키지 경로가 다르다) —
+  https://obsidian.md/download 의 AppImage/Flatpak 안내 후 doctor 재실행.
+- **그 밖의 플랫폼**: 이름을 추측하지 말고 다운로드 페이지로 안내한다.
 - 설치 후 재확인: `python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-doctor.py" --json` 에서 Obsidian 이 ok 로.
+  (⚠️ 이 감지기는 macOS·Windows 경로만 안다 — Linux 는 항상 미설치로 보고된다. 사용자가 수동
+  설치를 마쳤다고 말하면 그 말을 받아들이고 진행한다.)
 
 ## 2단계 — vault(팀 지식 폴더) 준비 + seed(기본 구조) 주입
 
@@ -31,10 +43,11 @@ vault 는 규칙·계약·스펙·학습이 쌓이는 **단일 진실 원천(SSO
 1. 경로 결정: 기본은 `~/denver-workflow-vault`. 사용자가 다른 위치를 원하면 그 절대경로 사용.
 2. scaffold(기본 폴더 구조 자동 생성):
    ```bash
-   make -C "${CLAUDE_PLUGIN_ROOT}" scaffold-vault
+   python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" scaffold-vault
    ```
-   (커스텀 경로면 `DW_VAULT_DIR=<경로> make -C "${CLAUDE_PLUGIN_ROOT}" scaffold-vault`.
-   make 가 없는 환경이면 동일 동작을 직접: `mkdir -p "$VAULT" && cp -Rn "${CLAUDE_PLUGIN_ROOT}/_seed/." "$VAULT/"`)
+   커스텀 경로면 `DW_VAULT_DIR` 를 준다 — POSIX 셸은 `DW_VAULT_DIR=<경로> python3 …`,
+   PowerShell 은 `$env:DW_VAULT_DIR="<경로>"` 를 먼저 실행한 뒤 위 명령을 그대로 쓴다.
+   (기존 파일은 **덮지 않는다** — no-clobber. 신규/보존 개수를 함께 보고한다.)
 3. 경로를 환경설정에 기록 — `~/.claude/settings.json` 의 `env.DW_VAULT_DIR` 에 저장한다
    (사용자 홈 기준 값, 예: `"$HOME/denver-workflow-vault"`. 이미 같은 값이면 건너뜀):
    ```bash
@@ -79,9 +92,9 @@ Windows 에서 gstack `./setup` 실패 시: "gstack 은 수동 설치가 필요�
 - **멀티레포**(여러 코드 저장소를 한 세션에서 오가며 작업): 사용자에게 "여러 저장소를 함께
   쓰시나요?" 확인. 그렇다면 → `/denver-workflow` 의 0단계 repo-map(저장소 지도) 부트스트랩으로
   저장소들을 등록한 뒤, repo-map 의 각 저장소 경로에 대해
-  `make -C "${CLAUDE_PLUGIN_ROOT}" install-project P=<저장소 절대경로>` 를 순회 실행.
+  `python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" install-project --project <저장소 절대경로>` 를 순회 실행.
 - **신규 프로젝트**(빈 폴더/커밋이 거의 없는 저장소): 바로
-  `make -C "${CLAUDE_PLUGIN_ROOT}" install-project P="$(pwd)"`.
+  `python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" install-project`.
 - **기존 프로젝트**(코드·CLAUDE.md 가 이미 있음): 동일 설치 — 단 **additive**(기존 파일을
   덮어쓰지 않는다). 기존 CLAUDE.md·settings 는 건드리지 않고 `.claude/` 산출물만 추가한다.
   설치 전 아래 "레거시 정리"를 먼저 수행.
@@ -156,7 +169,7 @@ grep -rlE 'ssot_|denver-agent|mcp__plugin_denver-agent' "<프로젝트>/.claude/
 python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-migrate-vault.py" --vault <vault 경로>          # 미리보기(쓰기 없음)
 python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-migrate-vault.py" --vault <vault 경로> --apply  # 적용(백업 tar.gz 자동)
 ```
-적용 후 검증: `make -C "${CLAUDE_PLUGIN_ROOT}" dry-run` 이 에러 0 으로 통과해야 한다.
+적용 후 검증: `python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" dry-run` 이 에러 0 으로 통과해야 한다.
 
 **(e) 프로젝트 설치 아티팩트 내용 치환** — (a) 에서 감지한, 파일명은 멀쩡하나 내용이 stale 한
 에이전트(`senior-*.md` 등)를 **삭제 대신 제자리 치환**한다. `dw-migrate-vault.py` 는 vault 뿐 아니라

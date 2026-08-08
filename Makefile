@@ -1,23 +1,30 @@
-# SSOT vault → .claude/skills 빌드
+# SSOT vault → .claude/skills 빌드 — **개발자 인터페이스**.
+#
+# ⚠️ 로직의 정본은 `_build/dw.py`(이식 가능 CLI)다. 이 Makefile 은 **얇게 위임**한다.
+#    슬래시 커맨드가 부르는 것도 그 CLI 다 — 구현을 둘로 두면 `make X` 와 `/dw-X` 가 갈라진다
+#    (이 레포에서 반복 관측된 결함 클래스). 새 동작은 CLI 에 넣고 여기서 위임만 추가하라.
+#    `dw-selftest.py` 가 "위임 타깃의 레시피가 실제로 CLI 호출뿐인지" 를 검사한다.
+#
+# make 자체는 여전히 필요하다 — 단 **개발자용**이다. Windows 에는 make 가 없고
+# (Git for Windows 는 grep·uname·cp 는 주지만 make 는 주지 않는다) 그래서 커맨드 문서는
+# 2.15.0 부터 CLI 를 직접 부른다.
 #
 # pyyaml 는 이 컴파일러의 유일한 외부 의존성이다. PEP 668(externally-managed)
 # 환경을 깨지 않도록 전역이 아닌 프로젝트-로컬 .venv 에 설치한다.
 
 PY      := python3
+DW      := $(PY) _build/dw.py
 VENV    := .venv
 VPY     := $(VENV)/bin/python
 # 도구 루트 = 이 워크스페이스(.venv·_build·hooks·.claude 산출물 잔류).
 TOOLS_ROOT := $(shell pwd)
 
-# 설치 대상 프로젝트 경로 + 각 프로젝트가 받을 scope 묶음.
-# vault=소스(Obsidian-Vault, 외부화), 각 프로젝트의 .claude/skills=빌드 산출물(직접 편집 금지).
-# vault 콘텐츠 위치(프로젝트 워크스페이스에서 분리). DW_VAULT_DIR 우선, 기본 ~/denver-workflow-vault.
-# 도구(.venv·_build·hooks)는 이 워크스페이스에 잔류 — vault 만 외부화.
+# ⚠️ VAULT_DIR·SEED 는 **위임하지 않는 타깃**(update-seed·seed-check·workflow-report)만 쓴다.
+# 위임 타깃의 vault 해석은 CLI(`dw_runtime.resolve_vault`)가 단독으로 한다 — 그래서 아래
+# shell eval 확장과 CLI 의 접두 확장이 갈릴 여지가 그만큼 줄었다.
 # 주의: DW_VAULT_DIR 값에 리터럴 `$HOME`/`~` 가 올 수 있다(settings.json env 규약) —
-#       Python 런처(리터럴 `~/`·`$HOME/` 접두만 확장)와 동일하게 shell eval 로 확장한다(make 는 $H 로 오해석).
+#       CLI(리터럴 `~/`·`$HOME/` 접두만 확장)와 같은 결과가 되게 shell eval 로 푼다(make 는 $H 로 오해석).
 VAULT_DIR      := $(shell eval echo "$${DW_VAULT_DIR:-$$HOME/denver-workflow-vault}")
-# 컴파일러는 상대 --out 을 vault 기준으로 해석하므로(out=vault/out), 워크스페이스 산출물엔 절대경로 사용.
-COMPILE := $(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out "$(TOOLS_ROOT)/.claude/skills"
 
 # 플러그인이 들고 있는 제네릭 vault seed(콜드스타트 스캐폴드). 설치 시 빈 vault 로 복사.
 # 제네릭화 = '선별'(byte-동일 유지 가능한 프로젝트 무관 노트만) — 손편집 금지(update-seed 가 되돌림).
@@ -28,41 +35,31 @@ SEED_GUIDANCE := karpathy-guidelines tdd-iron-law regression-by-set-diff residua
 # (vault 본은 프로젝트 특화) — update-seed 화이트리스트에 넣지 말 것(넣으면 특화본이 seed 를 덮어씀).
 SEED_AGENTS   := code-review security-qa design-review perf-tester dw-governed dw-ratifier dw-orchestrator senior-front-engineer senior-infra-engineer senior-qa-engineer
 
-.PHONY: build dry-run test clean distclean help doctor review ratify install-project workflow-report
+.PHONY: build dry-run test clean distclean help doctor review ratify install-project workflow-report venv
 
-# venv 부트 — .stamp 는 $(VPY)(실제 바이너리)에 의존한다. 플러그인 설치가 stale .stamp 를
-# (바이너리 없이) 배포해도, $(VPY) 부재를 감지해 venv 를 재생성한다(부트 스킵 버그 방지).
-$(VPY):
-	$(PY) -m venv $(VENV)
+# venv 부트 — CLI 에 위임(멱등: 이미 있으면 즉시 반환). `mcp<2` 핀은 `dw_runtime.DEPS` 한 곳에만
+# 있다 — 종전엔 이 레시피와 런처 양쪽에 리터럴로 있어 갈릴 여지가 있었다(2.15.0 에서 통합).
+# .stamp 파일을 없앤 이유: "stamp 는 있는데 바이너리는 없는" 상태가 부트를 건너뛰게 만드는
+# 버그 클래스였다. phony 로 두고 CLI 가 실제 바이너리 존재를 매번 확인한다.
+venv:                        ## venv 부트스트랩(멱등 — 이미 있으면 즉시 반환)
+	@$(DW) bootstrap
 
-# mcp 는 <2 로 핀. 2.0.0 이 `mcp.server.fastmcp` 를 제거해 dw-mcp-server.py 가 임포트에서
-# 죽는다(신규 venv 에서만 발현 — 기존 venv 는 1.x 를 들고 있어 무증상). 서버를 2.x API 로
-# 마이그레이션한 뒤에만 핀을 풀어라. (dw-mcp-launch.py 의 DEPS 와 반드시 동일하게 유지.)
-$(VENV)/.stamp: $(VPY)
-	$(VPY) -m pip install --quiet --upgrade pip
-	$(VPY) -m pip install --quiet pyyaml "mcp<2"
-	@touch $(VENV)/.stamp
+build:                       ## vault 를 컴파일해 .claude/skills 생성
+	$(DW) build
 
-build: $(VENV)/.stamp        ## vault 를 컴파일해 .claude/skills 생성
-	$(COMPILE)
-
-dry-run: $(VENV)/.stamp      ## 쓰기 없이 검증/요약(CI 용, 경고도 에러)
-	$(COMPILE) --dry-run --strict
+dry-run:                     ## 쓰기 없이 검증/요약(CI 용, 경고도 에러)
+	$(DW) dry-run
 
 # 엔진 자기검사. 픽스처는 _seed 복사본 — 사용자 vault($(VAULT_DIR))는 건드리지 않는다.
 # (dry-run/doctor 는 live vault 를 컴파일할 뿐이라 엔진 동작을 증명하지 못한다 — 그 몫이 이 타깃.)
-test: $(VENV)/.stamp         ## 엔진 자기검사(stdlib unittest, 임시 vault 픽스처)
+test: venv                   ## 엔진 자기검사(stdlib unittest, 임시 vault 픽스처)
 	$(VPY) _build/dw-selftest.py
 
 .PHONY: scaffold-vault update-seed seed-check
-scaffold-vault: $(VENV)/.stamp  ## 빈/없는 vault 에 제네릭 seed(축B 거버넌스+폴더 구조+VAULT-STRUCTURE) 복사 (no-clobber)
-	@echo "→ vault 스캐폴드: $(VAULT_DIR)  (기존 파일 보존 — no-clobber)"
-	@mkdir -p "$(VAULT_DIR)"
-	@cp -Rn $(SEED)/. "$(VAULT_DIR)/" 2>/dev/null || true
-	@echo "✓ seed 복사 완료. 구조: governance/(축B 운영체계) + project/(축A, 빈 골격) + VAULT-STRUCTURE.md"
-	@echo "  다음: Obsidian 으로 \"$(VAULT_DIR)\" 폴더 열기(Open folder as vault) → make build"
+scaffold-vault:              ## 빈/없는 vault 에 제네릭 seed(축B 거버넌스+폴더 구조+VAULT-STRUCTURE) 복사 (no-clobber)
+	$(DW) scaffold-vault
 
-update-seed: $(VENV)/.stamp  ## live vault 의 제네릭 축-B 노트를 _seed 로 갱신(화이트리스트 verbatim; 사적 project 제외)
+update-seed: venv            ## live vault 의 제네릭 축-B 노트를 _seed 로 갱신(화이트리스트 verbatim; 사적 project 제외)
 	@echo "→ _seed 갱신: live $(VAULT_DIR) → $(SEED) (화이트리스트만, project 사적 데이터 미포함)"
 	@for g in $(SEED_GUIDANCE); do cp "$(VAULT_DIR)/governance/guidance/$$g.md" $(SEED)/governance/guidance/; done
 	@for a in $(SEED_AGENTS); do cp "$(VAULT_DIR)/governance/agents/$$a.md" $(SEED)/governance/agents/; done
@@ -70,35 +67,31 @@ update-seed: $(VENV)/.stamp  ## live vault 의 제네릭 축-B 노트를 _seed �
 	@cp "$(VAULT_DIR)"/_templates/*.md $(SEED)/_templates/ 2>/dev/null || true
 	@$(MAKE) -s seed-check
 
-seed-check: $(VENV)/.stamp  ## seed 자기충족 검증(strict 컴파일 + 사적 데이터 0)
+# ⚠️ 위임하지 않은 개발자 전용 타깃 — find|wc|tr 파이프라인은 POSIX 셸에 의존한다.
+#    커맨드(슬래시)에서 부르지 않으므로 이식 범위 밖이다(의도적 잔여 — CHANGELOG 명시).
+seed-check: venv            ## seed 자기충족 검증(strict 컴파일 + 사적 데이터 0)
 	@$(VPY) _build/dw-compile.py --vault $(SEED) --out /tmp/seed-skills --dry-run --strict >/dev/null 2>&1 && echo "  [ok] seed strict 컴파일(자기충족·위키링크 폐쇄)" || { echo "  [!!] seed 컴파일 실패 -> .venv/bin/python _build/dw-compile.py --vault $(SEED) --dry-run --strict"; exit 1; }
 	@n=$$(find $(SEED)/project -type f ! -name .gitkeep | wc -l | tr -d ' '); [ "$$n" = "0" ] && echo "  [ok] seed 에 사적 project 데이터 0" || { echo "  [!!] seed/project 에 사적 파일 $$n 개 — 제거 필요"; exit 1; }
 
-# 한 프로젝트에 스킬 + 결정론적 검사 매니페스트 + 린터 훅까지 설치.
-# MCP 서버(절대경로 — CC/클라이언트가 다른 cwd 에서 spawn 하므로). 도구는 워크스페이스.
-MCP_PY     := $(TOOLS_ROOT)/$(VENV)/bin/python
-MCP_SERVER := $(TOOLS_ROOT)/_build/dw-mcp-server.py
-MCP_NAME   := dw-vault
-
 # 권한 확대는 민감한 자기수정이라 install 과 분리 — 사용자가 명시적으로 실행.
+#
+# ⚠️ P 가드(`@test -n`)는 **의도적 비대칭**이다. CLI 는 `--project` 생략 시 현재 디렉토리를
+#    기본값으로 삼지만(커맨드 문서에서 `$(pwd)` 셸 치환을 없애려면 그래야 한다), make 는
+#    종전처럼 P 없이 부르면 사용법을 내고 멈춘다 — 그러지 않으면 무심한 `make install-project`
+#    가 **플러그인 루트 자신**에 설치해 버린다(make 의 cwd). 가드는 로직이 아니라 입력 검증이라
+#    "구현이 둘" 이 되지 않는다.
 .PHONY: plugin-scope-user plugin-scope-project plugin-scope-off
 plugin-scope-user:           ## 플러그인을 사용자 전역 활성(모든 프로젝트). CLAUDE_CONFIG_DIR 계정 기준.
-	$(VPY) _build/dw-plugin-scope.py user
+	$(DW) plugin-scope-user
 plugin-scope-project:        ## 플러그인을 이 프로젝트만 활성. 사용: make plugin-scope-project P=/path/to/project
-	$(VPY) _build/dw-plugin-scope.py project "$(P)"
+	@test -n "$(P)" || { echo "사용법: make plugin-scope-project P=/절대경로"; exit 1; }
+	$(DW) plugin-scope-project --project "$(P)"
 plugin-scope-off:            ## 플러그인 비활성(계정 전역, P 주면 프로젝트도)
-	$(VPY) _build/dw-plugin-scope.py off "$(P)"
+	$(DW) plugin-scope-off $(if $(P),--project "$(P)",)
 
-install-project: $(VENV)/.stamp  ## 한 프로젝트에 설치: make install-project P=/절대경로 [SCOPES=engineering,...]
+install-project:             ## 한 프로젝트에 설치: make install-project P=/절대경로 [SCOPES=engineering,...]
 	@test -n "$(P)" || { echo "사용법: make install-project P=/절대경로 [SCOPES=scope1,scope2]  (SCOPES 생략 = 전체 union)"; exit 1; }
-	@test -d "$(VAULT_DIR)/governance" || { echo "vault 없음: $(VAULT_DIR) — /dw-setup 으로 vault(팀 지식 폴더)를 먼저 준비하세요"; exit 1; }
-	$(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out "$(P)/.claude/skills" \
-		$(if $(SCOPES),--scopes $(SCOPES),) \
-		--checks-out "$(P)/.claude/dw-checks.json" \
-		--agents-out "$(P)/.claude/agents" \
-		--digest-out "$(P)/.claude/dw-session-digest.md"
-	$(VPY) _build/wire-hook.py "$(P)" "$(VAULT_DIR)" --config-only
-	@echo "✓ 설치 완료: $(P)/.claude/{skills,agents,dw-checks.json,dw-session-digest.md}"
+	$(DW) install-project --project "$(P)" $(if $(SCOPES),--scopes $(SCOPES),)
 
 .PHONY: plugin-update
 plugin-update:               ## 플러그인 한 방 업데이트(클론 pull + 버전기반 update). ⚠️ plugin.json version 을 먼저 올려야 갱신됨.
@@ -108,18 +101,13 @@ plugin-update:               ## 플러그인 한 방 업데이트(클론 pull + 
 	claude plugin update denver-workflow@denver-workflow
 	@echo "✓ 새 세션부터 반영. (스케줄로 자동화하려면 cron/launchd 에 이 타깃 등록)"
 
-doctor: $(VENV)/.stamp       ## 콜드스타트 헬스체크(venv·컴파일러·MCP·vault·외부 의존)
-	@echo "== denver-workflow 헬스체크 =="
-	@$(VPY) -c "import yaml, mcp" 2>/dev/null && echo "  [ok] venv deps: pyyaml + mcp" || echo "  [!!] venv 의존성 누락 -> make build"
-	@test -d "$(VAULT_DIR)/governance" && $(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out /tmp/dw-doctor-skills --dry-run --strict >/dev/null 2>&1 && echo "  [ok] 컴파일러 strict 통과" || echo "  [..] vault 컴파일 실패/vault 없음 -> make dry-run 으로 확인"
-	@test -f "$(MCP_SERVER)" && echo "  [ok] MCP 서버 존재" || echo "  [!!] MCP 서버 없음"
-	@test -d "$(VAULT_DIR)/governance" && echo "  [ok] vault 구조: $(VAULT_DIR)" || echo "  [..] vault 없음 -> /dw-setup 또는 make scaffold-vault"
-	@test -f _build/dw-doctor.py && $(VPY) _build/dw-doctor.py || true
+doctor:                      ## 콜드스타트 헬스체크(venv·컴파일러·MCP·vault·외부 의존)
+	$(DW) doctor
 
-review: $(VENV)/.stamp       ## OBEY draft 큐(자동 비준 대상/hold) + 헬스체크
-	@$(VPY) _build/review-queue.py --vault "$(VAULT_DIR)"
-	@echo ""
-	@$(MAKE) -s doctor
+# ⚠️ 종전엔 이 레시피 끝에 `$(MAKE) -s doctor` 가 붙어 있었다. 헬스체크는 이제 CLI 의 review
+#    안에서 돈다 — 여기 남겨두면 두 번 출력된다.
+review:                      ## OBEY draft 큐(자동 비준 대상/hold) + 헬스체크
+	$(DW) review
 
 # 자동 비준 — 결정론적으로 안전한 OBEY draft 를 승격한 뒤, **이 타깃이 직접** 등록된 모든
 # 프로젝트에 compile+install 한다(멱등).
@@ -135,17 +123,10 @@ review: $(VENV)/.stamp       ## OBEY draft 큐(자동 비준 대상/hold) + 헬�
 # `<vault>/.dw-state/projects.json`(= `make install-project` 가 자동 등록)에서 읽는다.
 # 일회성으로 다르게 주려면: make ratify RATIFY_PROJECTS="/abs/repo1 /abs/repo2"
 RATIFY_PROJECTS ?=
-ratify: $(VENV)/.stamp       ## draft OBEY 자동 비준 → 등록된 모든 프로젝트에 compile+install(멱등)
-	@$(VPY) _build/dw-ratify.py --vault "$(VAULT_DIR)" \
-		$(foreach p,$(RATIFY_PROJECTS),--project "$(p)") ; \
-	 rc=$$? ; if [ $$rc -ne 0 ] && [ $$rc -ne 10 ]; then \
-	   echo "  ⚠️ 비준기 비정상 종료(exit=$$rc) — 아래 설치는 승격 반영 없이 진행된다"; fi
-	@echo ""
-	@echo "→ 컴파일·설치: 등록된 프로젝트 전체(멱등) — 승격분 + 사람이 고친 stable 반영"
-	$(VPY) _build/dw-install-registered.py --vault "$(VAULT_DIR)" \
-		$(foreach p,$(RATIFY_PROJECTS),--project "$(p)")
+ratify:                      ## draft OBEY 자동 비준 → 등록된 모든 프로젝트에 compile+install(멱등)
+	$(DW) ratify $(foreach p,$(RATIFY_PROJECTS),--project "$(p)")
 
-workflow-report: $(VENV)/.stamp  ## dw 워크플로우 리포트(3대 규율 준수율·절차/memory 재사용). 사용: make workflow-report [V=/abs/vault] [DAYS=30]
+workflow-report: venv        ## dw 워크플로우 리포트(3대 규율 준수율·절차/memory 재사용). 사용: make workflow-report [V=/abs/vault] [DAYS=30]
 	$(VPY) _build/dw-workflow-report.py --vault "$(or $(V),$(VAULT_DIR))" --days $(or $(DAYS),30)
 
 clean:                       ## 산출물(.claude/skills) 제거

@@ -4,7 +4,7 @@ description: SSOT draft OBEY(rule/guidance/procedure) 자동 비준 → 검증 �
 Denver SSOT 자동 비준을 실행한다.
 
 ```bash
-make -C "${CLAUDE_PLUGIN_ROOT}" ratify
+python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" ratify
 ```
 
 실행 후: 승격된 항목, hold(판단 필요)된 항목, 컴파일·설치 결과를 사용자에게 간결히 보고하라.

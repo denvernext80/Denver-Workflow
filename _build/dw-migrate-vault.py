@@ -166,7 +166,7 @@ def main() -> int:
     if not args.apply:
         print("\n(dry-run — 아직 아무것도 바꾸지 않았습니다. 적용하려면 --apply)")
     else:
-        print("\n다음: strict 컴파일로 검증하세요 — make dry-run (에러 0 이어야 함)")
+        print("\n다음: strict 컴파일로 검증하세요 — `/dw-build` 의 dry-run (에러 0 이어야 함)")
     return 0
 
 
