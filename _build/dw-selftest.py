@@ -455,6 +455,253 @@ class RatifyScanGateTest(unittest.TestCase):
             self.assertEqual(list((self.vault / d).rglob("projects.json")), [])
 
 
+class RatifyInstallChainTest(unittest.TestCase):
+    """비준 → **실제 compile+install** 사슬. 종전엔 여기가 @echo 두 줄이라 끊겨 있었다.
+
+    ⚠️ 임시 vault 픽스처 + 임시 프로젝트만 쓴다. 실제 vault·실제 레포·`make ratify` 는 건드리지
+    않는다(다른 세션의 draft 를 승격시키면 안 된다).
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-chain-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.vault = self.tmp / "vault"
+        shutil.copytree(SEED, self.vault)
+        self.p1 = self.tmp / "repo1"
+        self.p2 = self.tmp / "repo2"
+        for p in (self.p1, self.p2):
+            (p / "lib").mkdir(parents=True)
+            (p / "lib" / "a.dart").write_text("var x = 1;\n", encoding="utf-8")
+
+    def register(self, *projects: Path) -> None:
+        d = self.vault / ".dw-state"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "projects.json").write_text(
+            json.dumps({"projects": [str(p) for p in projects]}, ensure_ascii=False),
+            encoding="utf-8")
+
+    def install_registered(self, *extra: str):
+        return subprocess.run(
+            [sys.executable, str(BUILD / "dw-install-registered.py"),
+             "--vault", str(self.vault), *extra],
+            capture_output=True, text=True)
+
+    def test_installs_to_every_registered_project(self):
+        self.register(self.p1, self.p2)
+        r = self.install_registered()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for p in (self.p1, self.p2):
+            self.assertTrue((p / ".claude" / "dw-checks.json").is_file(), f"{p} 미설치")
+            self.assertTrue((p / ".claude" / "skills").is_dir())
+            self.assertTrue((p / ".claude" / "dw-session-digest.md").is_file())
+
+    def test_install_is_idempotent(self):
+        self.register(self.p1)
+        first = self.install_registered()
+        before = (self.p1 / ".claude" / "dw-checks.json").read_text(encoding="utf-8")
+        second = self.install_registered()
+        self.assertEqual((first.returncode, second.returncode), (0, 0))
+        self.assertEqual(before, (self.p1 / ".claude" / "dw-checks.json").read_text(encoding="utf-8"))
+
+    def test_empty_registry_is_warning_not_failure(self):
+        """설치할 곳이 없는 것은 '요청된 일이 없음' 이라 실패가 아니다(매일 빨간 실행 방지)."""
+        r = self.install_registered()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("설치 대상 0개", r.stdout)
+
+    def test_missing_registered_path_is_reported_but_not_failure(self):
+        """사라진 등록 하나가 매 실행을 실패로 만들면 로그를 아무도 안 보게 된다 →
+        경고로 계속 드러내되 exit 0. (자동 제거는 상태를 조용히 바꾸므로 하지 않는다.)"""
+        self.register(self.p1, self.tmp / "없어진-레포")
+        r = self.install_registered()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("등록 경로 없음", r.stdout)
+        self.assertTrue((self.p1 / ".claude" / "dw-checks.json").is_file(), "남은 것은 계속 설치돼야 한다")
+
+    def test_partial_failure_exits_nonzero_and_continues(self):
+        """한 프로젝트 실패가 나머지를 막지 않고, **끝에 모아 보고하고 비정상 종료**한다."""
+        blocked = self.tmp / "blocked"
+        blocked.mkdir()
+        (blocked / ".claude").write_text("나는 디렉터리가 아니라 파일이다\n", encoding="utf-8")
+        self.register(blocked, self.p1)
+        r = self.install_registered()
+        self.assertEqual(r.returncode, 1, f"부분 실패인데 exit 0 이다:\n{r.stdout}")
+        self.assertIn("실패 1", r.stdout)
+        self.assertTrue((self.p1 / ".claude" / "dw-checks.json").is_file(),
+                        "실패 뒤 프로젝트도 계속 처리돼야 한다")
+
+    def test_promoted_rule_reaches_installed_checks(self):
+        """전체 사슬 — draft(검사 포함) → 승격 → 설치 → 각 레포 dw-checks.json 에 실재."""
+        self.register(self.p1, self.p2)
+        rel = "governance/rules/사슬-검증-규칙.md"
+        (self.vault / rel).write_text(
+            "---\ntype: rule\nstatus: draft\nscope: engineering\nenforced-by: code-review\n"
+            "compiles-to: skill\ncheck-deny: ['NEVER_ZZZ']\ncheck-glob: ['*.dart']\n"
+            "title: 사슬 검증 규칙\n---\n\n본문.\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, str(RATIFIER), "--vault", str(self.vault)],
+                           capture_output=True, text=True)
+        self.assertIn(f"+ {rel}", r.stdout, f"승격되어야 한다:\n{r.stdout}")
+        self.assertEqual(self.install_registered().returncode, 0)
+        for p in (self.p1, self.p2):
+            checks = json.loads((p / ".claude" / "dw-checks.json").read_text(encoding="utf-8"))
+            self.assertIn(rel, [c["rule"] for c in checks["checks"]],
+                          f"{p.name} 의 dw-checks.json 에 승격 규칙이 없다(사슬 끊김)")
+
+
+class ProposeTimeVerificationTest(unittest.TestCase):
+    """(A) 제안 시점 검증 — 비준기와 **같은 코드**(dw_verify)로 예측을 반환한다."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-predict-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.vault = self.tmp / "vault"
+        shutil.copytree(SEED, self.vault)
+        self.proj = self.tmp / "repo"
+        (self.proj / "lib").mkdir(parents=True)
+        self.srv = load_server(self.vault)
+
+    def register(self, *projects: Path) -> None:
+        d = self.vault / ".dw-state"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "projects.json").write_text(
+            json.dumps({"projects": [str(p) for p in projects]}, ensure_ascii=False),
+            encoding="utf-8")
+
+    def test_predicts_violations_at_propose_time(self):
+        """제안 즉시 오탐을 알려줘야 한다 — 며칠 뒤 hold 로 알게 되는 대신."""
+        (self.proj / "lib" / "a.dart").write_text("var x = FORBIDDEN_ZZZ;\n", encoding="utf-8")
+        self.register(self.proj)
+        msg = self.srv.dw_propose_rule(
+            scope="engineering", title="예측 위반 규칙", rule="본문.", enforced_by="code-review",
+            check_deny=["FORBIDDEN_ZZZ"], check_glob=["*.dart"])
+        self.assertIn("검증 예측", msg)
+        self.assertIn("hold", msg)
+        self.assertIn("FORBIDDEN_ZZZ", msg)
+        rel = f"governance/rules/{self.srv._slugify('예측 위반 규칙')}.md"
+        self.assertIn("status: draft", (self.vault / rel).read_text(encoding="utf-8"))
+
+    def test_predicts_clean_pass(self):
+        (self.proj / "lib" / "a.dart").write_text("var x = 1;\n", encoding="utf-8")
+        self.register(self.proj)
+        msg = self.srv.dw_propose_rule(
+            scope="engineering", title="예측 통과 규칙", rule="본문.", enforced_by="code-review",
+            check_deny=["FORBIDDEN_ZZZ"], check_glob=["*.dart"])
+        self.assertIn("검사대상 1건 · 위반 0", msg)
+
+    def test_predicts_no_candidates(self):
+        (self.proj / "lib" / "a.dart").write_text("var x = 1;\n", encoding="utf-8")
+        self.register(self.proj)
+        msg = self.srv.dw_propose_rule(
+            scope="engineering", title="예측 대상없음 규칙", rule="본문.", enforced_by="code-review",
+            check_deny=["FORBIDDEN_ZZZ"], check_glob=["*.kt"])
+        self.assertIn("아무 파일도 매치하지 않는다", msg)
+
+    def test_prediction_matches_ratifier_verdict(self):
+        """**예측과 실제가 일치**해야 한다 — 두 구현이 갈라지면 예측이 없는 것보다 나쁘다."""
+        (self.proj / "lib" / "a.dart").write_text("var x = FORBIDDEN_ZZZ;\n", encoding="utf-8")
+        self.register(self.proj)
+        self.srv.dw_propose_rule(
+            scope="engineering", title="일치 확인 규칙", rule="본문.", enforced_by="code-review",
+            check_deny=["FORBIDDEN_ZZZ"], check_glob=["*.dart"])
+        rel = f"governance/rules/{self.srv._slugify('일치 확인 규칙')}.md"
+        r = subprocess.run([sys.executable, str(RATIFIER), "--vault", str(self.vault), "--dry-run"],
+                           capture_output=True, text=True)
+        self.assertNotIn(f"+ {rel}", r.stdout, "예측은 hold 였는데 실제로는 승격됐다")
+        self.assertIn(rel, r.stdout)
+
+
+class SessionHookTest(unittest.TestCase):
+    """(B) 세션 시작 훅 — 값싸고, 조용히 죽지 않고, 세션을 막지 않는다."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-hook-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.vault = self.tmp / "vault"
+        shutil.copytree(SEED, self.vault)
+        self.proj = self.tmp / "repo"
+        (self.proj / "lib").mkdir(parents=True)
+        (self.proj / "lib" / "a.dart").write_text("var x = 1;\n", encoding="utf-8")
+        (self.proj / ".claude").mkdir(parents=True, exist_ok=True)
+        (self.proj / ".claude" / "dw-config.json").write_text(
+            json.dumps({"vault_root": str(self.vault)}), encoding="utf-8")
+
+    def register(self, *projects: Path) -> None:
+        d = self.vault / ".dw-state"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "projects.json").write_text(
+            json.dumps({"projects": [str(p) for p in projects]}, ensure_ascii=False),
+            encoding="utf-8")
+
+    def run_hook(self):
+        return subprocess.run(
+            [sys.executable, str(BUILD / "dw-ratify-session.py")],
+            input=json.dumps({"hook_event_name": "SessionStart", "cwd": str(self.proj)}),
+            capture_output=True, text=True,
+            env=os.environ | {"CLAUDE_PROJECT_DIR": str(self.proj),
+                              "DW_VAULT_DIR": str(self.vault)})
+
+    def log(self) -> str:
+        f = self.vault / ".dw-state" / "ratify.log"
+        return f.read_text(encoding="utf-8") if f.is_file() else ""
+
+    def test_no_drafts_is_cheap_and_silent(self):
+        """draft 0 + 설치본 아님 → 무작업. 대부분의 세션이 이 경로다."""
+        self.register(self.proj)
+        r = self.run_hook()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "", "할 일이 없는데 세션에 문맥을 주입했다")
+        self.assertIn("무작업", self.log())
+
+    def test_promotion_installs_and_reports_to_session(self):
+        self.register(self.proj)
+        (self.vault / "governance/rules/훅-승격-규칙.md").write_text(
+            "---\ntype: rule\nstatus: draft\nscope: engineering\nenforced-by: code-review\n"
+            "compiles-to: skill\ntitle: 훅 승격 규칙\n---\n\n본문.\n", encoding="utf-8")
+        r = self.run_hook()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("승격", ctx)
+        self.assertTrue((self.proj / ".claude" / "dw-checks.json").is_file(), "설치가 안 됐다")
+        self.assertIn("설치", self.log())
+
+    def test_hold_is_surfaced_to_session(self):
+        """hold 는 조용히 사라지면 안 된다 — 세션이 보게 한다."""
+        self.register()
+        (self.vault / "governance/rules/훅-홀드-규칙.md").write_text(
+            "---\ntype: rule\nstatus: draft\nscope: engineering\nenforced-by: code-review\n"
+            "compiles-to: skill\ncheck-deny: ['ZZZ']\ncheck-glob: ['*.dart']\n"
+            "title: 훅 홀드 규칙\n---\n\n본문.\n", encoding="utf-8")
+        r = self.run_hook()
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("hold", r.stdout)
+        self.assertIn("hold 1", self.log())
+
+    def test_broken_vault_never_blocks_session(self):
+        """어떤 상황에서도 세션 시작을 막지 않는다(exit 0)."""
+        r = subprocess.run(
+            [sys.executable, str(BUILD / "dw-ratify-session.py")],
+            input="not json at all", capture_output=True, text=True,
+            env=os.environ | {"CLAUDE_PROJECT_DIR": str(self.proj),
+                              "DW_VAULT_DIR": str(self.tmp / "존재하지-않는-vault")})
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_stale_artifacts_are_refreshed_for_current_repo_only(self):
+        """사람이 vault stable 을 고친 경우 — 이 레포만 갱신한다(교차 레포 비용 없음)."""
+        other = self.tmp / "other"
+        (other / ".claude").mkdir(parents=True)
+        self.register(self.proj, other)
+        subprocess.run([sys.executable, str(BUILD / "dw-install-registered.py"),
+                        "--vault", str(self.vault), "--project", str(self.proj), "--quiet"],
+                       capture_output=True, text=True)
+        marker = self.proj / ".claude" / "dw-checks.json"
+        os.utime(marker, (1, 1))
+        r = self.run_hook()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertGreater(marker.stat().st_mtime, 1, "낡은 산출물이 갱신되지 않았다")
+        self.assertFalse((other / ".claude" / "dw-checks.json").exists(),
+                         "승격이 없는데 다른 레포까지 설치했다(비용 낭비)")
+
+
 def load_ratifier():
     """dw-ratify.py 를 모듈로 로드(파일명에 하이픈이 있어 일반 import 불가)."""
     spec = importlib.util.spec_from_file_location(f"dw_ratify_{next(_counter)}", RATIFIER)

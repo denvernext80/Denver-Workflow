@@ -121,20 +121,29 @@ review: $(VENV)/.stamp       ## OBEY draft 큐(자동 비준 대상/hold) + 헬�
 	@echo ""
 	@$(MAKE) -s doctor
 
-# 자동 비준 — 사람 비준 단계 제거. 결정론적으로 안전한 OBEY draft 를 승격하고, 항상 install.
-# (스케줄 권장: cron/launchd/CC schedule 로 주기 실행하면 사람·수동 compile 모두 불요.)
-# install 은 항상 돌려 에이전트 승격분 + 사람이 Obsidian 에서 고친 stable 변경까지 컴파일한다(멱등).
+# 자동 비준 — 결정론적으로 안전한 OBEY draft 를 승격한 뒤, **이 타깃이 직접** 등록된 모든
+# 프로젝트에 compile+install 한다(멱등).
 #
-# check 패턴을 가진 규칙은 **실제 코드에 돌려 오탐 0** 을 확인한 뒤에만 승격된다. 스캔 대상 레포는
-# `<vault>/.dw-state/projects.json`(= `make install-project` 가 자동 등록)에서 읽으므로 크론에서도
-# 인자가 필요 없다. 일회성으로 다르게 주려면: make ratify RATIFY_PROJECTS="/abs/repo1 /abs/repo2"
+# ⚠️ 종전엔 dw-ratify.py 가 "실제 컴파일·설치는 호출자가 한다" 고 위임했는데 이 레시피는 @echo 두
+#    줄이 전부였다 — 승격돼도 어느 레포에도 반영되지 않았다(2.13.0 에서 수정). 문구도 함께 고쳤다.
+#
+# 평시 자동 실행은 **세션 시작 훅**(_build/dw-ratify-session.py)이 담당한다 — 호스트 스케줄러
+# (launchd/cron/Task Scheduler)를 정본으로 쓰지 않는 이유는 이 플러그인의 훅이 전부 순수 python3
+# (플랫폼 중립)이라서다. 이 타깃은 같은 일을 지금 당장 하는 수동 경로다.
+#
+# check 패턴을 가진 규칙은 **실제 코드에 돌려 오탐 0** 을 확인한 뒤에만 승격된다. 스캔·설치 대상은
+# `<vault>/.dw-state/projects.json`(= `make install-project` 가 자동 등록)에서 읽는다.
+# 일회성으로 다르게 주려면: make ratify RATIFY_PROJECTS="/abs/repo1 /abs/repo2"
 RATIFY_PROJECTS ?=
-ratify: $(VENV)/.stamp       ## (스케줄 권장) draft OBEY 자동 비준 → 항상 compile+install
-	-$(VPY) _build/dw-ratify.py --vault "$(VAULT_DIR)" \
-		$(foreach p,$(RATIFY_PROJECTS),--project "$(p)")
+ratify: $(VENV)/.stamp       ## draft OBEY 자동 비준 → 등록된 모든 프로젝트에 compile+install(멱등)
+	@$(VPY) _build/dw-ratify.py --vault "$(VAULT_DIR)" \
+		$(foreach p,$(RATIFY_PROJECTS),--project "$(p)") ; \
+	 rc=$$? ; if [ $$rc -ne 0 ] && [ $$rc -ne 10 ]; then \
+	   echo "  ⚠️ 비준기 비정상 종료(exit=$$rc) — 아래 설치는 승격 반영 없이 진행된다"; fi
 	@echo ""
-	@echo "→ 컴파일·설치(승격분 + 사람 편집 stable 반영, 멱등)"
-	@echo "→ 설치 반영은 /dw-install (프로젝트별) 로 실행"
+	@echo "→ 컴파일·설치: 등록된 프로젝트 전체(멱등) — 승격분 + 사람이 고친 stable 반영"
+	$(VPY) _build/dw-install-registered.py --vault "$(VAULT_DIR)" \
+		$(foreach p,$(RATIFY_PROJECTS),--project "$(p)")
 
 workflow-report: $(VENV)/.stamp  ## dw 워크플로우 리포트(3대 규율 준수율·절차/memory 재사용). 사용: make workflow-report [V=/abs/vault] [DAYS=30]
 	$(VPY) _build/dw-workflow-report.py --vault "$(or $(V),$(VAULT_DIR))" --days $(or $(DAYS),30)

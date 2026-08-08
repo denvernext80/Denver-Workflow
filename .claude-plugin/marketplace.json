@@ -7,14 +7,14 @@
   },
   "metadata": {
     "description": "Denver AI Workflow — SSOT 기반 Claude Code 거버넌스 엔진(vault·MCP·하네스·가드).",
-    "version": "2.12.1"
+    "version": "2.13.0"
   },
   "plugins": [
     {
       "name": "denver-workflow",
       "source": "./",
       "description": "Obsidian vault SSOT 거버넌스: MCP(dw-vault) + SessionStart 지식 주입 + worktree/lint/vault 가드 + 하네스·검증자·자동 비준.",
-      "version": "2.12.1",
+      "version": "2.13.0",
       "author": {
         "name": "denvernext80"
       },

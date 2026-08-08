@@ -237,7 +237,8 @@ make build                    # Vault 컴파일 ➔ .claude/skills 디렉토리�
 make dry-run                  # 실제 파일 수정 없이 규칙 유효성 및 빌드 검증 (CI 환경용, 경고 발생 시 에러 처리)
 make test                     # 엔진 자기검사(stdlib unittest, 임시 vault 픽스처 — 실제 Vault 무영향)
 make doctor                   # 콜드스타트 상태 진입 시 venv, 컴파일러, MCP 상태 전수 점검
-make ratify                   # Draft 규칙 자동 비준 스크립트 실행 (크론탭 등 스케줄러 등록 권장)
+make ratify                   # Draft 자동 비준 + 등록된 모든 프로젝트에 compile·install (수동 경로)
+                              #   평시엔 세션 시작 훅이 같은 일을 한다 — 스케줄러(cron/launchd) 등록 불요
 make review                   # 사람의 판단이 필요한 수동 검토 큐 확인 및 시스템 상태 체크
 make scaffold-vault           # 새로운 빈 Vault 공간에 기본 템플릿(Generic Seed) 구성 (덮어쓰기 방지 적용)
 make update-seed              # 활성화된 Vault의 공통 거버넌스 규칙 파트를 템플릿 Seed로 역업데이트 (개인정보 자동 제외)

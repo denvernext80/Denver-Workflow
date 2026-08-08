@@ -77,8 +77,10 @@ LIVE(memory·contract·spec·backlog·reference)는 **컴파일하지 않는다*
 프로젝트 `settings.local.json` 의 `agent: dw-governed` 로 모든 세션이 하네스로 시작한다(항상 강제).
 
 게이트 레이어:
-0. **자동 비준**(`make ratify`, 스케줄) — OBEY draft 를 결정론적으로 검증해 안전분 자동 stable·
-   compile·install. 사람·수동 make 제거. 판단 필요 건만 `dw-ratifier`(LLM)로 넘긴다.
+0. **자동 비준**(세션 시작 훅 `dw-ratify-session.py`; 수동 경로는 `make ratify`) — OBEY draft 를
+   결정론적으로 검증해 안전분 자동 stable·compile·install(등록 레포 전체). 판단 필요 건만
+   `dw-ratifier`(LLM)로 넘긴다. 호스트 스케줄러는 쓰지 않는다(훅이 플랫폼 중립 — 순수 python3).
+   제안 시점(`dw_propose_rule`)엔 **같은 검증을 돌려 예측만** 반환한다 — 승격은 제안자의 턴 밖.
 1. **MCP 도구**(주 경로) — `dw_write_*` 가 frontmatter 를 *구성*한다. LIVE(memory·contract·spec·
    backlog·reference)는 stable 직행, OBEY(rule/procedure)는 draft 제안(status 파라미터 없음 →
    validate-by-construction). 완료/폐기는 `dw_resolve` 가 archive 로 이동(별도 status 없이 위치로 구분).
