@@ -1,5 +1,174 @@
 # Changelog
 
+## 2.16.0 — 2026-08-08
+
+vault 경로 해석을 `dw_runtime` **한 곳**으로 모았다. 2.15.0 이 의도적으로 남긴 잔여다 — 그때
+"4 곳" 으로 봤는데 **실측 결과 11 곳**이었고, **복제가 아니라 시맨틱이 갈려 있었다**. 그래서
+이번 작업의 절반은 통합이 아니라 **동등성 증명과 갈린 지점의 열거**다.
+
+> **오늘 증상은 없었다.** 이 머신의 `~/.claude/settings.json` `env.DW_VAULT_DIR` 와 4 개 레포의
+> `dw-config.json` `vault_root` 가 **같은 값**(`~/Documents/denver-workflow-vault`)이라, 우선순위가
+> 달라도 결과가 같았다. 즉 이 갭의 비용은 "지금 고치는 것" 이 아니라 **미래의 조용한 분기를
+> 막는 것**이다 — 값이 갈리는 순간 도구마다 다른 vault 를 읽으면서 아무 에러도 나지 않는다.
+> (규약 경로 `~/denver-workflow-vault` 는 이 머신에 **없다** — 그래서 env 를 못 받는 프로세스가
+> 규약으로 폴백하면 존재하지 않는 경로를 잡는다. 규약 폴백은 이 환경에서 사실상 죽은 경로다.)
+
+### 실측 — 통합 전 11 곳의 시맨틱 매트릭스
+
+| 구현 | 우선순위 | 홈 접두 확장 | 존재 요구 | 못 찾으면 |
+| --- | --- | --- | --- | --- |
+| `dw_runtime.resolve_vault` | env > 규약 | `~/`·`$HOME/` (접두만) | `is_dir` | `SystemExit(1)` |
+| `dw_runtime.vault_target` | env > 규약 | 같음 | **없음** | 규약 경로 |
+| `dw-doctor.vault_dir` | env > 규약 | `expanduser`+`expandvars` | `is_dir` | 규약 경로 |
+| `Makefile:27 VAULT_DIR` | env > 규약 | **셸 `eval`**(중간 `$VAR`·명령치환까지) | 없음 | 규약 경로 |
+| `dw-graphify-register._resolve_vault` | **config > env > 규약** | `~/`·`$HOME/` + `Path.home()` | **없음** | 규약 경로 |
+| `dw-vault-guard._vault_root` | **config > env > 규약** | `expanduser`+`expandvars` | `is_dir` | 자기 레포 → None |
+| `dw-artifact-guard._vault_root` | **config > env > 규약** | 같음 | `is_dir` | **None**(자기 레포 폴백 없음) |
+| `dw-telemetry._vault_root` | **config > env > 규약** | 같음 | `is_dir` | 자기 레포 → None |
+| `dw-graphify-gate._vault_root` | **config > env > 규약** | 같음 | `is_dir` | 자기 레포 → None |
+| `dw-vault-write-guard._vault_root` | **config > env > 규약** | 같음 | `is_dir` | 자기 레포 → None |
+| `dw-ratify-session._resolve_vault` | **config > env > 규약** | `expandvars`+`expanduser`, **조상 탐색 없음** | `governance/` | None |
+
+반증한 것 두 가지 —
+* **"4 곳" 이 아니라 11 곳**이다(+ `dw-session-context._plugin_version` 은 `vault_root` 를 읽지만
+  플러그인 버전만 찾으므로 vault 해석이 아니다 — 범위 밖으로 뒀다).
+* **"graphify 만 config 최우선" 이 아니다.** config-first 가 **7 곳으로 다수**였고 env-first 3 곳
+  (+`make`)이 소수파였다. `dw-graphify-register` 의 "dw-mcp-launch.py 와 동일 순서" 라는 주석은
+  **사실이 아니었다** — 런처는 `dw-config.json` 을 보지도 않는다. 즉 이번 전환은 소수를 다수에
+  맞춘 게 아니라 **다수 7 곳의 관측 동작을 바꾸는** 결정이다.
+
+시나리오 14 종 x 구현 11 종을 **변경 전 구현**(`git show df3ff21:<path>`)으로 실행해 표를 떴고,
+통합 후 같은 표를 다시 떠 **행마다 값이 하나로 모이는지**를 확인했다(통합 후 두 경로를 비교하면
+동어반복이다).
+
+### 결정 — 정본 우선순위: `DW_VAULT_DIR`(env) > `dw-config.json` 의 `vault_root` > 규약 경로
+
+판단 축은 "vault 는 하나를 가리켜야 한다" 다. env 는 **머신 전역 단일 답**을 주고,
+`dw-config.json` 은 **프로젝트별 파일**이라 레포마다 갈릴 수 있다 — 그래서 env 가 위다. config 를
+버리지 않는 이유는 그것이 **env 를 못 받는 컨텍스트의 유일한 구조물**이고, 이 머신에선 규약 경로가
+없어 마지막 안전망이기 때문이다.
+
+**바뀌는 호출자와 그 근거**(조용히 바꾸는 것만 금지다):
+
+* **가드 5 개 + graphify + ratify-session (7 곳)** — env 와 config 가 갈리면 이제 **env** 를 쓴다.
+  바뀌어도 되는 이유: ① 오늘 두 값이 같아 관측 변화가 0 이다 ② 갈린 상태는 아래 경고로 드러난다
+  ③ 도구별로 다른 vault 를 지키는 상태는 "vault 는 하나" 에 정면으로 어긋난다.
+* **`resolve_vault`·`doctor`·`make` (env-first 4 곳)** — env 가 **없는 폴더**를 가리킬 때 규약으로
+  건너뛰던 것이, 이제 그 사이에 config 를 본다. MCP 런처는 `CLAUDE_PROJECT_DIR` 를 **실제로 받는다**
+  (실측: 살아있는 서버 프로세스 환경에 있었다) — 그래서 env 가 비어도 11 도구가 죽지 않고 config
+  안전망으로 산다(종전엔 그 상황이 `SystemExit(1)`).
+* **`%USERPROFILE%\` 확장** — 종전 doctor·가드 5 곳은 `expandvars` 로 처리한다고 **주석에 적었지만
+  posix 에선 확장되지 않았다**(실측 3.9.6·3.14.6: `posixpath.expandvars` 는 `%VAR%` 를 모른다).
+  정본은 접두를 명시 처리해 두 플랫폼에서 같은 답을 낸다 — Windows 전제를 잃지 않으면서 posix 에서도
+  올바른 경로를 잡는다(**넓히는** 변경).
+* **경로 중간의 `$VAR`** — `make` 의 `eval echo` 만 확장했다(미정의 변수는 빈 문자열로 지워져
+  `/x/$NOPE/v` → `/x//v`, 즉 **존재하는 엉뚱한 경로**가 됐다). 정본은 접두 전용이라 `make` 가
+  **좁아진다**. 이 머신 값은 절대경로라 실사용 영향 0.
+* **`dw-config.json` 의 `~/` 접두** — 가드 5 곳은 원문을 그대로 `is_dir` 해 확장하지 못했다.
+  이제 확장된다(**넓히는** 변경).
+* **`dw-graphify-register` 는 존재 검사가 없었다 → no-op 이 아니다.** 종전엔 config 가 옮겨진
+  경로를 가리켜도 그 값을 그대로 돌려주고 `graph.json` 탐색만 실패해 "graphify 미감지" 로 끝났다.
+  실측 A/B(`config=/does/not/exist` + env vault 에 `graphify-out/graph.json` 존재): 변경 전
+  **"미감지 — 등록 스킵"**, 변경 후 **vault 의 그래프를 찾는다**. 예전엔 못 찾던 그래프를 찾게
+  되는 변경이라 여기 적는다(기능 회복 방향).
+
+**보존한 차이는 파라미터로 남겼다**(일관성을 이유로 조용히 바꾸지 않는다): `require`(dir/
+governance/없음) · `ancestors`(ratify-session 은 조상 탐색 없음) · `git_probe`(doctor 는 서브프로세스
+금지) · `self_repo_fallback`(artifact-guard 는 없음) · `vault_target` 의 무존재-요구(scaffold 는
+"만들 자리" 를 묻는다).
+
+### 불일치를 조용히 넘기지 않는다 — 이 전환의 전제조건
+
+결정론적으로 하나를 고르는 것만으로는 "vault 는 하나" 를 보증하지 못한다. 출처들이 다른 값을
+말하는데 조용히 하나를 고르면 **두 곳을 가리키는 상태가 오류 없이 지나간다**. 특히 env-first 로
+뒤집힌 뒤엔 "프로젝트는 config 로 vault B 에 묶였는데 가드는 env 의 A 를 지킨다" 는 **새 실패
+모드**가 생긴다 — 그래서 노출과 전환은 같은 배포 단위다.
+
+* `dw_runtime.vault_conflict_note()` — 어느 출처가 무엇을 말하는지 · 무엇이 쓰이는 중인지 ·
+  폴더가 없으면 그 사실 · 맞추는 방법(env 를 고치거나 `/dw-install` 로 config 를 다시 쓰기).
+* 채널은 **이미 있는 것만** 쓴다: SessionStart 다이제스트(매 세션 주입 — `dw-session-context.py`)와
+  헬스체크(`dw doctor`/`make doctor`/`/dw-review`). 새 채널을 만들지 않았다.
+* **hard-fail 하지 않는다.** 이 판정을 쓰는 곳이 훅(timeout 10~15s)이고, 훅에서 예외를 올려 세션을
+  깨뜨리는 편이 "가드가 엉뚱한 vault 를 지키는" 것보다 나쁘다. 채택되는 값은 어느 쪽이든
+  결정론적이라 진행을 막을 근거가 없다 — 사람이 읽는 자리에서 시끄럽게 만드는 것이 옳은 강도다.
+* 레포 간 불일치(등록된 프로젝트들의 config 가 서로 다름)는 **on-demand 전용**이다(`dw doctor`) —
+  레지스트리 순회라 SessionStart 예산에 넣지 않았다. 훅은 이 세션의 출처만 O(1) 로 본다.
+
+### 훅 예산 — `dw-doctor` 는 SessionStart 훅 안에서 돈다
+
+`dw_runtime` 을 훅 7 개가 임포트하게 됐으므로 임포트 비용을 먼저 없앴다: **`subprocess` 를 함수
+안으로** 옮기고(3.9.6 에서 임포트 8.6ms — 이 모듈 비용의 대부분), `typing.NamedTuple` 을
+`collections.namedtuple` 로 바꿨다(`typing` 1.3ms; `collections` 는 `json`/`pathlib` 가 이미 끌어온다).
+`sysconfig` 는 자기검사가 `mod.sysconfig` 를 패치하므로 모듈 속성으로 남긴다.
+
+실측(n=15, 임시 HOME·임시 vault·임시 프로젝트, ms 중앙값):
+
+| 훅 | 3.14.6 전 → 후 | 3.9.6 전 → 후 |
+| --- | --- | --- |
+| SessionStart `dw-session-context.py`(→doctor) | 17.7 → 18.5 (+0.8) | 22.4 → 23.4 (+1.0) |
+| `dw-doctor.py` 단독 | 17.0 → 18.7 (+1.7) | 20.4 → 21.7 (+1.3) |
+| PostToolUse `dw-vault-guard.py` | 28.5 → 28.3 (−0.2) | 34.3 → **31.6 (−2.7)** |
+| PostToolUse `dw-telemetry.py` | 27.8 → 28.1 (+0.3) | 33.6 → 33.9 (+0.3) |
+
+가드가 **빨라진** 이유: env 가 설정된 환경에서는 env tier 에서 끝나 `git rev-parse` 조상 탐색
+(서브프로세스)에 도달하지 않는다. 순증가는 최악 +1.7ms(훅 예산 15,000ms 의 0.01%)다.
+
+### 자기검사 — 67 → 104 (+37)
+
+* `VaultResolutionTest` — 우선순위 분기 전체(env 승리 · env 부재 · env stale · 규약 부재 시
+  config 가 유일 안전망 · 아무 것도 없음) · 홈 접두 3 종 + 중간 `$VAR` 불변 · 조상 탐색 유/무 ·
+  `require` 3 종 · `self_repo_fallback` 비대칭 · `vault_target` 의 무존재-요구 ·
+  `resolve_vault` 의 **위치 인자 계약**(`project` 를 위치에 끼우면 기존 호출의 `home` 이 조용히
+  먹힌다) · **cwd 폴백 금지**(넣으면 자기검사가 개발 머신의 실제 `dw-config.json` 을 읽어 픽스처
+  격리가 깨진다 — 실제로 밟았다).
+* `VaultConflictNoticeTest` — 일치/불일치/단일출처/미선언/stale + 레포 간 불일치 + 다이제스트 실제
+  주입 + **어떤 입력에도 예외 없음**.
+* `VaultResolutionSingleSourceTest` — **드리프트 방지**(11 곳이 생긴 원인은 "복제가 검사되지
+  않았다" 다 — `mcp<2` 핀이 두 곳으로 갈렸던 것과 같은 결함 클래스): 규약 경로 리터럴·
+  `DW_VAULT_DIR` 조회·`vault_root` 해석·`os.path.expandvars` 사본이 `dw_runtime` 밖에 재등장하지
+  않는다 · Makefile 도 자기 해석을 갖지 않는다 · 소비자 10 개가 정본을 임포트한다 ·
+  **`import dw_runtime` 후 `subprocess`·`typing` 이 로드되지 않는다**(측정치가 아니라 불변식).
+* `DoctorHookSafetyTest` — 적대적 입력 12 종 x 2 모드에서 exit 0 + stderr 무오염, `--json` 형태 유지,
+  doctor 가 서브프로세스를 쓰지 않는다.
+
+**자기검사가 실제 결함을 하나 잡았다**: `dw-config.json` 의 최상위 값이 dict 가 아니면
+(`[]`·`"x"`) 종전 사본 7 곳 전부 `.get` 에서 **`AttributeError`** 였다 — 훅에서 그건 세션·가드
+파손이다. 정본은 타입을 확인하고 다음 후보로 넘어간다.
+
+### `make` 는 관측 동작이 동일하다
+
+`VAULT_DIR := $(shell eval echo …)` 를 지우고 `VAULT_CMD := $(PY) _build/dw.py vault-path` 로
+바꿨다(새 서브커맨드 `vault-path` — Makefile 타깃과 1:1 이 아닌 유일한 예외다: 타깃이 아니라
+변수가 쓴다). `:=` → 레시피 안 평가로 옮긴 덕에 VAULT_DIR 을 쓰지 않는 `make build`·`make test` 는
+이제 셸을 돌리지 않는다.
+
+검증: 같은 워크트리에서 **구 Makefile vs 신 Makefile** 로 `make update-seed` 를 각각 돌려
+stdout(vault 경로 문구)과 `_seed` 산출물 해시가 **동일**함을 확인했다(그 실행이 만든 live-vault
+드리프트 5 파일은 이번 범위 밖이라 되돌렸다). `make workflow-report V=…` 도 출력 동일.
+
+### 검증 / 미검증
+
+**검증(실측)** — `make test` 104/104 · `make dry-run` 에러 0·경고 0(출력이 변경 전과 동일: 남은
+`warning:` 2 줄은 vault 콘텐츠의 embed 평탄화로 baseline 과 같다) · `make doctor` 출력 **바이트
+동일**(불일치 경고 없음 = 4 레포가 실제로 한 vault 를 가리킨다는 라이브 확인) · `make seed-check` ·
+**MCP handshake 를 `python3`(3.14.6)·`/usr/bin/python3`(3.9.6) 양쪽에서 재확인, 도구 11/11**
+(변경 전에도 11/11 — 무회귀) · 시나리오 14 x 구현 11 A/B 매트릭스 · 훅 소요 실측 ·
+실제 vault·`~/.claude`·레지스트리 **무변형**(전부 임시 env·임시 프로젝트로 검증, `make ratify` 미실행).
+
+**불일치 경고 두 채널을 실제로 발화시켜 확인했다**(임시 env·임시 프로젝트·임시 레지스트리 —
+실물 vault·레지스트리 무접촉, 실행 후 실물 `projects.json` 이 그대로임을 해시로 확인):
+`dw doctor` 가 ① env↔config 불일치를 두 경로와 해소 방법까지 출력 ② 등록 레포 2 개가 서로 다른
+vault 를 가리키는 상황을 출력. `dw-doctor --json` 의 `vault_conflict` 필드도 같은 문구를 담는다.
+`dw-graphify-register` 는 실제 graphify CLI 로 `detect` 3 경로를 A/B 했다(로컬 그래프 · vault
+그래프 폴백 · 미감지).
+
+**미검증** — Windows 실기(`%USERPROFILE%` 확장의 실제 동작은 단위 테스트가 유일한 증거다) ·
+**실물 다중-vault 형상**(이 머신은 4 레포가 일치하므로 불일치는 픽스처로만 만들었다 — 즉
+"경고가 뜬다" 는 검증했고 "실제로 갈린 환경에서 사람이 그 안내로 복구한다" 는 미검증) ·
+`dw-graphify-register --apply` 의 쓰기 경로(`.mcp.json` 병합 — 이번 변경이 닿지 않아 dry-run 까지만) ·
+NUL 경로는 env 로 도달 불가(OS 가 환경변수에 NUL 을 금지 — subprocess spawn 자체가 실패)라
+**JSON 경유만** 고정했다.
+
 ## 2.15.0 — 2026-08-08
 
 슬래시 커맨드의 **`make` 의존을 제거**했다(L3). 2.14.0 이 MCP 런처의 POSIX 셸 의존을 없앤 데 이어,

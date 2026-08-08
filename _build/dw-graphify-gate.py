@@ -23,6 +23,8 @@ import re
 import sys
 from pathlib import Path
 
+import dw_runtime
+
 _SYMBOLISH = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
 _NUDGE = (
@@ -42,56 +44,20 @@ _ASK = (
 )
 
 
-def _cfg_dirs(project):
-    """dw-config.json 을 찾을 후보 — project → 조상 → 본체 레포(git worktree 대응).
-
-    do-er 서브에이전트는 git worktree 에서 돈다. 워크트리는 `.claude/` 가 gitignore 라 체크아웃되지
-    않아 `<worktree>/.claude/dw-config.json` 이 **없다**. 종전엔 그때 `DW_VAULT_DIR` env 폴백에만
-    기댔고, env 가 없는 환경(러너·다른 셸)에서는 vault 를 못 찾아 훅이 조용히 무력화됐다.
-    """
-    out = []
-    cur = project.resolve()
-    for _ in range(8):
-        out.append(cur)
-        if cur.parent == cur:
-            break
-        cur = cur.parent
-    try:
-        import subprocess
-        r = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=str(project),
-                           capture_output=True, text=True, timeout=3)
-        if r.returncode == 0 and r.stdout.strip():
-            cp = Path(r.stdout.strip())
-            if not cp.is_absolute():
-                cp = (project / cp).resolve()
-            out.append(cp.parent)          # 본체 레포 루트
-    except Exception:
-        pass
-    return out
-
-
 def _vault_root(project: Path):
-    for _d in _cfg_dirs(project):
-        cfg = _d / ".claude" / "dw-config.json"
-        if not cfg.exists():
-            continue
-        try:
-            v = json.loads(cfg.read_text(encoding="utf-8")).get("vault_root")
-            if v and Path(v).is_dir():
-                return Path(v)
-        except Exception:
-            pass
-    env = os.environ.get("DW_VAULT_DIR")
-    if env:
-        env = os.path.expandvars(os.path.expanduser(env))
-        if Path(env).is_dir():
-            return Path(env)
-    conv = Path.home() / "denver-workflow-vault"
-    if conv.is_dir():
-        return conv
-    if (project / "_build" / "dw-compile.py").exists():
-        return project
-    return None
+    """vault 위치 — 정본은 `dw_runtime.find_vault`(2.16.0). 없으면 None(훅은 no-op 한다).
+
+    해석 순서: `DW_VAULT_DIR`(env) > `<project>/.claude/dw-config.json` 의 `vault_root`(조상·git
+    본체 레포까지 탐색) > 규약 경로 > 이 레포가 플러그인 본체면 자기 자신.
+
+    ⚠️ 2.16.0 에서 **우선순위가 뒤집혔다** — 종전 사본은 config 를 env 보다 먼저 봤다. 같은
+    머신에서 도구별로 다른 vault 를 가리킬 수 있던 상태를 없애는 대가로, "프로젝트가 config 로
+    vault B 에 묶였는데 env 는 A 를 말한다" 면 이제 A 를 지킨다. 그 상태는 조용히 넘기지 않고
+    SessionStart 다이제스트가 경고한다(`dw_runtime.vault_conflict_note`) — 노출이 이 전환의
+    전제조건이다. 워크트리 대응(조상 탐색)과 리터럴 홈 접두 확장은 유지된다.
+    """
+    return dw_runtime.find_vault(project, require="dir", ancestors=8, git_probe=True,
+                                 self_repo_fallback=True)
 
 
 # automode(auto/dontAsk/bypassPermissions)에선 ask 가 무력화 → deny 로 상향(훅 deny 는 항상 차단).
