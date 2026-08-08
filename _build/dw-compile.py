@@ -28,7 +28,7 @@ try:
     import yaml  # 유일한 외부 의존성
 except ModuleNotFoundError:  # pragma: no cover - Makefile 의 .venv 가 보장
     sys.stderr.write(
-        "ERROR: pyyaml 가 필요합니다. `make build` / `make dry-run` 을 쓰면\n"
+        "ERROR: pyyaml 가 필요합니다. `/dw-build`(또는 `python3 _build/dw.py build`)를 쓰면\n"
         "       Makefile 이 .venv 에 자동 설치합니다. 수동 실행 시:\n"
         "       python3 -m venv .venv && .venv/bin/pip install pyyaml\n"
     )

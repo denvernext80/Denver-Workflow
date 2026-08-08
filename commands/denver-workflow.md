@@ -36,7 +36,7 @@ description: 신규 기능 풀사이클 — 요구사항→배포 11단계 멀�
 3. **작성**: vault 경로 해석(`DW_VAULT_DIR` > `~/denver-workflow-vault`) →
    `<vault>/project/repo-map.md` 를 `_seed/_templates/repo-map.md` 골격으로 채워 **Write**
    (`type: repo-map`, `status: stable`).
-4. **빌드**: `/dw-install`(또는 `make install-project P=<이 워크스페이스 절대경로>`)로 digest 재생성 → "## 레포 맵" 주입.
+4. **빌드**: `/dw-install`(또는 `python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" install-project`)로 digest 재생성 → "## 레포 맵" 주입.
 5. **현재 세션 반영**: 방금 쓴 repo-map 본문을 읽어 당 세션 라우팅에 즉시 사용(차기 세션부턴 digest 자동).
 
 > 11단계 진행 중 사용자에게 닿는 프롬프트(요구사항 확인·디자인 승인·머지/배포 동의 등)는 **평이한

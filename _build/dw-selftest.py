@@ -13,6 +13,7 @@ usage: <venv>/bin/python _build/dw-selftest.py   (또는 make test)
 """
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import itertools
 import json
@@ -26,6 +27,8 @@ import threading
 import unittest
 import unittest.mock
 from pathlib import Path
+
+import dw_runtime          # 하이픈 없는 모듈 — sys.path[0]=_build 이라 그대로 임포트된다
 
 BUILD = Path(__file__).resolve().parent
 ROOT = BUILD.parent
@@ -376,7 +379,7 @@ class RatifyScanGateTest(unittest.TestCase):
                               **{"check-deny": ["FORBIDDEN_XYZ"], "check-glob": ["*.dart"]})
         out = self.ratify()
         self.assertHeld(out, rel, "스캔 대상 프로젝트 0")
-        self.assertIn("install-project", out, "조치 방법이 안내돼야 한다")
+        self.assertIn("/dw-install", out, "조치 방법이 안내돼야 한다")
 
     def test_glob_matching_zero_files_is_held(self):
         """이번 사건의 핵심 — glob 이 아무 파일도 못 잡으면 '위반 0' 은 공허하다."""
@@ -618,7 +621,7 @@ class ProposeTimeVerificationTest(unittest.TestCase):
             scope="engineering", title="예측 미등록 규칙", rule="본문.", enforced_by="code-review",
             check_deny=["FORBIDDEN_ZZZ"], check_glob=["*.dart"])
         self.assertIn("검사대상 0건", msg)
-        self.assertIn("install-project", msg, "등록 방법을 안내해야 한다")
+        self.assertIn("/dw-install", msg, "등록 방법을 안내해야 한다")
         self.assertIn("보류", msg)
 
     def test_prediction_matches_ratifier_verdict(self):
@@ -748,7 +751,10 @@ class McpLauncherTest(unittest.TestCase):
     """
 
     def setUp(self):
-        self.mod = load_launcher()
+        # 기반 로직(vault 해석·venv 레이아웃·핀)의 정본은 dw_runtime 이다(2.15.0) — 런처와 CLI
+        # 가 공유한다. 런처에 남은 것은 기동 분기(execv vs 자식)뿐이라 둘을 나눠 잡는다.
+        self.mod = dw_runtime
+        self.launcher = load_launcher()
         self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-launch-"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
@@ -821,9 +827,10 @@ class McpLauncherTest(unittest.TestCase):
     # ── 기동 방식 분기 ────────────────────────────────────────────────────
     def test_launch_uses_execv_on_posix(self):
         calls = {}
-        self.mod.launch(Path("/py"), Path("/s.py"), Path("/v"), "posix",
-                        execv=lambda p, a: calls.setdefault("execv", (p, a)),
-                        run=lambda a: self.fail("POSIX 에서 자식 프로세스를 만들었다"))
+        self.launcher.launch(
+            Path("/py"), Path("/s.py"), Path("/v"), "posix",
+            execv=lambda p, a: calls.setdefault("execv", (p, a)),
+            run=lambda a: self.fail("POSIX 에서 자식 프로세스를 만들었다"))
         self.assertEqual(calls["execv"],
                          ("/py", ["/py", "/s.py", "--vault", "/v"]))
 
@@ -837,9 +844,10 @@ class McpLauncherTest(unittest.TestCase):
             calls["run"] = argv
             return R()
 
-        rc = self.mod.launch(Path("/py"), Path("/s.py"), Path("/v"), "nt",
-                             execv=lambda p, a: self.fail("Windows 에서 execv 를 썼다"),
-                             run=fake_run)
+        rc = self.launcher.launch(
+            Path("/py"), Path("/s.py"), Path("/v"), "nt",
+            execv=lambda p, a: self.fail("Windows 에서 execv 를 썼다"),
+            run=fake_run)
         self.assertEqual(rc, 7, "자식 종료코드를 전달하지 않았다")
         self.assertEqual(calls["run"], ["/py", "/s.py", "--vault", "/v"])
 
@@ -873,11 +881,22 @@ class McpLauncherTest(unittest.TestCase):
         self.assertFalse((BUILD / "dw-mcp-launch.sh").exists(),
                          "POSIX 셸 런처가 되살아났다 — 부트스트랩 경로가 둘로 갈린다")
 
-    def test_dependency_pin_matches_makefile(self):
-        """`mcp<2` 핀은 Makefile 과 런처 양쪽에 있다 — 갈리면 신규 venv 만 조용히 깨진다."""
-        mk = (ROOT / "Makefile").read_text(encoding="utf-8")
-        self.assertIn('pip install --quiet pyyaml "mcp<2"', mk)
+    def test_dependency_pin_lives_in_exactly_one_place(self):
+        """`mcp<2` 핀의 정본은 `dw_runtime.DEPS` **한 곳**이어야 한다.
+
+        2.14.0 까지는 Makefile 레시피와 런처 양쪽에 리터럴로 있었다 — 갈리면 **신규 venv 에서만**
+        발현하는 조용한 파손이 된다(기존 venv 는 1.x 를 들고 있어 무증상). 사본이 다시 늘어나는
+        것을 막는 게 이 테스트의 일이다. 소비자(런처·CLI·Makefile)는 전부 DEPS 를 경유한다.
+        """
         self.assertEqual(self.mod.DEPS, ("pyyaml", "mcp<2"))
+        # 산문에서 핀을 **언급**하는 것은 정상이다(주석·독스트링). 금지되는 건 **두 번째 설치
+        # 지점** — 즉 소비자 파일 안의 `pip install … mcp…` 다.
+        for name in ("Makefile", "_build/dw-mcp-launch.py", "_build/dw.py"):
+            for lineno, line in enumerate((ROOT / name).read_text(encoding="utf-8").splitlines(), 1):
+                if "pip install" in line:
+                    self.assertNotIn("mcp", line,
+                                     f"{name}:{lineno} 에 두 번째 설치 지점이 생겼다 "
+                                     f"— dw_runtime.DEPS 를 경유하라: {line.strip()}")
 
     # ── 실제 기동(JSON-RPC handshake) ─────────────────────────────────────
     def test_launcher_serves_all_tools_over_stdio(self):
@@ -943,6 +962,166 @@ class McpLauncherTest(unittest.TestCase):
         names = {t["name"] for t in got[2]["result"]["tools"]}
         self.assertEqual(len(names), expected, f"도구 수 불일치: {sorted(names)}")
         self.assertIn("dw_search", names)
+
+
+class PortableCliTest(unittest.TestCase):
+    """(D) `dw.py` CLI — 슬래시 커맨드의 make 의존을 없앤 **로직 정본**.
+
+    가장 중요한 검사는 **드리프트 방지**다: Makefile 타깃이 CLI 에 실제로 위임하는지.
+    두 구현이 갈라지면 `make X` 와 `/dw-X` 가 다르게 동작한다(이 레포에서 반복 관측된 결함).
+    make/CLI 산출물 동등성 자체는 임시 vault·설정으로 세션에서 실측했다 —
+    여기서는 그 구조가 유지되는지를 고정한다.
+    """
+
+    # 위임 대상 = 슬래시 커맨드가 필요로 하는 9 개 타깃 + 파생 2 개.
+    DELEGATED = (
+        "build", "dry-run", "install-project", "ratify", "review",
+        "scaffold-vault", "plugin-scope-user", "plugin-scope-project", "plugin-scope-off",
+        "doctor", "venv",
+    )
+
+    def setUp(self):
+        self.cli = load_cli()
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-cli-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def recipes(self) -> dict:
+        """Makefile 을 파싱해 `타깃 -> 레시피 줄 리스트`. (make 는 탭으로 레시피를 표시한다.)"""
+        out: dict[str, list[str]] = {}
+        target = None
+        for line in (ROOT / "Makefile").read_text(encoding="utf-8").splitlines():
+            if line.startswith("\t"):
+                if target:
+                    body = line.lstrip("\t").lstrip("@").strip()
+                    if body:
+                        out[target].append(body)
+            elif ":" in line and not line.startswith(("#", " ", ".")):
+                target = line.split(":", 1)[0].strip()
+                out.setdefault(target, [])
+        return out
+
+    def test_every_delegated_target_only_calls_the_cli(self):
+        """위임 타깃의 레시피는 **CLI 호출(+입력 가드)뿐**이어야 한다.
+
+        레시피가 컴파일러·스크립트를 직접 부르기 시작하면 그 순간 구현이 둘이 된다.
+        `@test -n` 가드는 예외로 허용한다 — 로직이 아니라 입력 검증이고, make 는 P 없이
+        불렸을 때 플러그인 루트 자신에 설치하지 않고 멈춰야 한다(CLI 는 cwd 기본값).
+        """
+        recipes = self.recipes()
+        sub = "bootstrap"
+        for target in self.DELEGATED:
+            self.assertIn(target, recipes, f"Makefile 에 {target} 타깃이 없다")
+            body = [l for l in recipes[target] if not l.startswith("test -n ")]
+            self.assertTrue(body, f"{target}: 레시피가 비었다")
+            expect = sub if target == "venv" else target
+            for line in body:
+                self.assertTrue(line.startswith("$(DW) "),
+                                f"{target}: CLI 위임이 아닌 레시피 줄 — {line}")
+                self.assertIn(expect, line, f"{target}: 다른 서브커맨드를 부른다 — {line}")
+            for banned in ("$(VPY)", "$(COMPILE)", "cp -R", "mkdir -p", "$(MAKE)"):
+                self.assertFalse(any(banned in l for l in recipes[target]),
+                                 f"{target}: 위임 타깃이 {banned} 를 직접 쓴다(구현 이중화)")
+
+    def test_cli_exposes_a_subcommand_for_every_delegated_target(self):
+        """타깃 ↔ 서브커맨드 이름이 1:1 이어야 한다(문서·감사가 그 매핑에 의존한다)."""
+        names = set(self.cli.SUBCOMMANDS)
+        for target in self.DELEGATED:
+            expect = "bootstrap" if target == "venv" else target
+            self.assertIn(expect, names, f"CLI 에 {expect} 서브커맨드가 없다")
+
+    def test_commands_call_the_cli_not_make(self):
+        """슬래시 커맨드 문서에 `make` 호출이 남아 있으면 안 된다 — L3 의 본체."""
+        offenders = []
+        for md in sorted((ROOT / "commands").glob("*.md")):
+            for lineno, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
+                if re.search(r"\bmake\s+(-C|[a-z][a-z-]*\b)", line):
+                    offenders.append(f"{md.name}:{lineno}: {line.strip()}")
+        self.assertEqual(offenders, [], "커맨드가 아직 make 를 부른다:\n" + "\n".join(offenders))
+
+    def test_commands_have_no_shell_command_substitution(self):
+        """`dw.py` 호출에 `$(pwd)` 류 셸 치환이 없어야 한다 — CLI 가 cwd 를 기본값으로 받는다.
+
+        범위: **CLI 를 부르는 줄**. 커맨드 문서엔 아직 `dw-graphify-register.py`·`dw-ci-review.py`
+        같은 선택 단계가 `--project "$(pwd)"` 를 쓴다(의도적 잔여 — CHANGELOG 명시). Git Bash 는
+        셸 치환을 제공하므로 make 부재만큼 치명적이지 않고, 그 스크립트들은 이번 범위 밖이다.
+        """
+        offenders = []
+        for md in sorted((ROOT / "commands").glob("*.md")):
+            for lineno, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
+                if "dw.py" in line and ("$(pwd)" in line or "`pwd`" in line):
+                    offenders.append(f"{md.name}:{lineno}: {line.strip()}")
+        self.assertEqual(offenders, [], "커맨드에 셸 치환이 남았다:\n" + "\n".join(offenders))
+
+    def test_project_defaults_to_cwd(self):
+        """`--project` 생략 = 현재 디렉토리(커맨드 문서에서 `$(pwd)` 를 없앤 근거)."""
+        self.assertEqual(self.cli._project(None), Path.cwd().resolve())
+        self.assertEqual(self.cli._project(str(self.tmp)), self.tmp.resolve())
+
+    def test_scope_off_does_not_default_to_cwd(self):
+        """`off` 만 예외 — 어쩌다 들어온 디렉토리에 settings.json 을 만들면 안 된다."""
+        calls = []
+        with unittest.mock.patch.object(self.cli, "_run", lambda argv: calls.append(argv) or 0), \
+             unittest.mock.patch.object(self.cli, "_venv_py", lambda: Path("/py")):
+            self.cli.cmd_plugin_scope_off(argparse.Namespace(project=None))
+            self.cli.cmd_plugin_scope_project(argparse.Namespace(project=str(self.tmp)))
+        self.assertEqual(len(calls[0]), 3, f"off 가 프로젝트 인자를 붙였다: {calls[0]}")
+        self.assertEqual(str(calls[1][-1]), str(self.tmp.resolve()))
+
+    def test_scaffold_copy_never_clobbers(self):
+        """seed 복사는 `cp -Rn` 등가 — 사용자가 쌓은 vault 노트를 되돌리면 사고다."""
+        src, dst = self.tmp / "src", self.tmp / "dst"
+        (src / "governance").mkdir(parents=True)
+        (src / "governance" / "a.md").write_text("seed\n", encoding="utf-8")
+        (src / "b.md").write_text("seed-b\n", encoding="utf-8")
+        (dst / "governance").mkdir(parents=True)
+        (dst / "governance" / "a.md").write_text("사용자가 고친 내용\n", encoding="utf-8")
+
+        copied, kept = self.cli._copy_no_clobber(src, dst)
+        self.assertEqual((copied, kept), (1, 1))
+        self.assertEqual((dst / "governance" / "a.md").read_text(encoding="utf-8"),
+                         "사용자가 고친 내용\n", "기존 파일을 덮었다")
+        self.assertEqual((dst / "b.md").read_text(encoding="utf-8"), "seed-b\n")
+        self.assertEqual(self.cli._copy_no_clobber(src, dst), (0, 2), "재실행이 멱등이 아니다")
+
+    def test_output_order_survives_a_pipe(self):
+        """파이프로 받아도 부모/자식 출력 순서가 유지돼야 한다.
+
+        파이썬 stdout 은 파이프에서 block-buffered 라, 자식을 띄우기 전에 flush 하지 않으면
+        부모의 `print` 가 프로세스 종료 시점에야 나가 자식 출력 **뒤로** 밀린다. 실측으로 밟은
+        회귀다 — `dw.py doctor | cat` 이 헬스체크 헤더를 외부 의존 목록 뒤에 찍었다.
+        에이전트(Bash 도구)가 보는 경로가 바로 이 파이프 경로라, tty 에서만 확인하면 못 잡는다.
+        """
+        r = subprocess.run([sys.executable, str(BUILD / "dw.py"), "doctor"],
+                           capture_output=True, text=True)   # capture_output = 파이프
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = [l for l in r.stdout.splitlines() if l.strip()]
+        self.assertTrue(lines[0].startswith("== denver-workflow 헬스체크"),
+                        f"헤더가 첫 줄이 아니다(자식 출력이 앞질렀다):\n{r.stdout}")
+        own = next(i for i, l in enumerate(lines) if "MCP 서버" in l)
+        external = next(i for i, l in enumerate(lines) if "Obsidian" in l)
+        self.assertLess(own, external, f"자체 점검이 외부 의존 목록 뒤로 밀렸다:\n{r.stdout}")
+
+    def test_cli_runs_under_the_repo_python_floor(self):
+        """CLI 는 CC 가 해석한 아무 python3 으로 돌 수 있어야 한다 — `--help` 가 그 최소 증거.
+
+        배선·커맨드가 `python3` 을 부르므로, 3.9 처럼 낮은 인터프리터에서 문법/임포트가 깨지면
+        모든 슬래시 커맨드가 죽는다(이 워크스테이션의 `/usr/bin/python3` 는 3.9.6).
+        """
+        for interp in ("/usr/bin/python3", sys.executable):
+            if not Path(interp).exists():
+                continue
+            r = subprocess.run([interp, str(BUILD / "dw.py"), "--help"],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, f"{interp}: {r.stderr}")
+            self.assertIn("install-project", r.stdout, interp)
+
+
+def load_cli():
+    """dw.py 를 모듈로 로드. 하이픈이 없어 직접 import 도 되지만, 테스트 간 격리를 위해 매번 새로."""
+    spec = importlib.util.spec_from_file_location(f"dw_cli_{next(_counter)}", BUILD / "dw.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def load_ratifier():

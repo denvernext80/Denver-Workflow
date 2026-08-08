@@ -230,30 +230,54 @@ Denver는 자체 거버넌스 코어 및 하네스 엔진만 포함하고 있습
 
 ### 5. 플랫폼 — Windows 전제 및 미검증 범위
 
-> **⚠️ "Windows 지원" 이라고 말하지 않습니다.** 2.14.0 에서 한 일은 **MCP 런처의 POSIX 셸 의존
-> 제거(구조적)** 까지입니다. **Windows 실기 검증은 하지 못했습니다**(이 레포에 CI 워크플로우가
+> **⚠️ "Windows 지원" 이라고 말하지 않습니다.** 2.14.0~2.15.0 에서 한 일은 **POSIX 셸·`make`
+> 의존 제거(구조적)** 까지입니다. **Windows 실기 검증은 하지 못했습니다**(이 레포에 CI 워크플로우가
 > 없고, 이 계정은 GitHub 호스티드 러너를 쓸 수 없습니다). 실기가 확보되면
 > [docs/windows-smoke-checklist.md](docs/windows-smoke-checklist.md) 로 5 분 안에 판정하십시오.
 
-**무엇이 바뀌었나.** `dw-vault` MCP 런처가 `#!/bin/sh` 스크립트(`_build/dw-mcp-launch.sh`)에서
-순수 Python(`_build/dw-mcp-launch.py`)으로 바뀌었습니다. `plugin.json` 의 `mcpServers.command` 는
-**셸을 경유하지 않고 직접 spawn** 되므로, 종전 배선은 POSIX 셸이 없는 환경에서 런처 자체가 실행되지
-않았고 그 결과 dw-vault MCP 도구 **11 개 전부가 기동하지 않았습니다**(플러그인 핵심 정지).
+**무엇이 바뀌었나.**
+
+* **2.14.0 — MCP 런처.** `dw-vault` 런처가 `#!/bin/sh` 스크립트에서 순수 Python
+  (`_build/dw-mcp-launch.py`)으로 바뀌었습니다. `plugin.json` 의 `mcpServers.command` 는 **셸을
+  경유하지 않고 직접 spawn** 되므로, 종전 배선은 POSIX 셸이 없는 환경에서 런처 자체가 실행되지
+  않았고 그 결과 dw-vault MCP 도구 **11 개 전부가 기동하지 않았습니다**(플러그인 핵심 정지).
+* **2.15.0 — 슬래시 커맨드의 `make` 의존.** 커맨드 10 개 중 7 개가 `make` 타깃을 불렀습니다.
+  이제 전부 이식 가능 CLI(`_build/dw.py`)를 직접 호출합니다 —
+  `python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" <서브커맨드>`.
+  `make` 는 **개발자 인터페이스로 계속 동작**하며, 같은 CLI 에 얇게 위임합니다(구현은 하나).
+
+> **왜 `make` 였고 `grep`·`uname`·`cp` 는 아닌가.** Git for Windows(Git Bash)는 `grep`·`uname`·
+> `cp`·셸 치환을 제공하지만 **`make` 는 제공하지 않습니다.** 그래서 이식 작업의 표적은 `make` 이고,
+> 커맨드 문서에 남은 소수의 coreutils 사용(레거시 감지용 `grep -rlE` 등)은 의도적 잔여입니다.
 
 **Windows 에서 필요한 전제 (충족되지 않으면 조용히 실패하지 않고 시끄럽게 실패합니다).**
 
 | 전제 | 왜 필요한가 | 확인·해결 |
 | --- | --- | --- |
-| **`python3` 이름이 PATH 에서 해석된다** | 배선이 `"command": "python3"` 입니다. 플랫폼별 분기 키가 없어 양쪽에서 동시에 안전한 인터프리터 이름이 **존재하지 않습니다** — 훅 전체가 이미 `python3` 을 쓰고 있어 그쪽에 맞췄습니다. | 터미널에서 `python3 --version`. Microsoft Store 판 Python 은 `python3.exe` 를 제공하고, **python.org 판은 `python.exe`·`py.exe` 만 제공합니다**(이 경우 `python3` 이 해석되지 않아 MCP 가 기동하지 않습니다). Store 판을 쓰거나 PATH 에 `python3` 이름을 만들어 주십시오. |
-| **`make`** | 슬래시 커맨드 10 개 중 **7 개**(`/denver-workflow`, `/dw-build`, `/dw-install`, `/dw-ratify`, `/dw-review`, `/dw-scope`, `/dw-setup`)가 내부적으로 `make` 타깃을 호출합니다. 이 범위는 2.14.0 에서 **손대지 않았습니다** — Windows 에서 그 커맨드들은 여전히 `make` 가 필요합니다. | Git for Windows + `make`(예: MSYS2/Chocolatey) 설치. MCP·훅은 `make` 없이도 동작합니다. |
-| **파이썬의 `venv` 모듈** | 런처가 첫 실행 시 `<플러그인 루트>/.venv` 를 만들고 `pyyaml`·`mcp<2` 를 설치합니다. | 실패 시 런처가 원인과 함께 stderr 로 죽습니다(조용한 실패 없음). |
+| **`python3` 이름이 PATH 에서 해석된다** | MCP 배선(`"command": "python3"`)·훅 10 건·슬래시 커맨드가 모두 `python3` 을 부릅니다. 플랫폼별 분기 키가 없어 양쪽에서 동시에 안전한 인터프리터 이름이 **존재하지 않습니다** — 이미 다수가 쓰던 `python3` 으로 통일했습니다. | 터미널에서 `python3 --version`. Microsoft Store 판 Python 은 `python3.exe` 를 제공하고, **python.org 판은 `python.exe`·`py.exe` 만 제공합니다**(이 경우 `python3` 이 해석되지 않아 MCP·커맨드가 전부 죽습니다). Store 판을 쓰거나 PATH 에 `python3` 이름을 만들어 주십시오. |
+| **파이썬의 `venv` 모듈** | 런처·CLI 가 첫 실행 시 `<플러그인 루트>/.venv` 를 만들고 `pyyaml`·`mcp` 를 설치합니다(핀은 `_build/dw_runtime.py` 의 `DEPS` 한 곳). | 실패 시 원인·명령·자식 출력을 stderr 로 전부 내고 죽습니다(조용한 실패 없음). |
+| ~~**`make`**~~ | **2.15.0 부터 슬래시 커맨드엔 불필요합니다.** `make` 는 이 레포를 개발할 때만 쓰입니다(`make test`·`seed-check`·`update-seed` 등). | — |
 
 **훅(배선 10 건·스크립트 9 종)은 문자열 형태를 유지했습니다** — 검토했고 바꾸지 않았습니다. 근거는
 CHANGELOG 2.14.0 항목에 있습니다.
 
 ---
 
-## 💻 주요 CLI 명령어 (Makefile)
+## 💻 주요 CLI 명령어
+
+**두 인터페이스가 같은 코드를 씁니다.** 로직 정본은 `_build/dw.py`(이식 가능 CLI)이고 `make` 는
+거기에 얇게 위임합니다 — `make X` 와 `/dw-X` 가 갈라질 수 없는 구조입니다(자기검사가 위임을 고정).
+
+* **어디서나 (make 불필요, 슬래시 커맨드가 쓰는 경로)**
+  ```bash
+  python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" --help          # 서브커맨드 목록
+  python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" dry-run
+  python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" install-project  # 생략 시 현재 디렉토리
+  ```
+  서브커맨드는 아래 make 타깃 이름과 **1:1 동일**합니다(`build`·`dry-run`·`install-project`·
+  `ratify`·`review`·`doctor`·`scaffold-vault`·`plugin-scope-user|project|off`).
+
+* **이 레포를 개발할 때 (macOS/Linux — `make` 필요)**
 
 ```bash
 make build                    # Vault 컴파일 ➔ .claude/skills 디렉토리로 빌드
@@ -268,7 +292,7 @@ make update-seed              # 활성화된 Vault의 공통 거버넌스 규칙
 make clean / make distclean   # 빌드 산출물 제거 / 빌드 산출물 및 로컬 가상환경(.venv)까지 완전 제거
 ```
 
-*(※ 외부 의존 패키지는 `pyyaml`과 `mcp` 뿐이며, `make` 명령어 실행 시 시스템 환경을 오염시키지 않고 프로젝트 로컬 가상환경(`.venv`)에 안전하게 자동 격리 설치됩니다.)*
+*(※ 외부 의존 패키지는 `pyyaml`과 `mcp` 뿐이며, 첫 실행 시 시스템 환경을 오염시키지 않고 프로젝트 로컬 가상환경(`.venv`)에 안전하게 자동 격리 설치됩니다. `make` 든 CLI 든 부트스트랩 코드는 `_build/dw_runtime.py` 하나이며 버전 핀도 거기 한 곳에만 있습니다.)*
 
 > ⚠️ **dw-vault MCP 도구가 세션에 보이지 않으면 `make distclean` 후 재빌드하세요.**
 > `mcp` 는 **`<2`** 로 핀되어 있습니다(2.0.0 이 `mcp.server.fastmcp` 를 제거해 서버가 기동하지

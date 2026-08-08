@@ -9,12 +9,12 @@ denver-workflow 를 대상 프로젝트에 설치·갱신한다. vault(팀 지�
 
 1. **단일 프로젝트**(기본): 현재 디렉토리.
    ```bash
-   make -C "${CLAUDE_PLUGIN_ROOT}" install-project P="$(pwd)"
+   python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" install-project
    ```
 2. **멀티레포**: 세션 digest 의 "## 레포 맵" (없으면 vault `project/repo-map.md` 를 읽음)에
    등록된 각 저장소 절대경로에 대해 순회:
    ```bash
-   make -C "${CLAUDE_PLUGIN_ROOT}" install-project P=<저장소 절대경로>
+   python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw.py" install-project --project <저장소 절대경로>
    ```
    repo-map 에 scope 열이 있으면 `SCOPES=<값>` 을 함께 넘긴다(생략 = 전체 union).
 

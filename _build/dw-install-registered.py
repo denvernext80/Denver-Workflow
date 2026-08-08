@@ -83,7 +83,7 @@ def main() -> int:
 
     if not targets and not missing:
         print(f"[install] 설치 대상 0개 ({src}) — 설치할 곳이 없다. "
-              f"`make install-project P=/절대경로` 로 레포를 등록하라. (실패 아님)")
+              f"`/dw-install` 로 레포를 등록하라. (실패 아님)")
         return 0
 
     ok: list[str] = []
@@ -98,7 +98,7 @@ def main() -> int:
           + (f" · 사라진 등록 {len(missing)}" if missing else ""))
     for m in missing:
         print(f"  ⚠️ 등록 경로 없음(건너뜀): {m}\n"
-              f"      → 레포를 옮겼다면 `make install-project P=<새 경로>`, 없앴다면 "
+              f"      → 레포를 옮겼다면 새 경로에서 `/dw-install`, 없앴다면 "
               f"{dw_state.registry_path(vault)} 에서 이 항목을 지워라.")
     for m in failed:
         print(f"  ✗ {m}")

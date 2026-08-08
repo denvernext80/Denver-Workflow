@@ -1,8 +1,8 @@
 # Windows 스모크 체크리스트 (5 분 판정)
 
 **목적**: Windows 실기가 확보됐을 때, denver-workflow 플러그인이 실제로 사는지 **5 분 안에**
-판정한다. 2.14.0 은 MCP 런처의 POSIX 셸 의존을 구조적으로 제거했을 뿐, **실기 검증은 없다**
-(작성 시점 2026-08-08). 이 문서가 그 공백을 메우는 절차다.
+판정한다. 2.14.0(MCP 런처의 POSIX 셸 의존)·2.15.0(슬래시 커맨드의 `make` 의존)은 그 의존을
+**구조적으로** 제거했을 뿐 **실기 검증은 없다**(작성 시점 2026-08-08). 이 문서가 그 공백을 메운다.
 
 판정 원칙: **"아마 됐을 것" 은 근거가 아니다.** 각 단계는 눈으로 확인할 산출물이 있다.
 
@@ -13,7 +13,7 @@
 ```powershell
 python3 --version      # ← 이게 실패하면 1~4 단계는 전부 실패한다. 아래 「전제 A」로.
 git --version
-make --version         # 없어도 MCP·훅은 산다. 커맨드 7 개만 죽는다(「전제 B」).
+make --version         # 2.15.0 부터 **없어도 된다**(개발자 전용 — 「전제 B」).
 claude --version
 ```
 
@@ -73,10 +73,24 @@ dw_write_contract  dw_write_spec  dw_write_procedure
 
 **확인**: 훅 실행 로그는 세션에서 `/hooks`, 상세 진단은 `claude --debug` 로 본다.
 
-## 6. (선택) make 경유 커맨드 (30 초)
+## 6. 슬래시 커맨드 경로 (1 분) — **2.15.0 에서 판정 대상이 된 부분**
 
-`make` 를 설치했다면 `/dw-install` 을 실행한다. `make` 가 없으면 이 단계는 **실패가 정상**이며,
-그 사실 자체가 2.14.0 의 알려진 잔여 범위다(「전제 B」).
+2.15.0 부터 커맨드는 `make` 대신 이식 가능 CLI 를 부른다. **`make` 없이 되는지**가 핵심이다.
+
+1. CLI 자체가 뜨는지(세션 밖 셸에서는 `$env:CLAUDE_PLUGIN_ROOT` 가 비어 있으니 설치 경로를 직접):
+   ```powershell
+   python3 "<플러그인 설치 경로>\_build\dw.py" --help
+   ```
+   **확인**: 서브커맨드에 `build`·`dry-run`·`install-project`·`ratify`·`review`·`doctor`·
+   `scaffold-vault`·`plugin-scope-user|project|off` 가 보인다.
+2. 읽기 전용 커맨드부터 — 세션에서 **`/dw-review`**.
+   **확인**: draft 큐 + 헬스체크가 나오고 출력 **첫 줄**이 `== OBEY draft 큐` 다.
+   (첫 줄이 외부 의존 목록이면 출력 순서가 뒤집힌 것 — 파이프 버퍼링 회귀다.)
+3. 쓰기 커맨드 — **`/dw-install`**(인자 없이 = 현재 저장소).
+   **확인**: `<저장소>\.claude\` 에 `skills`·`dw-checks.json`·`agents`·`dw-session-digest.md` 가
+   생기고 마지막 줄이 `✓ 설치 완료:` 다. **한 번 더 실행해도 결과가 같다**(멱등).
+4. `make` 가 **없는** 환경에서 위 셋이 통과했다면 그게 곧 2.15.0 이 목표한 것이다.
+   `make` 는 이 레포를 **개발**할 때만 필요하다(「전제 B」).
 
 ---
 
@@ -85,13 +99,15 @@ dw_write_contract  dw_write_spec  dw_write_procedure
 | 증상 | 1 순위 원인 | 확인 지점 |
 | --- | --- | --- |
 | `/mcp` 에 `dw-vault` 가 아예 없다 | 플러그인 미활성 / 설치 실패 | `claude plugin list`, `/dw-scope` |
-| `dw-vault` 가 **failed** (설치·업데이트 직후 **첫 세션만**) | 콜드 부트스트랩이 MCP 기동 타임아웃을 넘겼다. `claude plugin update` 는 새 클론을 받아 `.venv` 가 없다. | 세션을 한 번 더 연다(두 번째는 venv 재사용). 미리 워밍하려면 설치본 루트에서 `make build`. **회귀가 아니다** |
+| `dw-vault` 가 **failed** (설치·업데이트 직후 **첫 세션만**) | 콜드 부트스트랩이 MCP 기동 타임아웃을 넘겼다. `claude plugin update` 는 새 클론을 받아 `.venv` 가 없다. | 세션을 한 번 더 연다(두 번째는 venv 재사용). 미리 워밍하려면 설치본 루트에서 `python3 _build/dw.py bootstrap`. **회귀가 아니다** |
 | `dw-vault` 가 **failed** (두 번째 세션에서도) | `python3` 이름 미해석(**가장 흔함**) | `claude --debug` 의 MCP stderr — spawn 자체가 실패하면 파일 없음/ENOENT 계열 |
 | `dw-vault` failed + stderr 에 `vault 없음` | vault 폴더 미존재 | 「전제 C」 |
 | `dw-vault` failed + stderr 에 `venv 생성 실패` | 파이썬 `venv` 모듈 문제 | 런처가 명령·종료코드·자식 출력을 전부 찍는다 — 그 전문을 본다 |
-| 도구가 11 개보다 적다 | 낡은 플러그인 버전 | `plugin.json` 의 `version` 이 2.14.0 이상인지 |
+| 도구가 11 개보다 적다 | 낡은 플러그인 버전 | `plugin.json` 의 `version` 이 2.15.0 이상인지 |
 | 도구는 뜨는데 검색이 항상 빈 결과 | vault 경로가 딴 곳 | 「전제 C」 |
 | 훅이 전혀 안 돈다 | 셸 부재/`python3` 미해석 | `claude --debug`, Git Bash 설치 여부 |
+| 슬래시 커맨드가 `make: command not found` | 2.14.0 이하 커맨드 문서 | `claude plugin update` — 2.15.0 부터 커맨드는 `make` 를 부르지 않는다 |
+| 커맨드 출력 순서가 뒤집혀 보인다 | 파이프 버퍼링(부모 print 가 자식 뒤로 밀림) | 2.15.0 에서 수정 — 버전 확인. 재현되면 `dw.py` 의 `_flush()` 회귀 |
 
 ### 전제 A — `python3` 이름 해석
 
@@ -105,11 +121,16 @@ dw_write_contract  dw_write_spec  dw_write_procedure
 
 확인: `where python3` 이 실제 실행 파일을 가리키는지(Store 앱 별칭 스텁만 잡히면 실행이 실패할 수 있다).
 
-### 전제 B — `make`
+### 전제 B — `make` (2.15.0 에서 **해소**)
 
-슬래시 커맨드 10 개 중 **7 개**(`/denver-workflow`, `/dw-build`, `/dw-install`, `/dw-ratify`,
-`/dw-review`, `/dw-scope`, `/dw-setup`)가 `make` 타깃을 호출한다. 2.14.0 은 이 범위를 **손대지
-않았다** — Windows 에서 그 커맨드들엔 여전히 `make` 가 필요하다. MCP·훅은 `make` 없이 동작한다.
+2.14.0 까지는 슬래시 커맨드 10 개 중 7 개가 `make` 타깃을 호출했다. **2.15.0 부터 커맨드는
+`_build/dw.py` CLI 를 직접 부르므로 `make` 가 필요 없다.** `make` 는 이 레포를 개발할 때만 쓰인다
+(`make test`·`seed-check`·`update-seed` 등 — 위임하지 않은 개발자 타깃엔 `find|wc|tr` 같은
+POSIX 파이프라인이 남아 있다).
+
+Git for Windows 는 `grep`·`uname`·`cp`·셸 치환을 제공하지만 **`make` 는 제공하지 않는다** —
+그래서 이식의 표적이 `make` 였다. 커맨드 문서에 남은 소수의 coreutils 사용(레거시 감지
+`grep -rlE`, 선택 단계의 `--project "$(pwd)"`)은 Git Bash 가 커버하는 의도적 잔여다.
 
 ### 전제 C — vault 위치
 
@@ -126,6 +147,8 @@ dw_write_contract  dw_write_spec  dw_write_procedure
   둘 다 보려면 Git Bash 를 지운 환경에서 5 단계를 한 번 더 돌린다.
 * **`os.execv` 관련 회귀** — Windows 분기는 `subprocess` 로 자식을 띄우므로 애초에 `execv` 를
   타지 않는다(근거는 `_build/dw-mcp-launch.py` 의 `launch()` 주석).
+* **`make` 경유 개발자 타깃** — `make test`·`seed-check`·`update-seed` 는 Windows 판정 범위 밖이다
+  (POSIX 파이프라인 잔존, 의도적).
 
-판정 결과는 CHANGELOG 의 2.14.0 「미검증」 목록을 갱신하는 근거로 쓴다 — **실기로 확인한 뒤에만**
-그 항목을 「검증됨」 으로 옮긴다.
+판정 결과는 CHANGELOG 의 2.14.0·2.15.0 「미검증」 목록을 갱신하는 근거로 쓴다 — **실기로 확인한
+뒤에만** 그 항목을 「검증됨」 으로 옮긴다.

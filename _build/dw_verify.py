@@ -157,10 +157,10 @@ def verify_rule_checks(vault, deny: list[str], require: list[str], glob: list[st
     if not projects:
         return Verdict(NO_PROJECTS,
                        "스캔 대상 프로젝트 0 — 패턴을 돌려 볼 코드가 없다(검증 불가). "
-                       "`make install-project P=/절대경로` 로 레포를 등록하라.",
+                       "`/dw-install` 로 레포를 등록하라.",
                        "검사대상 0건 — 등록된 레포가 0개라 패턴을 돌려 볼 코드가 없습니다. "
                        "이대로면 **자동 승격이 보류**됩니다(거절이 아니라 '판단 필요' 상태로 대기). "
-                       "`make install-project P=/절대경로` 로 레포를 등록하면 다음 비준에서 "
+                       "`/dw-install` 로 레포를 등록하면 다음 비준에서 "
                        "검증·승격됩니다.",
                        projects=0)
     hits, cand = scan_codebase(projects, glob, exclude, deny, require)

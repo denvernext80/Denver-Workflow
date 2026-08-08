@@ -390,7 +390,7 @@ def dw_write_procedure(scope: str, title: str, steps: str) -> str:
           "compiles-to": "skill", "date": today, "title": title}
     path = _emit("governance/procedures", f"{_slugify(title)}.md", fm, steps)
     return (f"제안됨(draft): {path} {note}— draft 라 아직 컴파일 안 됨. "
-            "dw-ratifier 가 검증 통과 시 자동 stable·`make install` 합니다(사람 불요).")
+            "dw-ratifier 가 검증 통과 시 자동 stable·설치 합니다(사람 불요).")
 
 
 def _clean_patterns(v: list[str] | None) -> list[str]:
