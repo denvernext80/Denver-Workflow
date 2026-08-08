@@ -24,6 +24,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
 from pathlib import Path
 
 BUILD = Path(__file__).resolve().parent
@@ -760,6 +761,20 @@ class McpLauncherTest(unittest.TestCase):
         """Windows: Scripts/python.exe. 실기 없이 고정할 수 있는 최대치."""
         self.assertEqual(self.mod.venv_python(Path("/x/.venv"), "nt"),
                          Path("/x/.venv/Scripts/python.exe"))
+
+    def test_venv_python_falls_back_when_venv_schemes_absent(self):
+        """py<3.11 경로 — `nt_venv`/`posix_venv` 스킴이 없으면 CPython 리터럴 레이아웃으로.
+
+        가정이 아니라 **살아있는 경로**다: 배선이 `command: "python3"` 이라 CC 가 해석한 아무
+        python3 이 런처를 임포트한다. 실측(2026-08-08) 이 워크스테이션의 `/usr/bin/python3` 는
+        3.9.6 이고 두 스킴 모두 `KeyError` 다 — 이 분기가 안 맞으면 dw-vault 가 조용히 죽는다.
+        """
+        with unittest.mock.patch.object(self.mod.sysconfig, "get_path",
+                                        side_effect=KeyError("posix_venv")):
+            self.assertEqual(self.mod.venv_python(Path("/x/.venv"), "posix"),
+                             Path("/x/.venv/bin/python"))
+            self.assertEqual(self.mod.venv_python(Path("/x/.venv"), "nt"),
+                             Path("/x/.venv/Scripts/python.exe"))
 
     def test_venv_python_default_matches_running_platform(self):
         """기본 인자는 돌고 있는 플랫폼을 따른다(호출부가 os_name 을 잊어도 맞는다)."""

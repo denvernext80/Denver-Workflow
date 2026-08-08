@@ -85,7 +85,8 @@ dw_write_contract  dw_write_spec  dw_write_procedure
 | 증상 | 1 순위 원인 | 확인 지점 |
 | --- | --- | --- |
 | `/mcp` 에 `dw-vault` 가 아예 없다 | 플러그인 미활성 / 설치 실패 | `claude plugin list`, `/dw-scope` |
-| `dw-vault` 가 **failed** | `python3` 이름 미해석(**가장 흔함**) | `claude --debug` 의 MCP stderr — spawn 자체가 실패하면 파일 없음/ENOENT 계열 |
+| `dw-vault` 가 **failed** (설치·업데이트 직후 **첫 세션만**) | 콜드 부트스트랩이 MCP 기동 타임아웃을 넘겼다. `claude plugin update` 는 새 클론을 받아 `.venv` 가 없다. | 세션을 한 번 더 연다(두 번째는 venv 재사용). 미리 워밍하려면 설치본 루트에서 `make build`. **회귀가 아니다** |
+| `dw-vault` 가 **failed** (두 번째 세션에서도) | `python3` 이름 미해석(**가장 흔함**) | `claude --debug` 의 MCP stderr — spawn 자체가 실패하면 파일 없음/ENOENT 계열 |
 | `dw-vault` failed + stderr 에 `vault 없음` | vault 폴더 미존재 | 「전제 C」 |
 | `dw-vault` failed + stderr 에 `venv 생성 실패` | 파이썬 `venv` 모듈 문제 | 런처가 명령·종료코드·자식 출력을 전부 찍는다 — 그 전문을 본다 |
 | 도구가 11 개보다 적다 | 낡은 플러그인 버전 | `plugin.json` 의 `version` 이 2.14.0 이상인지 |

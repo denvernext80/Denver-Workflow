@@ -84,20 +84,33 @@ Bash, 미설치 시 PowerShell). exec 형태(`args`)로 바꿀 수 있는지 실
   `make` 필요 범위, **미검증** 표기.
 - `docs/windows-smoke-checklist.md` — 실기 확보 시 **5 분 판정** 절차(설치 → 새 세션 → 도구 11 개
   노출 → `dw_search` 1 회 → 훅 → 실패 시 어디를 보는지).
-- `_build/dw-selftest.py` `McpLauncherTest` **15 케이스** 추가(총 41 → 56):
-  플랫폼 분기 양쪽 고정(venv 레이아웃·기동 방식), vault 해석 3 경로, 접두 확장의 **범위 한정**
-  (경로 중간의 `~`·`$` 불변), 부트스트랩 멱등·시끄러운 실패, 배선 회귀 가드(`.sh` 부활 감지·
-  `mcp<2` 핀 Makefile 일치), 그리고 **실제 JSON-RPC handshake**(initialize → tools/list, 도구
-  수를 서버의 `@mcp.tool()` 개수와 대조).
+- `_build/dw-selftest.py` `McpLauncherTest` **16 케이스** 추가(총 41 → 57):
+  플랫폼 분기 양쪽 고정(venv 레이아웃·기동 방식), 3.11 미만 스킴 부재 폴백, vault 해석 3 경로,
+  접두 확장의 **범위 한정**(경로 중간의 `~`·`$` 불변), 부트스트랩 멱등·시끄러운 실패, 배선 회귀
+  가드(`.sh` 부활 감지·`mcp<2` 핀 Makefile 일치), 그리고 **실제 JSON-RPC handshake**
+  (initialize → tools/list, 도구 수를 서버의 `@mcp.tool()` 개수와 대조).
+
+### ⚠️ 업데이트 직후 첫 세션은 dw-vault 가 한 번 failed 로 보일 수 있다
+
+`claude plugin update` 는 새 클론을 받으므로 설치본의 `.venv` 가 사라진다. 그래서 **업데이트 후
+첫 새 세션**은 콜드 캐시로 전체 부트스트랩(venv 생성 + pip 설치)을 CC 의 MCP 기동 타임아웃 안에서
+치른다 — `dw-vault` 가 **첫 세션 failed, 두 번째 세션 connected** 로 보일 수 있다. 종전 `.sh` 도
+동일했으므로 회귀는 아니지만, 하필 새 배선을 확인하는 순간에 나타난다. 대처: 세션을 한 번 더 열거나,
+설치본 루트에서 `make build` 로 미리 워밍한다.
 
 ### 검증됨 (macOS, 실측)
 
 - **첫 실행 부트스트랩**: `.venv` 없는 워크트리에서 런처가 venv 생성 + `pyyaml`·`mcp<2` 설치 →
-  서버 기동까지 4.0 s. 설치된 `mcp` = **1.29.0**(핀 유효).
+  서버 기동까지 4.0 s(**pip 캐시 warm** — 콜드 캐시는 훨씬 오래 걸린다, 위 경고 참조).
+  설치된 `mcp` = **1.29.0**(핀 유효).
 - **JSON-RPC handshake**: `initialize` → `serverInfo={'name': 'dw-vault', 'version': '1.29.0'}`,
   `protocolVersion=2024-11-05`, `tools/list` → **11 개** 전부 노출. stdout 오염 0.
+- **3.11 미만 폴백을 실기로 확인** — 이 워크스테이션의 `/usr/bin/python3` 는 **3.9.6** 이고
+  `nt_venv`/`posix_venv` 스킴에 `KeyError` 를 던진다. 그 인터프리터로 런처를 띄워 handshake
+  11 도구를 확인했다. 배선이 `command: "python3"` 이라 **CC 가 해석한 아무 python3** 이 런처를
+  돌린다는 위험을 이걸로 덮었다(단위 테스트로도 고정).
 - **플랫폼 분기 양쪽** — `os.name` 주입 단위 테스트(Windows 실기 없이 가능한 최대치).
-- `make test` 56/56 OK · `make dry-run`(strict) 에러 0 · `make doctor` 전 항목 ok ·
+- `make test` 57/57 OK · `make dry-run`(strict) 에러 0 · `make doctor` 전 항목 ok ·
   `make seed-check` ok.
 - CC 2.1.225 바이너리 실측 — 훅 `args` exec 형태 스키마 존재, 문자열 형태의 셸 경유 규칙,
   `$CLAUDE_PROJECT_DIR` 에 대한 PowerShell 진단 문구.
