@@ -1147,5 +1147,491 @@ def load_ratifier():
     return mod
 
 
+class VaultResolutionTest(unittest.TestCase):
+    """(E) vault 해석의 **단일 정본**(`dw_runtime`) — 2.16.0 에서 11 곳을 통합한 그 계약.
+
+    왜 이 클래스가 필요한가: 통합 전 11 곳은 **복제가 아니라 시맨틱이 갈려 있었다**.
+    우선순위 2 종(env-first 4 곳 / config-first 7 곳), 홈 확장 3 종, 존재 요구 4 종 —
+    그래서 같은 머신에서 도구별로 **다른 vault 를 가리킬 수 있었다**(오늘은 `dw-config.json`
+    값이 env 와 같아 증상이 없었을 뿐, 갈라지는 순간 조용히 갈라진다). 여기서 각 분기를
+    고정해 두지 않으면 사본이 다시 늘어난다.
+
+    모든 케이스는 **주입된 env·home** 으로만 결정된다(cwd·실제 vault 를 읽지 않는다).
+    """
+
+    def setUp(self):
+        self.mod = dw_runtime
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-vault-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.home = self.tmp / "home"
+        self.env_vault = self._vault("vaultE")
+        self.cfg_vault = self._vault("vaultC")
+        self.conv = self._vault(Path("home") / dw_runtime.CONVENTIONAL_VAULT)
+        self.project = self.tmp / "proj"
+        self.project.mkdir(parents=True, exist_ok=True)
+
+    def _vault(self, rel) -> Path:
+        p = self.tmp / rel
+        (p / "governance").mkdir(parents=True, exist_ok=True)
+        return p
+
+    def _config(self, value, where: Path | None = None) -> Path:
+        cfg = (where or self.project) / ".claude" / "dw-config.json"
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text(json.dumps({"vault_root": str(value)}), encoding="utf-8")
+        return cfg
+
+    def _find(self, env=None, **kw):
+        return self.mod.find_vault(kw.pop("project", self.project), env or {},
+                                   str(self.home), **kw)
+
+    # ── 우선순위: env > dw-config.json > 규약 ──────────────────────────────
+    def test_env_wins_over_config(self):
+        """분기의 핵심 케이스. 종전 가드·graphify 7 곳은 여기서 **config** 를 골랐다.
+
+        사용자 결정("vault 는 하나를 가리켜야 한다")에 따라 env 를 정본으로 삼는다 — env 는
+        머신 전역 단일 답이고, config 는 프로젝트별 파일이라 레포마다 갈릴 수 있다.
+        """
+        self._config(self.cfg_vault)
+        self.assertEqual(self._find({"DW_VAULT_DIR": str(self.env_vault)}), self.env_vault)
+
+    def test_config_is_used_when_env_absent(self):
+        """env 를 못 받는 컨텍스트(러너·다른 셸)의 안전망."""
+        self._config(self.cfg_vault)
+        self.assertEqual(self._find({}), self.cfg_vault)
+
+    def test_config_is_used_when_env_points_at_missing_dir(self):
+        """stale env(옮겨진 vault)는 다음 출처로 넘어간다 — 종전 env-first 4 곳은 규약으로 갔다."""
+        self._config(self.cfg_vault)
+        got = self._find({"DW_VAULT_DIR": str(self.tmp / "없음")})
+        self.assertEqual(got, self.cfg_vault)
+
+    def test_config_is_the_only_safety_net_when_convention_is_absent(self):
+        """이 머신의 형상: 규약 경로(`~/denver-workflow-vault`)가 **없다**(실측 2026-08-08).
+
+        그래서 env 가 없을 때 규약 폴백은 죽은 경로이고 `dw-config.json` 이 유일한 안전망이다.
+        """
+        shutil.rmtree(self.conv)
+        self._config(self.cfg_vault)
+        self.assertEqual(self._find({}), self.cfg_vault)
+
+    def test_convention_is_last(self):
+        self.assertEqual(self._find({}), self.conv)
+
+    def test_nothing_found_is_none_not_exception(self):
+        """훅에서 부른다 — 못 찾으면 None 이어야 한다(예외는 세션을 깨뜨린다)."""
+        shutil.rmtree(self.conv)
+        self.assertIsNone(self._find({}))
+
+    def test_config_value_expands_home_prefix(self):
+        """`dw-config.json` 에 `~/…` 가 적혀도 확장된다 — 종전 가드 5 곳은 못 했다(원문 is_dir)."""
+        rel = self.cfg_vault.relative_to(self.tmp)
+        self._config(f"~/../{rel}")
+        self.assertEqual(self._find({}).resolve(), self.cfg_vault.resolve())
+
+    # ── 홈 접두 확장 (3 종의 통합) ─────────────────────────────────────────
+    def test_userprofile_prefix_expands_on_every_platform(self):
+        """`%USERPROFILE%` 는 **posix 에서 expandvars 로 확장되지 않는다**(실측 3.9.6·3.14.6).
+
+        종전 doctor·가드 5 곳은 `expandvars` 로 그것을 처리한다고 주석에 적었지만 Windows 에서만
+        참이었다. Windows 전제를 실제로 보존하려면 접두를 명시해야 한다.
+        """
+        e = self.mod.expand_home_prefix
+        self.assertEqual(e("%USERPROFILE%/v", "/home/d"), "/home/d/v")
+        self.assertEqual(e("%USERPROFILE%\\v", "/home/d"), "/home/d/v")
+        self.assertEqual(e("~\\v", "/home/d"), "/home/d/v")
+        self.assertEqual(os.path.expandvars("%USERPROFILE%/v") if os.name != "nt" else "/home/d/v",
+                         "%USERPROFILE%/v" if os.name != "nt" else "/home/d/v",
+                         "expandvars 가 posix 에서 %VAR% 를 확장하기 시작했다 — 근거 재확인 필요")
+
+    def test_mid_path_variables_are_not_expanded(self):
+        """경로 **중간**의 `$VAR` 는 건드리지 않는다.
+
+        종전 `make` 의 `eval echo` 는 미정의 `$NOPE` 를 빈 문자열로 지워 `/x/$NOPE/v` 를
+        `/x//v` 로 만들었다 — **존재하는 엉뚱한 경로**가 되는 형태다.
+        """
+        e = self.mod.expand_home_prefix
+        self.assertEqual(e("/x/$NOPE/v", "/home/d"), "/x/$NOPE/v")
+        self.assertEqual(e("/abs/~/v", "/home/d"), "/abs/~/v")
+
+    # ── 호출자별 차이는 파라미터로 보존한다 ────────────────────────────────
+    def test_ancestor_walk_finds_config_in_worktree(self):
+        """do-er 워크트리는 `.claude/` 가 gitignore 라 config 가 없다 — 조상에서 찾아야 한다."""
+        wt = self.project / "wt"
+        wt.mkdir(parents=True, exist_ok=True)
+        self._config(self.cfg_vault)                     # project(=조상)에만 둔다
+        self.assertEqual(self._find({}, project=wt), self.cfg_vault)
+
+    def test_ancestors_one_does_not_walk_up(self):
+        """`dw-ratify-session` 은 종전부터 조상을 보지 않는다 — '일관성' 으로 바꾸지 않는다."""
+        wt = self.project / "wt"
+        wt.mkdir(parents=True, exist_ok=True)
+        self._config(self.cfg_vault)
+        self.assertEqual(self._find({}, project=wt, ancestors=1), self.conv)
+
+    def test_governance_requirement_is_stricter_than_dir(self):
+        """비준은 `governance/` 를 읽는다 — 폴더 존재만으로는 채택하지 않는다."""
+        bare = self.tmp / "bare"
+        bare.mkdir()
+        env = {"DW_VAULT_DIR": str(bare)}
+        self.assertEqual(self._find(env, require="dir"), bare)
+        self.assertEqual(self._find(env, require="governance"), self.conv)
+
+    def test_self_repo_fallback_is_opt_in(self):
+        """가드 4 개는 '이 레포가 플러그인 본체면 자기 자신' 폴백을 갖고, artifact-guard 는 **없다**.
+
+        종전의 그 비대칭을 파라미터로 보존한다(통합을 이유로 조용히 바꾸지 않는다).
+        """
+        shutil.rmtree(self.conv)
+        repo = self.tmp / "repo"
+        (repo / "_build").mkdir(parents=True)
+        (repo / "_build" / "dw-compile.py").write_text("", encoding="utf-8")
+        self.assertEqual(self._find({}, project=repo, self_repo_fallback=True), repo)
+        self.assertIsNone(self._find({}, project=repo, self_repo_fallback=False))
+
+    def test_vault_target_does_not_require_existence(self):
+        """`scaffold-vault` 는 "만들 자리" 를 묻는다 — 없는 env 경로도 그대로 돌려줘야 한다."""
+        missing = self.tmp / "아직-없음"
+        got = self.mod.vault_target({"DW_VAULT_DIR": str(missing)}, str(self.home))
+        self.assertEqual(got, missing)
+
+    def test_vault_target_shares_the_priority_of_resolve_vault(self):
+        """"만드는 곳" 과 "읽는 곳" 이 갈리면 안 된다 — 같은 순서를 쓴다."""
+        self._config(self.cfg_vault)
+        env = {"CLAUDE_PROJECT_DIR": str(self.project)}
+        self.assertEqual(self.mod.vault_target(env, str(self.home)), self.cfg_vault)
+        self.assertEqual(self.mod.resolve_vault(env, str(self.home), lambda m: None),
+                         self.cfg_vault)
+
+    # ── 계약 보호(시그니처·밀폐성) ─────────────────────────────────────────
+    def test_resolve_vault_keeps_its_positional_contract(self):
+        """`(env, home, warn)` 위치 순서는 계약이다 — `project` 를 위치에 끼우면 조용히 어긋난다."""
+        v = self.tmp / "custom vault"     # 공백 포함
+        v.mkdir()
+        self.assertEqual(
+            self.mod.resolve_vault({"DW_VAULT_DIR": str(v)}, str(self.tmp), lambda m: None), v)
+
+    def test_resolution_never_falls_back_to_cwd(self):
+        """프로젝트는 `CLAUDE_PROJECT_DIR`(env)·명시 인자로만 온다.
+
+        cwd 폴백을 넣으면 이 자기검사가 **개발 머신의 실제 `.claude/dw-config.json`** 을 읽어
+        실물 vault 를 잡는다(픽스처 격리가 조용히 깨진다). 실제로 밟은 함정이라 고정한다.
+        """
+        self._config(self.cfg_vault)
+        prev = os.getcwd()                # ⚠️ ROOT 로 되돌리면 안 된다 — 다른 디렉터리에서
+        os.chdir(self.project)            #    실행했을 때 이후 테스트 전체의 cwd 를 옮겨버린다
+        self.addCleanup(os.chdir, prev)
+        shutil.rmtree(self.conv)
+        self.assertIsNone(self.mod.find_vault(None, {}, str(self.home)))
+        with self.assertRaises(SystemExit):
+            self.mod.resolve_vault({}, str(self.home), lambda m: None)
+
+    def test_project_env_supplies_the_config_tier(self):
+        """MCP 런처는 `project` 를 모르지만 `CLAUDE_PROJECT_DIR` 를 **실제로 받는다**.
+
+        실측(2026-08-08): 살아있는 dw-vault 서버 프로세스 환경에 `CLAUDE_PROJECT_DIR`·
+        `DW_VAULT_DIR` 가 둘 다 있었다. 그래서 env 가 비어도 config 안전망이 남는다.
+        """
+        self._config(self.cfg_vault)
+        shutil.rmtree(self.conv)
+        env = {"CLAUDE_PROJECT_DIR": str(self.project)}
+        self.assertEqual(self.mod.resolve_vault(env, str(self.home), lambda m: None),
+                         self.cfg_vault)
+
+    def test_broken_config_is_skipped_not_raised(self):
+        """깨진 JSON·엉뚱한 타입·읽기 실패는 다음 후보로 넘어간다(훅은 죽지 않는다).
+
+        `[]` 를 넣는 이유: 종전 사본 7 곳은 파싱 결과에 바로 `.get` 을 불러 최상위가 dict 가
+        아니면 **`AttributeError`** 였다(훅에서 그건 세션·가드 파손). 실제로 이 케이스가 잡았다.
+        NUL(`a\\u0000b`)은 `is_dir()` 이 `OSError` 가 아니라 `ValueError` 를 던지는 경로다 —
+        env 로는 도달 불가(OS 가 막는다)라 **JSON 이 유일한 도달 경로**다.
+        """
+        cfg = self.project / ".claude" / "dw-config.json"
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        for bad in ("{ not json", "[]", '"문자열"', "42", '{"vault_root": null}',
+                    '{"vault_root": 12}', '{"vault_root": ["a"]}', '{"other": 1}',
+                    '{"vault_root": "a\\u0000b"}'):
+            cfg.write_text(bad, encoding="utf-8")
+            self.assertEqual(self._find({}), self.conv, f"입력={bad!r}")
+            self.assertIsInstance(self.mod.vault_conflict_note(self.project, {}, str(self.home)),
+                                  str, f"입력={bad!r}")
+
+
+class VaultConflictNoticeTest(unittest.TestCase):
+    """(F) 출처 불일치 노출 — env-first 전환의 **전제조건**.
+
+    결정론적으로 하나를 고르는 것만으로는 "vault 는 하나" 를 보증하지 못한다: 출처들이 서로
+    다른 값을 말하는데 조용히 하나를 고르면 **두 곳을 가리키는 상태가 오류 없이 지나간다**.
+    특히 env-first 로 뒤집힌 뒤엔 "프로젝트는 config 로 vault B 에 묶였는데 가드는 env 의
+    vault A 를 지킨다" 는 새 실패 모드가 생긴다.
+    """
+
+    def setUp(self):
+        self.mod = dw_runtime
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-conflict-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.home = self.tmp / "home"
+        for name in ("vaultA", "vaultB", Path("home") / dw_runtime.CONVENTIONAL_VAULT):
+            (self.tmp / name / "governance").mkdir(parents=True, exist_ok=True)
+        self.a, self.b = self.tmp / "vaultA", self.tmp / "vaultB"
+        self.project = self.tmp / "proj"
+        self.project.mkdir()
+
+    def _config(self, value, where: Path | None = None):
+        cfg = (where or self.project) / ".claude" / "dw-config.json"
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text(json.dumps({"vault_root": str(value)}), encoding="utf-8")
+
+    def _note(self, env):
+        return self.mod.vault_conflict_note(self.project, env, str(self.home))
+
+    def test_sources_that_agree_are_silent(self):
+        self._config(self.a)
+        self.assertEqual(self._note({"DW_VAULT_DIR": str(self.a)}), "")
+
+    def test_single_source_is_silent(self):
+        self._config(self.a)
+        self.assertEqual(self._note({}), "")
+        self.assertEqual(self.mod.vault_conflict_note(self.tmp / "없는-프로젝트",
+                                                      {"DW_VAULT_DIR": str(self.a)},
+                                                      str(self.home)), "")
+
+    def test_nothing_declared_is_silent(self):
+        self.assertEqual(self._note({}), "")
+
+    def test_divergence_names_both_sources_and_the_fix(self):
+        """문구 요건: 어느 출처가 무엇을 말하는지 + 무엇이 쓰이는지 + 맞추는 방법."""
+        self._config(self.b)
+        note = self._note({"DW_VAULT_DIR": str(self.a)})
+        self.assertTrue(note, "불일치를 조용히 넘겼다")
+        self.assertIn(str(self.a), note)
+        self.assertIn(str(self.b), note)
+        self.assertIn("dw-config.json", note)
+        self.assertIn("DW_VAULT_DIR", note)
+        self.assertIn("사용 중", note)
+        chosen_line = next(l for l in note.splitlines() if "사용 중" in l)
+        self.assertIn(str(self.a), chosen_line, "채택된 출처가 잘못 표시됐다")
+        self.assertIn("/dw-install", note, "해소 방법이 없다")
+
+    def test_stale_env_is_surfaced_with_its_reason(self):
+        """선언은 있는데 폴더가 없는 경우도 드러낸다 — 사람이 원인을 바로 본다."""
+        missing = self.tmp / "옮겨진-vault"
+        self._config(self.b)
+        note = self._note({"DW_VAULT_DIR": str(missing)})
+        self.assertIn("폴더 없음", note)
+        self.assertIn(str(missing), note)
+
+    def test_note_never_raises(self):
+        """훅에서 부른다 — 어떤 입력에도 문자열을 돌려준다."""
+        for bad in ("{ not json", '{"vault_root": 12}', ""):
+            (self.project / ".claude").mkdir(parents=True, exist_ok=True)
+            (self.project / ".claude" / "dw-config.json").write_text(bad, encoding="utf-8")
+            self.assertIsInstance(self._note({"DW_VAULT_DIR": str(self.a)}), str)
+        self.assertIsInstance(self.mod.vault_conflict_note(None, {}, str(self.home)), str)
+
+    def test_projects_bound_to_different_vaults_are_reported(self):
+        """레포마다 config 가 다르면 "vault 는 하나" 가 깨진다 — on-demand 스캔이 그걸 잡는다."""
+        p1, p2 = self.tmp / "p1", self.tmp / "p2"
+        for p, v in ((p1, self.a), (p2, self.b)):
+            p.mkdir()
+            self._config(v, where=p)
+        import dw_state
+        vault = self.a
+        dw_state.register_project(vault, p1)
+        dw_state.register_project(vault, p2)
+        rows = self.mod.cross_project_conflicts(vault, {}, str(self.home))
+        self.assertEqual(len(rows), 2, rows)
+        self.assertTrue(any(str(p1) in r and str(self.a) in r for r in rows), rows)
+        self.assertTrue(any(str(p2) in r and str(self.b) in r for r in rows), rows)
+
+    def test_projects_agreeing_report_nothing(self):
+        p1, p2 = self.tmp / "p1", self.tmp / "p2"
+        for p in (p1, p2):
+            p.mkdir()
+            self._config(self.a, where=p)
+        import dw_state
+        dw_state.register_project(self.a, p1)
+        dw_state.register_project(self.a, p2)
+        self.assertEqual(self.mod.cross_project_conflicts(self.a, {}, str(self.home)), [])
+
+    def test_session_digest_carries_the_warning(self):
+        """노출 채널은 **기존 것**을 쓴다 — 매 세션 주입되는 SessionStart 다이제스트.
+
+        hard-fail 이 아닌 이유: 훅에서 예외를 올리면 세션이 깨진다(그건 가드가 엉뚱한 vault 를
+        지키는 것보다 나쁘다). 그래서 사람이 읽는 채널로 시끄럽게만 만든다.
+        """
+        self._config(self.b)
+        digest = self.project / ".claude" / "dw-session-digest.md"
+        digest.write_text("# 다이제스트\n본문\n", encoding="utf-8")
+        env = os.environ | {"DW_VAULT_DIR": str(self.a), "HOME": str(self.home),
+                            "CLAUDE_PROJECT_DIR": str(self.project)}
+        r = subprocess.run([sys.executable, str(BUILD / "dw-session-context.py")],
+                           input=json.dumps({"hook_event_name": "SessionStart",
+                                             "cwd": str(self.project)}),
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("vault", r.stdout)
+        self.assertIn(str(self.b), r.stdout, f"불일치가 다이제스트에 안 실렸다:\n{r.stdout}")
+
+
+class VaultResolutionSingleSourceTest(unittest.TestCase):
+    """(G) **드리프트 방지** — 이 PR 의 최고가치 산출물.
+
+    11 곳이 생긴 원인은 "복제가 검사되지 않았다" 다(`mcp<2` 핀이 두 곳으로 갈렸던 것과 같은
+    결함 클래스 — 2.15.0 에서 같은 방식으로 고정했다). 사본이 다시 늘어나는 것을 막는 게
+    이 클래스의 일이다.
+    """
+
+    # 정본 자신 + 검사기 자신 + env 이름을 **재작성 규칙**으로만 아는 마이그레이터.
+    ALLOWED = {"dw_runtime.py", "dw-selftest.py", "dw-migrate-vault.py"}
+
+    def _offenders(self, needle: str) -> list[str]:
+        out = []
+        for p in sorted(BUILD.glob("*.py")):
+            if p.name in self.ALLOWED:
+                continue
+            for lineno, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                if line.lstrip().startswith("#") or needle not in line:
+                    continue
+                out.append(f"{p.name}:{lineno}: {line.strip()}")
+        return out
+
+    def test_conventional_vault_literal_lives_only_in_the_canonical_module(self):
+        self.assertEqual(self._offenders(dw_runtime.CONVENTIONAL_VAULT), [],
+                         "규약 경로 리터럴이 다시 복제됐다 — dw_runtime 를 경유하라:\n"
+                         + "\n".join(self._offenders(dw_runtime.CONVENTIONAL_VAULT)))
+
+    def test_env_lookup_lives_only_in_the_canonical_module(self):
+        offenders = [o for o in self._offenders(f'"{dw_runtime.VAULT_ENV}"')
+                     if "PROJECT_ENV" not in o]
+        self.assertEqual(offenders, [],
+                         f"{dw_runtime.VAULT_ENV} 를 직접 읽는 두 번째 지점이 생겼다:\n"
+                         + "\n".join(offenders))
+
+    def test_config_key_lookup_lives_only_in_the_canonical_module(self):
+        """`dw-config.json` 의 `vault_root` 를 직접 읽는 곳도 정본 하나여야 한다.
+
+        예외: `wire-hook.py` 는 그 파일을 **쓴다**(생산자), `dw-session-context.py` 는
+        플러그인 **버전**을 찾을 뿐 vault 를 해석하지 않는다.
+        """
+        writers = {"wire-hook.py", "dw-session-context.py"}
+        offenders = [o for o in self._offenders(f'"{dw_runtime.CONFIG_KEY}"')
+                     if o.split(":")[0] not in writers]
+        self.assertEqual(offenders, [],
+                         "dw-config.json vault_root 해석이 다시 복제됐다:\n" + "\n".join(offenders))
+
+    def test_home_expansion_helpers_are_not_reintroduced(self):
+        """`os.path.expandvars`/`expanduser` 사본이 되살아나면 확장 **범위**가 갈린다.
+
+        종전 doctor·가드 5 개가 그 둘을 썼다 — 경로 중간의 `$VAR` 까지 확장하고(미정의면 빈
+        문자열로 지워 엉뚱한 경로가 된다), 정작 `%USERPROFILE%` 는 posix 에서 확장하지 못했다.
+        범위 검사가 `os.path.` 로 한정된 이유: `args.vault.expanduser()` 처럼 **사용자가 준 CLI
+        인자**를 푸는 것은 vault 해석이 아니다(`dw-install-registered.py` 가 그 경우다).
+        """
+        offenders = (self._offenders("os.path.expandvars") + self._offenders("os.path.expanduser"))
+        self.assertEqual(offenders, [], "vault 경로 확장 사본이 되살아났다:\n" + "\n".join(offenders))
+
+    def test_every_consumer_imports_the_canonical_module(self):
+        """위임을 지웠는데 테스트가 통과하는 상태를 막는다."""
+        consumers = ("dw-doctor.py", "dw-graphify-register.py", "dw-vault-guard.py",
+                     "dw-artifact-guard.py", "dw-telemetry.py", "dw-graphify-gate.py",
+                     "dw-vault-write-guard.py", "dw-ratify-session.py", "dw.py",
+                     "dw-mcp-launch.py")
+        for name in consumers:
+            text = (BUILD / name).read_text(encoding="utf-8")
+            self.assertIn("import dw_runtime", text, f"{name} 가 정본을 경유하지 않는다")
+
+    def test_makefile_has_no_vault_resolution_of_its_own(self):
+        """`make` 도 CLI 를 경유한다 — 종전 `$(shell eval echo …)` 사본이 되살아나면 안 된다."""
+        for lineno, line in enumerate((ROOT / "Makefile").read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue
+            self.assertNotIn("DW_VAULT_DIR", line, f"Makefile:{lineno} 가 env 를 직접 푼다: {line}")
+            self.assertNotIn(dw_runtime.CONVENTIONAL_VAULT, line,
+                             f"Makefile:{lineno} 에 규약 경로 리터럴이 있다: {line}")
+
+    def test_canonical_module_stays_cheap_to_import(self):
+        """훅 경로 예산 — `import dw_runtime` 가 `subprocess` 를 끌어오면 안 된다.
+
+        이 모듈은 SessionStart/PostToolUse 훅 7 개가 임포트한다. `subprocess` 는 3.9.6 에서
+        임포트 8.6ms 로 이 모듈 비용의 대부분이었다(실측). 측정치가 아니라 **불변식**으로
+        고정한다 — 다음 편집에서 조용히 되돌아오는 것을 막는다.
+        """
+        for interp in ("/usr/bin/python3", sys.executable):
+            if not Path(interp).exists():
+                continue
+            r = subprocess.run(
+                [interp, "-c", "import sys; sys.path.insert(0, %r); import dw_runtime; "
+                               "print('subprocess' in sys.modules, 'typing' in sys.modules)"
+                 % str(BUILD)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, f"{interp}: {r.stderr}")
+            self.assertEqual(r.stdout.strip(), "False False",
+                             f"{interp}: 무거운 모듈이 임포트 시점에 끌려왔다 — "
+                             f"함수 안으로 옮겨라 ({r.stdout.strip()})")
+
+
+class DoctorHookSafetyTest(unittest.TestCase):
+    """(H) `dw-doctor.py` 는 SessionStart 훅 안에서 돈다(`dw-session-context.py` 가 호출, timeout 15).
+
+    그래서 두 가지가 계약이다: ⓐ 어떤 입력에도 예외를 올려 훅을 깨뜨리지 않는다
+    ⓑ 서브프로세스·네트워크를 쓰지 않는다(그 파일 docstring 의 「원칙」).
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-doctor-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.project = self.tmp / "proj"
+        (self.project / ".claude").mkdir(parents=True)
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+
+    def _run(self, env_value=None, config=None, args=()):
+        if config is not None:
+            (self.project / ".claude" / "dw-config.json").write_text(config, encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if k != "DW_VAULT_DIR"}
+        env |= {"HOME": str(self.home), "USERPROFILE": str(self.home),
+                "CLAUDE_PROJECT_DIR": str(self.project)}
+        if env_value is not None:
+            env["DW_VAULT_DIR"] = env_value
+        return subprocess.run([sys.executable, str(BUILD / "dw-doctor.py"), *args],
+                              capture_output=True, text=True, env=env)
+
+    def test_hostile_inputs_never_break_the_hook(self):
+        cases = [
+            (None, None),
+            ("", None),
+            ("   ", None),
+            (str(self.tmp / "없음"), None),
+            ("~/없음", None),
+            ("$HOME/없음", None),
+            ("%USERPROFILE%/없음", None),
+            ("/x/$NOPE/v", None),
+            # NUL 은 **env 로는 도달할 수 없다**(OS 가 환경변수에 NUL 을 허용하지 않아
+            # subprocess spawn 자체가 ValueError 다 — 실측). 도달 경로는 JSON 뿐이다:
+            (None, '{"vault_root": "a\\u0000b"}'),
+            (None, "{ not json"),
+            (None, "[]"),
+            (None, '{"vault_root": 12}'),
+            (None, '{"vault_root": "/does/not/exist"}'),
+        ]
+        for env_value, config in cases:
+            for args in ((), ("--json",)):
+                r = self._run(env_value, config, args)
+                self.assertEqual(r.returncode, 0,
+                                 f"env={env_value!r} config={config!r} args={args}: {r.stderr}")
+                self.assertEqual(r.stderr.strip(), "",
+                                 f"env={env_value!r} config={config!r}: stderr 오염 {r.stderr!r}")
+        # --json 은 기계가 읽는다 — 형태가 유지되는지도 본다
+        payload = json.loads(self._run(None, None, ("--json",)).stdout)
+        self.assertIn("missing_required", payload)
+        self.assertIn("vault_conflict", payload)
+
+    def test_doctor_spawns_no_subprocess(self):
+        """「파일/폴더 존재 검사만」 — git 탐색(`git_probe`)을 켜면 훅 예산이 깨진다."""
+        text = (BUILD / "dw-doctor.py").read_text(encoding="utf-8")
+        self.assertNotIn("import subprocess", text)
+        self.assertIn("git_probe=False", text, "doctor 가 서브프로세스 탐색을 켰다")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

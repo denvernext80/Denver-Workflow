@@ -134,9 +134,19 @@ Git for Windows 는 `grep`·`uname`·`cp`·셸 치환을 제공하지만 **`make
 
 ### 전제 C — vault 위치
 
-해석 순서는 `DW_VAULT_DIR`(env) → `%USERPROFILE%\denver-workflow-vault`(규약) → **에러**.
-폴백은 없다(vault 없이 뜬 서버는 조용히 빈 지식으로 답하므로 기동을 거부한다).
-`DW_VAULT_DIR` 값에는 리터럴 `~/`·`$HOME/` 접두를 쓸 수 있다(그 접두만 확장된다).
+해석 순서는 `DW_VAULT_DIR`(env) → `<프로젝트>\.claude\dw-config.json` 의 `vault_root`(조상·git
+본체 레포까지 탐색) → `%USERPROFILE%\denver-workflow-vault`(규약) → **에러**. 2.16.0 부터 도구
+11 곳이 이 한 순서를 공유한다. 규약 뒤 폴백은 없다 — vault 없이 뜬 서버는 조용히 빈 지식으로
+답하므로 기동을 거부한다.
+
+`DW_VAULT_DIR` 값에는 리터럴 `~/`·`$HOME/`·`%USERPROFILE%\` 접두를 쓸 수 있다(그 접두만 확장된다
+— 경로 중간의 `$VAR`·`%VAR%` 는 건드리지 않는다).
+
+**Windows 실기에서 특히 볼 것**: `%USERPROFILE%\` 확장은 종전 `os.path.expandvars` 에 기대던
+부분이라 **posix 에선 아예 동작하지 않았다**(실측 3.9.6·3.14.6 — `posixpath.expandvars` 는 `%VAR%`
+를 모른다). 2.16.0 은 그 접두를 명시 처리해 두 플랫폼에서 같은 답을 낸다 —
+`DW_VAULT_DIR=%USERPROFILE%\denver-workflow-vault` 로 한 번 확인하라(종전이라면 규약 경로로
+폴백했고, Windows 에서만 우연히 같은 답이 나왔다).
 
 ---
 

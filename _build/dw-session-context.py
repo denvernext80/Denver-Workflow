@@ -42,7 +42,14 @@ def _plugin_version(project: Path) -> str:
 
 
 def _doctor_notice() -> str:
-    """필수 의존이 빠졌으면 /dw-setup 안내 문단. 실패는 조용히 무시(주입 자체를 막지 않는다)."""
+    """doctor 진단 문단 — ① 빠진 필수 의존(/dw-setup 안내) ② vault 출처 불일치 경고.
+
+    실패는 조용히 무시(주입 자체를 막지 않는다). doctor 를 **한 번만** 로드해 둘을 얻는다.
+
+    ②를 여기 붙이는 이유: vault 출처가 갈린 상태는 hard-fail 로 만들 수 없다(훅에서 예외를
+    올리면 세션이 깨진다 — 그건 "가드가 엉뚱한 vault 를 지키는" 것보다 나쁘다). 그래서 사람이
+    실제로 읽는 **기존 채널**(매 세션 주입되는 이 다이제스트 + `dw doctor`)로 시끄럽게 만든다.
+    """
     try:
         import importlib.util
         p = Path(__file__).with_name("dw-doctor.py")
@@ -50,15 +57,19 @@ def _doctor_notice() -> str:
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         missing = mod.missing_required()
+        conflict = mod.vault_conflict_note()
     except Exception:
         return ""
-    if not missing:
-        return ""
-    return (
-        f"⚠️ denver-workflow 초기 설정 미완료 — 빠진 것: {', '.join(missing)}.\n"
-        f"사용자에게 `/dw-setup` 실행을 안내하라 (설정 도우미 — 필요한 프로그램 설치와 "
-        f"vault(팀 지식 폴더) 준비를 대신해 준다)."
-    )
+    parts = []
+    if missing:
+        parts.append(
+            f"⚠️ denver-workflow 초기 설정 미완료 — 빠진 것: {', '.join(missing)}.\n"
+            f"사용자에게 `/dw-setup` 실행을 안내하라 (설정 도우미 — 필요한 프로그램 설치와 "
+            f"vault(팀 지식 폴더) 준비를 대신해 준다)."
+        )
+    if conflict:
+        parts.append(conflict)
+    return "\n\n".join(parts)
 
 
 _GRAPHIFY_FIRST = (

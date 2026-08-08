@@ -173,11 +173,20 @@ def cmd_review(args) -> int:
     return rc
 
 
+def cmd_vault_path(args) -> int:
+    """이 프로젝트가 쓸 vault 경로를 한 줄 출력(존재를 요구하지 않는다 — 스크립트·make 용)."""
+    # Makefile 이 이걸 쓴다. 종전 Makefile 은 `$(shell eval echo "$${DW_VAULT_DIR:-…}")` 로 **자기
+    # 사본**을 갖고 있었다 — `eval` 은 경로 중간의 `$VAR`·명령치환까지 확장해 CLI 보다 넓었다
+    # (실측: `/x/$NOPE/v` → `/x//v`, 즉 존재하는 **엉뚱한** 경로). 지금은 make 도 이 경로를 지난다.
+    print(dw_runtime.vault_target(project=Path.cwd()))
+    return 0
+
+
 def cmd_doctor(args) -> int:
     """콜드스타트 헬스체크(venv·컴파일러·MCP·vault·외부 의존)."""
     py = _venv_py()
     # doctor 는 vault 가 **없는 상태도 보고**해야 하므로 존재를 요구하지 않는다.
-    vault = dw_runtime.vault_target()
+    vault = dw_runtime.vault_target(project=Path.cwd())
     print("== denver-workflow 헬스체크 ==")
 
     ok = _quiet([py, "-c", "import yaml, mcp"])
@@ -203,6 +212,16 @@ def cmd_doctor(args) -> int:
     probe = BUILD / "dw-doctor.py"
     if probe.is_file():
         _run([py, probe])
+
+    # 등록된 레포들의 dw-config.json 이 서로 다른 vault 를 말하는지 — **on-demand 전용** 검사다
+    # (레지스트리 순회라 SessionStart 훅 예산에 넣지 않는다. 훅은 이 세션의 출처만 O(1) 로 본다).
+    if has_vault:
+        rows = dw_runtime.cross_project_conflicts(vault)
+        if rows:
+            print("\n⚠️ 등록된 레포들이 **서로 다른 vault** 를 가리킨다 (vault 는 하나여야 한다):")
+            for r in rows:
+                print(f"   · {r}")
+            print("   해소: 각 레포에서 `/dw-install` 을 다시 돌려 dw-config.json 을 맞추라.")
     return 0
 
 
@@ -280,6 +299,9 @@ SUBCOMMANDS = {
     "ratify": (cmd_ratify, ("projects",)),
     "review": (cmd_review, ()),
     "doctor": (cmd_doctor, ()),
+    # Makefile 타깃과 1:1 이 아닌 유일한 예외 — 타깃이 아니라 **Makefile 의 변수**가 쓴다
+    # (`VAULT_CMD`). 사람이 부를 일은 거의 없지만 스크립트가 vault 경로를 물을 창구다.
+    "vault-path": (cmd_vault_path, ()),
     "scaffold-vault": (cmd_scaffold_vault, ()),
     "plugin-scope-user": (cmd_plugin_scope_user, ()),
     "plugin-scope-project": (cmd_plugin_scope_project, ("project",)),

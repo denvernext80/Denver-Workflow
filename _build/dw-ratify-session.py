@@ -28,6 +28,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import dw_runtime
+
 BUILD = Path(__file__).resolve().parent
 OBEY_DIRS = ("governance/rules", "governance/guidance", "governance/procedures")
 HEAD_BYTES = 400          # status 는 프론트매터 머리에 있다 — 전문을 읽지 않는다
@@ -51,25 +53,15 @@ def _log(vault: Path, line: str) -> None:
 
 
 def _resolve_vault(payload: dict) -> Path | None:
-    """dw-config.json vault_root > DW_VAULT_DIR > 규약 ~/denver-workflow-vault."""
-    proj = _project_dir(payload)
-    cfg = proj / ".claude" / "dw-config.json"
-    if cfg.is_file():
-        try:
-            vr = json.loads(cfg.read_text(encoding="utf-8")).get("vault_root")
-            if vr:
-                p = Path(os.path.expandvars(str(vr))).expanduser()
-                if (p / "governance").is_dir():
-                    return p
-        except (OSError, json.JSONDecodeError):
-            pass
-    env = os.environ.get("DW_VAULT_DIR")
-    if env:
-        p = Path(os.path.expandvars(env)).expanduser()
-        if (p / "governance").is_dir():
-            return p
-    p = Path.home() / "denver-workflow-vault"
-    return p if (p / "governance").is_dir() else None
+    """vault 위치 — 정본은 `dw_runtime.find_vault`(2.16.0). 없으면 None(비준을 건너뛴다).
+
+    이 호출자만의 두 가지를 **파라미터로 보존**한다:
+      * `require="governance"` — 폴더 존재만으로는 부족하다(비준은 `governance/` 를 읽는다).
+      * `ancestors=1` — 종전부터 조상 탐색을 하지 않는다. 가드와 같은 8 로 올리면 워크트리에서
+        조상 config 를 새로 보게 되는 **행동 변경**이라, "일관성" 을 이유로 바꾸지 않는다.
+    """
+    return dw_runtime.find_vault(_project_dir(payload), require="governance",
+                                 ancestors=1, git_probe=False)
 
 
 def _project_dir(payload: dict) -> Path:

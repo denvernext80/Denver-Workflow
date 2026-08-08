@@ -11,35 +11,21 @@ mcp SDK 가 graphify venv 에 없으면 pipx inject 로 확보. 사용처: /dw-s
   (--graph <경로>로 graph.json 위치 지정, 기본 <레포>/graphify-out/graph.json)
 """
 from __future__ import annotations
-import argparse, json, os, shutil, subprocess, sys
+import argparse, json, shutil, subprocess, sys
 from pathlib import Path
 
-
-def _expand(p: str) -> str:
-    """런처 규약과 동일하게 리터럴 ~/ · $HOME/ 접두 확장."""
-    p = p.strip()
-    if p.startswith("~/"):
-        return str(Path.home() / p[2:])
-    if p.startswith("$HOME/"):
-        return str(Path.home() / p[6:])
-    return p
+import dw_runtime
 
 
-def _resolve_vault(project: Path) -> Path:
-    """vault 루트 해석 — dw-config.json vault_root > DW_VAULT_DIR env > 규약 ~/denver-workflow-vault
-    (dw-mcp-launch.py 와 동일 순서)."""
-    cfg = project / ".claude" / "dw-config.json"
-    if cfg.exists():
-        try:
-            vr = json.loads(cfg.read_text(encoding="utf-8")).get("vault_root")
-            if vr:
-                return Path(_expand(vr))
-        except (OSError, json.JSONDecodeError):
-            pass
-    env = os.environ.get("DW_VAULT_DIR")
-    if env:
-        return Path(_expand(env))
-    return Path.home() / "denver-workflow-vault"
+def _resolve_vault(project: Path) -> Path | None:
+    """vault 루트 — 정본은 `dw_runtime.find_vault`(2.16.0). 못 찾으면 None.
+
+    종전 사본은 **`dw-config.json` 을 env 보다 앞에** 뒀고("런처와 동일 순서" 라 적혀 있었지만
+    런처는 config 를 보지도 않았다) **존재 검사를 하지 않았다** — 그래서 같은 머신에서 도구별로
+    다른 vault 를 가리킬 수 있었고, config 가 옮겨진 경로를 가리키면 `graph.json` 탐색만 조용히
+    실패했다. 지금은 env > config > 규약 한 순서를 쓰고, 없는 폴더는 다음 출처로 넘어간다.
+    """
+    return dw_runtime.find_vault(project, require="dir", git_probe=False)
 
 
 def _graphify_python() -> str | None:
@@ -69,9 +55,11 @@ def detect(project: Path, graph_opt: str | None):
     local = project / "graphify-out" / "graph.json"
     if local.is_file():
         return py, local.resolve()
-    vault_graph = _resolve_vault(project) / "graphify-out" / "graph.json"
-    if vault_graph.is_file():
-        return py, vault_graph.resolve()
+    vault = _resolve_vault(project)
+    if vault is not None:
+        vault_graph = vault / "graphify-out" / "graph.json"
+        if vault_graph.is_file():
+            return py, vault_graph.resolve()
     return None, None
 
 

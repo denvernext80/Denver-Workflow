@@ -19,12 +19,15 @@ VPY     := $(VENV)/bin/python
 # 도구 루트 = 이 워크스페이스(.venv·_build·hooks·.claude 산출물 잔류).
 TOOLS_ROOT := $(shell pwd)
 
-# ⚠️ VAULT_DIR·SEED 는 **위임하지 않는 타깃**(update-seed·seed-check·workflow-report)만 쓴다.
-# 위임 타깃의 vault 해석은 CLI(`dw_runtime.resolve_vault`)가 단독으로 한다 — 그래서 아래
-# shell eval 확장과 CLI 의 접두 확장이 갈릴 여지가 그만큼 줄었다.
-# 주의: DW_VAULT_DIR 값에 리터럴 `$HOME`/`~` 가 올 수 있다(settings.json env 규약) —
-#       CLI(리터럴 `~/`·`$HOME/` 접두만 확장)와 같은 결과가 되게 shell eval 로 푼다(make 는 $H 로 오해석).
-VAULT_DIR      := $(shell eval echo "$${DW_VAULT_DIR:-$$HOME/denver-workflow-vault}")
+# ⚠️ vault 해석의 정본은 `dw_runtime` 이다 — Makefile 은 **사본을 갖지 않는다**(2.16.0).
+# 종전: `VAULT_DIR := $(shell eval echo "$${DW_VAULT_DIR:-$$HOME/<규약>}")`. 두 가지가 문제였다 —
+#   ① 셸 `eval` 은 경로 **중간**의 `$VAR`·명령치환까지 확장해 CLI(접두 전용)보다 넓었다
+#      (실측: `/x/$NOPE/v` → `/x//v` = 존재하는 **엉뚱한** 경로). 그래서 `make` 만 다른 vault 를
+#      가리킬 수 있었다. ② `:=` 라 VAULT_DIR 를 쓰지도 않는 `make build`·`make test` 에서까지
+#      parse 시점에 셸이 돌았다.
+# 지금은 **쓰는 레시피 안에서만** CLI 를 부른다(`V="$$($(VAULT_CMD))"`). 아래 3 타깃은 위임하지
+# 않는 **개발자 전용**이라 POSIX 셸을 쓴다(이식 범위 밖 — 의도적 잔여, CHANGELOG 명시).
+VAULT_CMD      := $(PY) _build/dw.py vault-path
 
 # 플러그인이 들고 있는 제네릭 vault seed(콜드스타트 스캐폴드). 설치 시 빈 vault 로 복사.
 # 제네릭화 = '선별'(byte-동일 유지 가능한 프로젝트 무관 노트만) — 손편집 금지(update-seed 가 되돌림).
@@ -50,7 +53,7 @@ build:                       ## vault 를 컴파일해 .claude/skills 생성
 dry-run:                     ## 쓰기 없이 검증/요약(CI 용, 경고도 에러)
 	$(DW) dry-run
 
-# 엔진 자기검사. 픽스처는 _seed 복사본 — 사용자 vault($(VAULT_DIR))는 건드리지 않는다.
+# 엔진 자기검사. 픽스처는 _seed 복사본 — 사용자 vault(`dw.py vault-path`)는 건드리지 않는다.
 # (dry-run/doctor 는 live vault 를 컴파일할 뿐이라 엔진 동작을 증명하지 못한다 — 그 몫이 이 타깃.)
 test: venv                   ## 엔진 자기검사(stdlib unittest, 임시 vault 픽스처)
 	$(VPY) _build/dw-selftest.py
@@ -60,11 +63,12 @@ scaffold-vault:              ## 빈/없는 vault 에 제네릭 seed(축B 거버�
 	$(DW) scaffold-vault
 
 update-seed: venv            ## live vault 의 제네릭 축-B 노트를 _seed 로 갱신(화이트리스트 verbatim; 사적 project 제외)
-	@echo "→ _seed 갱신: live $(VAULT_DIR) → $(SEED) (화이트리스트만, project 사적 데이터 미포함)"
-	@for g in $(SEED_GUIDANCE); do cp "$(VAULT_DIR)/governance/guidance/$$g.md" $(SEED)/governance/guidance/; done
-	@for a in $(SEED_AGENTS); do cp "$(VAULT_DIR)/governance/agents/$$a.md" $(SEED)/governance/agents/; done
-	@cp "$(VAULT_DIR)/governance/_skills/engineering.md" $(SEED)/governance/_skills/
-	@cp "$(VAULT_DIR)"/_templates/*.md $(SEED)/_templates/ 2>/dev/null || true
+	@V="$$($(VAULT_CMD))"; \
+	echo "→ _seed 갱신: live $$V → $(SEED) (화이트리스트만, project 사적 데이터 미포함)"; \
+	for g in $(SEED_GUIDANCE); do cp "$$V/governance/guidance/$$g.md" $(SEED)/governance/guidance/; done; \
+	for a in $(SEED_AGENTS); do cp "$$V/governance/agents/$$a.md" $(SEED)/governance/agents/; done; \
+	cp "$$V/governance/_skills/engineering.md" $(SEED)/governance/_skills/; \
+	cp "$$V"/_templates/*.md $(SEED)/_templates/ 2>/dev/null || true
 	@$(MAKE) -s seed-check
 
 # ⚠️ 위임하지 않은 개발자 전용 타깃 — find|wc|tr 파이프라인은 POSIX 셸에 의존한다.
@@ -127,7 +131,7 @@ ratify:                      ## draft OBEY 자동 비준 → 등록된 모든 �
 	$(DW) ratify $(foreach p,$(RATIFY_PROJECTS),--project "$(p)")
 
 workflow-report: venv        ## dw 워크플로우 리포트(3대 규율 준수율·절차/memory 재사용). 사용: make workflow-report [V=/abs/vault] [DAYS=30]
-	$(VPY) _build/dw-workflow-report.py --vault "$(or $(V),$(VAULT_DIR))" --days $(or $(DAYS),30)
+	@V="$(or $(V),$$($(VAULT_CMD)))"; $(VPY) _build/dw-workflow-report.py --vault "$$V" --days $(or $(DAYS),30)
 
 clean:                       ## 산출물(.claude/skills) 제거
 	rm -rf .claude/skills
