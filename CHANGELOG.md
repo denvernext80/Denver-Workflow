@@ -1,5 +1,120 @@
 # Changelog
 
+## 2.14.0 — 2026-08-08
+
+MCP 런처의 **POSIX 셸 의존을 구조적으로 제거**했다. **"Windows 지원" 이 아니다** — 실기 검증
+수단이 없어(이 레포에 CI 워크플로우 부재, 이 계정은 GitHub 호스티드 러너 사용 불가) 검증한 것과
+검증하지 못한 것을 아래에 분리해 적는다.
+
+### 수정 — 런처가 `#!/bin/sh` 라 POSIX 셸이 없으면 MCP 11 도구가 통째로 죽었다
+
+`plugin.json` 의 `mcpServers.command` 는 **셸을 경유하지 않고 직접 spawn** 된다. 그런데 배선은
+`${CLAUDE_PLUGIN_ROOT}/_build/dw-mcp-launch.sh` 였다 — `dirname`, `CDPATH= cd`, `case` 글롭,
+`$HOME` 전개, `.venv/bin/` 하드코딩을 쓰는 POSIX 스크립트다. POSIX 셸이 없는 환경에서는 **런처
+자체가 실행되지 않고**, 그 결과 `dw-vault` 도구 11 개가 **하나도 기동하지 않는다**. 플러그인의
+핵심(vault SSOT 접근)이 통째로 정지하는 형태다. 서버 본체(`dw-mcp-server.py`)는 이미 이식
+가능했다 — POSIX 도구를 subprocess 로 부르는 곳 0 건(전수 확인). **셸 의존은 런처 한 파일에만
+남아 있었다.**
+
+- `_build/dw-mcp-launch.py` 신설 — 순수 Python. 종전 `.sh` 의 동작을 **그대로** 옮겼다:
+  vault 해석 순서(`DW_VAULT_DIR` env > `~/denver-workflow-vault` 규약 > **에러**, 폴백 없음),
+  리터럴 `~/`·`$HOME/` 접두 확장, venv 자가 부트스트랩(첫 실행 시 생성 + `pyyaml`·`mcp<2`,
+  이후 재사용·멱등), 서버 기동.
+- `_build/dw-mcp-launch.sh` **삭제**. 남기지 않은 이유: (a) `mcp<2` 핀이 이미 Makefile 과
+  이중화돼 있어 **세 번째 사본은 드리프트 미끼**이고, (b) 아무도 실행하지 않는 경로는 폴백처럼
+  보이면서 실제로는 검증되지 않는다(단일 부트스트랩 경로가 옳다). 되돌릴 여지는 git 히스토리가
+  담당한다 — `plugin.json` 한 줄이 유일한 참조였다. 남아 있던 참조 두 곳도 갱신했다
+  (`Makefile` 핀-동기 주석, `dw-graphify-register.py` 독스트링).
+- `plugin.json` 배선을 `command`/`args` 분리 형태로: `"command": "python3"`,
+  `"args": ["${CLAUDE_PLUGIN_ROOT}/_build/dw-mcp-launch.py"]`. placeholder 는 `args` 에서도
+  요소 단위로 치환된다.
+- **stdout 오염 차단** — stdout 은 JSON-RPC 채널이다. venv/pip 자식 출력을 전부 캡처하고
+  **실패 시에만** stderr 로 흘린다(종전 `.sh` 의 `>&2` 와 같은 목적). 회귀는 handshake 테스트가
+  잡는다(stdout 한 줄이라도 오염되면 `json.loads` 에서 터진다).
+- **부트스트랩 실패를 시끄럽게** 만들었다. 종전 `.sh` 는 `set -e` 로 컨텍스트 없이 죽었다 —
+  Debian 계열의 `python3-venv` 별도 패키지처럼 흔한 원인이 진단 없이 사라졌다. 이제 명령·종료
+  코드·자식 출력 전문 + 원인 지목을 stderr 로 낸다.
+
+### 수정 — venv 레이아웃·기동 방식 플랫폼 분기
+
+- `venv_python()` — `bin/python` vs `Scripts/python.exe`. 스크립트 디렉터리는 CPython 의
+  `venv/__init__.py` 가 스스로 쓰는 표준 API(`sysconfig.get_path(..., scheme=...)`)로 얻는다
+  (문자열 조립 대신). 단 `scheme="venv"` 는 **돌고 있는** 인터프리터의 플랫폼으로 해석되므로
+  크로스플랫폼 분기에 쓸 수 없다 — `nt_venv`/`posix_venv` 를 **명시**해 주입 가능하게 했다
+  (3.11 미만 폴백 포함). `.exe` 접미는 `os.name` 으로 정한다 —
+  `sysconfig.get_config_var("EXE")` 는 **돌고 있는** 인터프리터를 기술할 뿐 대상 venv 를
+  말해주지 않는다.
+- venv 생성은 `sys.executable -m venv` — `python3` 이름을 두 번 찾지 않는다.
+  pip 은 `python -m pip` — 스크립트 이름(`pip` vs `pip.exe`) 분기를 하나 지운다.
+- `launch()` — POSIX 는 `os.execv`(종전 `.sh` 와 **동일한** 의미 유지), Windows 는 자식
+  프로세스 + 종료코드 전달. 근거: Windows 의 `os.execv` 는 프로세스를 교체하지 않고 원래 PID 를
+  종료시킨다 → MCP 클라이언트가 자기가 spawn 한 PID 의 종료를 "서버 죽음" 으로 읽는다.
+  실기로 검증 가능한 플랫폼(POSIX)의 동작은 바꾸지 않는 쪽이 회귀 위험이 낮다.
+
+### 수정 — `wire-hook.py` 가 CC 자신이 진단하는 훅 형태를 배선했다
+
+프로젝트에 설치되는 훅 명령이 `python3 "$CLAUDE_PROJECT_DIR/..."` 였다. 중괄호 없는 형태는 셸
+변수 문법이라 **PowerShell 이 미정의 변수($null)로 읽는다** — CC 바이너리에 *"…reads as an
+undefined variable ($null). Use `$env:CLAUDE_PROJECT_DIR` or `${CLAUDE_PROJECT_DIR}` instead."*
+진단 문구가 실제로 들어 있다(2.1.225 실측). CC 가 직접 치환하는 placeholder 형태
+`${CLAUDE_PROJECT_DIR}` 로 고쳤다.
+
+- exec 형태(`args`)로 바꾸지 **않았다**: `wired_markers` 가 marker 를 command 문자열에서 찾는다
+  — 경로를 `args` 로 옮기면 멱등 판정이 깨져 재설치마다 훅이 중복된다.
+- **잔여**: `wire-hook.py` 는 marker 가 없을 때만 추가한다(멱등). 그래서 **기존 설치본은 옛
+  문자열을 계속 들고 있다** — 새 설치에만 반영된다.
+
+### 검토했고 바꾸지 않음 — 플러그인 훅 10 건(스크립트 9 종)은 문자열 형태 유지
+
+`hooks/hooks.json` 의 훅은 문자열 `command` 라 셸을 경유한다(macOS/Linux `sh`, Windows 는 Git
+Bash, 미설치 시 PowerShell). exec 형태(`args`)로 바꿀 수 있는지 실측 확인했고(2.1.222·2.1.224·
+2.1.225 바이너리 전부에 `args` 스키마 존재) **바꾸지 않기로 판단했다**:
+
+- 훅 명령의 `${CLAUDE_PLUGIN_ROOT}` 는 **CC 가 먼저 치환**한다. 셸에 도달하는 문자열은
+  `python3 "<절대경로>"` 뿐이고 이는 bash·PowerShell **양쪽에서 동일하게 파싱된다** — 즉
+  **POSIX 전용 구문이 없다**. `wire-hook.py` 쪽과 달리 셸 변수를 남기지 않는다.
+- 반면 10 건 전부를 바꾸면 거버넌스 강제의 backbone(worktree 가드·SSOT 쓰기 가드, 그리고
+  2.13.0 에서 막 추가된 `dw-ratify-session.py` 비준 자동화)이 한꺼번에 blast radius 에 들어간다.
+- **검증 가능한 플랫폼에서의 확실한 위험 vs 검증 불가능한 플랫폼에서의 불확실한 이득** — 후자를
+  위해 전자를 감수하지 않는다. 누락이 아니라 판단이다.
+
+### 추가 — 문서·테스트
+
+- `README.md` 「5. 플랫폼 — Windows 전제 및 미검증 범위」 — `python3` 이름 해석 전제,
+  `make` 필요 범위, **미검증** 표기.
+- `docs/windows-smoke-checklist.md` — 실기 확보 시 **5 분 판정** 절차(설치 → 새 세션 → 도구 11 개
+  노출 → `dw_search` 1 회 → 훅 → 실패 시 어디를 보는지).
+- `_build/dw-selftest.py` `McpLauncherTest` **15 케이스** 추가(총 41 → 56):
+  플랫폼 분기 양쪽 고정(venv 레이아웃·기동 방식), vault 해석 3 경로, 접두 확장의 **범위 한정**
+  (경로 중간의 `~`·`$` 불변), 부트스트랩 멱등·시끄러운 실패, 배선 회귀 가드(`.sh` 부활 감지·
+  `mcp<2` 핀 Makefile 일치), 그리고 **실제 JSON-RPC handshake**(initialize → tools/list, 도구
+  수를 서버의 `@mcp.tool()` 개수와 대조).
+
+### 검증됨 (macOS, 실측)
+
+- **첫 실행 부트스트랩**: `.venv` 없는 워크트리에서 런처가 venv 생성 + `pyyaml`·`mcp<2` 설치 →
+  서버 기동까지 4.0 s. 설치된 `mcp` = **1.29.0**(핀 유효).
+- **JSON-RPC handshake**: `initialize` → `serverInfo={'name': 'dw-vault', 'version': '1.29.0'}`,
+  `protocolVersion=2024-11-05`, `tools/list` → **11 개** 전부 노출. stdout 오염 0.
+- **플랫폼 분기 양쪽** — `os.name` 주입 단위 테스트(Windows 실기 없이 가능한 최대치).
+- `make test` 56/56 OK · `make dry-run`(strict) 에러 0 · `make doctor` 전 항목 ok ·
+  `make seed-check` ok.
+- CC 2.1.225 바이너리 실측 — 훅 `args` exec 형태 스키마 존재, 문자열 형태의 셸 경유 규칙,
+  `$CLAUDE_PROJECT_DIR` 에 대한 PowerShell 진단 문구.
+
+### 미검증 (주장하지 않는 것)
+
+- **Windows 실기 전부.** 이 릴리스가 없앤 것은 "POSIX 셸 의존" 이라는 **구조적 결함**이다.
+  Windows 에서 실제로 도는지는 확인하지 못했다.
+- **`plugin.json` 신규 배선의 CC 측 spawn.** handshake 테스트는 **런처**를 증명한다 — CC 가
+  `command: "python3"` + `args` 로 이 런처를 띄우는 경로는 살아있는 플러그인이 GitHub 설치본이라
+  이 워크트리로 재현할 수 없다. **머지 후 새 세션의 `/mcp` 가 최초 확인 지점이다.**
+- **`python3` 이름 해석(Windows).** python.org 판은 `python.exe`·`py.exe` 만 제공하고 Store 판은
+  `python3.exe` 를 제공한다(Store 별칭 스텁이 잡히는 경우도 있다). 양쪽에서 동시에 안전한
+  인터프리터 이름은 **존재하지 않고**, 플랫폼별 분기 키도 없다.
+- **L3(`make` 의존 커맨드).** 슬래시 커맨드 10 개 중 7 개가 `make` 를 호출한다 — 이번 범위 밖.
+  Windows 에서 그 커맨드들엔 여전히 `make` 가 필요하다.
+
 ## 2.13.0 — 2026-08-08
 
 비준이 **언제 어떻게 도는가**를 정한다. 두 시점으로 쪼갰다 — 제안 시엔 **검증만**, 세션 시작 시
