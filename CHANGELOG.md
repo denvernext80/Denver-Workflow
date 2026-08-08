@@ -148,9 +148,11 @@ stdout(vault 경로 문구)과 `_seed` 산출물 해시가 **동일**함을 확�
 
 ### 검증 / 미검증
 
-**검증(실측)** — `make test` 104/104 · `make dry-run` 에러 0·경고 0(출력이 변경 전과 동일: 남은
-`warning:` 2 줄은 vault 콘텐츠의 embed 평탄화로 baseline 과 같다) · `make doctor` 출력 **바이트
-동일**(불일치 경고 없음 = 4 레포가 실제로 한 vault 를 가리킨다는 라이브 확인) · `make seed-check` ·
+**검증(실측)** — `make test` 104/104(임의 cwd 에서도 통과) · `make dry-run` 에러 0·경고 0 —
+변경 전 출력과 `diff` 결과 **`out=` 경로 한 줄(워크트리 위치 차이)을 빼면 완전 동일**(남은
+`warning:` 2 줄은 vault 콘텐츠의 embed 평탄화로 baseline 과 같다) · `make doctor` 는 변경 전과
+`diff` **완전 일치(바이트 동일)** — 불일치 경고가 뜨지 않았다는 것은 4 레포가 실제로 한 vault 를
+가리킨다는 라이브 확인이다 · `make seed-check` ·
 **MCP handshake 를 `python3`(3.14.6)·`/usr/bin/python3`(3.9.6) 양쪽에서 재확인, 도구 11/11**
 (변경 전에도 11/11 — 무회귀) · 시나리오 14 x 구현 11 A/B 매트릭스 · 훅 소요 실측 ·
 실제 vault·`~/.claude`·레지스트리 **무변형**(전부 임시 env·임시 프로젝트로 검증, `make ratify` 미실행).

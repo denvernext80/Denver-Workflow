@@ -1318,8 +1318,9 @@ class VaultResolutionTest(unittest.TestCase):
         실물 vault 를 잡는다(픽스처 격리가 조용히 깨진다). 실제로 밟은 함정이라 고정한다.
         """
         self._config(self.cfg_vault)
-        os.chdir(self.project)            # cwd 를 config 가 있는 곳으로 옮겨도
-        self.addCleanup(os.chdir, str(ROOT))
+        prev = os.getcwd()                # ⚠️ ROOT 로 되돌리면 안 된다 — 다른 디렉터리에서
+        os.chdir(self.project)            #    실행했을 때 이후 테스트 전체의 cwd 를 옮겨버린다
+        self.addCleanup(os.chdir, prev)
         shutil.rmtree(self.conv)
         self.assertIsNone(self.mod.find_vault(None, {}, str(self.home)))
         with self.assertRaises(SystemExit):
