@@ -186,7 +186,7 @@ def verify_rule_checks(vault, deny: list[str], require: list[str], glob: list[st
                        f"구분되지 않으므로 이대로면 **자동 승격이 보류**됩니다(거절 아님). glob 오타·"
                        f"경로를 확인하세요. 대상 파일이 아직 없는 선제 규칙이라면 사람 승인이 필요합니다.",
                        candidates=0, projects=len(projects))
+    # 끝맺음(“다음 세션 시작 시 …”)은 호출부가 붙인다 — 여기서 또 쓰면 문장이 겹친다.
     return Verdict(CLEAN, "",
-                   f"검사대상 {cand}건 · 위반 0 (등록 레포 {len(projects)}개) — 검증 통과 예측. "
-                   f"다음 세션 시작 시 자동 승격되어 강제됩니다.",
+                   f"검사대상 {cand}건 · 위반 0 (등록 레포 {len(projects)}개) — 검증 통과 예측.",
                    candidates=cand, projects=len(projects))
