@@ -44,9 +44,12 @@ MAX_BYTES = 2_000_000
 # 판정 상태
 NO_CHECKS = "no-checks"          # check 패턴 없음 — 검증 대상 아님(서술 규칙·guidance·procedure)
 NO_GLOB = "no-glob"              # 패턴은 있는데 대상 파일 미지정 → 컴파일 시 검사 비활성
-NO_PROJECTS = "no-projects"      # 스캔할 레포가 등록되지 않음 → 오탐 0 을 주장할 근거 없음
+NO_PROJECTS = "no-projects"      # 스캔할 레포가 등록되지 않음 → 검증할 코드가 없음
 NO_CANDIDATES = "no-candidates"  # glob 이 아무 파일도 매치하지 않음 → '위반 0' 이 공허함
-VIOLATIONS = "violations"        # 기존 코드에 매치 → 진짜위반/오탐 판단 필요
+# ⚠️ 매치를 **오탐으로 단정하지 않는다.** 패턴이 잘못됐을 수도(패턴 문제), 기존 코드가 실제로
+#    규칙을 어겼을 수도 있고, 조치가 정반대다(패턴 수정 vs 코드 수정·예외 명시). 그래서 비준기는
+#    추측하지 않고 멈춘다(dw-ratify.py:7,14 — "진짜위반인지 오탐인지는 판단 필요").
+VIOLATIONS = "violations"        # 기존 코드에 매치 → 사람·LLM 판단 필요(어느 쪽인지 단정 금지)
 CLEAN = "clean"                  # 검사대상 ≥1 · 위반 0 → 승격 가능
 
 
@@ -97,8 +100,12 @@ def scan_codebase(projects, glob: list[str], exclude: list[str],
                 except (OSError, UnicodeDecodeError):
                     continue
                 for rx in deny_res:
-                    if rx.search(text):
-                        hits.append(f"{proj.name}/{rel}: 금지패턴 /{rx.pattern}/ 매치")
+                    m = rx.search(text)
+                    if m:
+                        # 행번호를 함께 낸다 — 사람이 "패턴 문제인가 실제 위반인가" 를
+                        # 판단하려면 그 줄을 봐야 한다(단정 대신 확인 가능하게).
+                        line = text.count("\n", 0, m.start()) + 1
+                        hits.append(f"{proj.name}/{rel}:{line}: 금지패턴 /{rx.pattern}/ 매치")
                         break
                 for rx in req_res:
                     if not rx.search(text):
@@ -144,32 +151,42 @@ def verify_rule_checks(vault, deny: list[str], require: list[str], glob: list[st
     if projects is None:
         projects = dw_state.registered_projects(vault)
     projects = list(projects)
+    # ⚠️ 아래 문구 규율: hold 는 **거절·실패가 아니라 「자동 승격 보류, 판단 필요」**다. 원인이
+    #    해소되면 다음 비준에서 승격되고 `<!-- ratify-hold: -->` 주석도 자동 제거된다
+    #    (dw-ratify.py:228). 문구가 이 성질을 오해시키면 제안자가 규칙을 포기해 버린다.
     if not projects:
         return Verdict(NO_PROJECTS,
-                       "스캔 대상 프로젝트 0 — 오탐 0 을 검증할 코드가 없다. "
+                       "스캔 대상 프로젝트 0 — 패턴을 돌려 볼 코드가 없다(검증 불가). "
                        "`make install-project P=/절대경로` 로 레포를 등록하라.",
-                       "⚠️ 등록된 레포가 0개라 검증할 수 없다 → 이대로면 hold 된다. "
-                       "`make install-project P=/절대경로` 로 레포를 등록하라.",
+                       "검사대상 0건 — 등록된 레포가 0개라 패턴을 돌려 볼 코드가 없습니다. "
+                       "이대로면 **자동 승격이 보류**됩니다(거절이 아니라 '판단 필요' 상태로 대기). "
+                       "`make install-project P=/절대경로` 로 레포를 등록하면 다음 비준에서 "
+                       "검증·승격됩니다.",
                        projects=0)
     hits, cand = scan_codebase(projects, glob, exclude, deny, require)
     if hits:
-        shown = "; ".join(hits[:3])
+        shown = "; ".join(hits[:3]) + (f" (외 {len(hits) - 3}건)" if len(hits) > 3 else "")
         return Verdict(VIOLATIONS,
-                       f"기존 코드에 {len(hits)}건 매치(검사대상 {cand}건) — "
-                       f"진짜위반/오탐 판단 필요. 예: {hits[0]}",
-                       f"⚠️ 오탐/위반 {len(hits)}건 발견(검사대상 {cand}건) → 이대로면 **hold** 된다. "
-                       f"패턴을 좁히거나 check_exclude 를 주거나, 진짜 위반이면 코드를 먼저 고쳐라. "
-                       f"예: {shown}",
+                       f"기존 코드에 {len(hits)}건 매치(검사대상 {cand}건) — 패턴 문제인지 실제 "
+                       f"위반인지 판단 필요. 예: {hits[0]}",
+                       f"기존 코드에 {len(hits)}건 매치(검사대상 {cand}건) — 이대로면 **자동 승격이 "
+                       f"보류**됩니다(거절이 아니라 '판단 필요'). 매치가 **패턴 문제**면 check_deny 를 "
+                       f"좁히거나 check_exclude 로 예외를 주고, **실제 위반**이면 코드를 고치거나 "
+                       f"예외를 명시하세요 — 어느 쪽인지는 아래 줄을 직접 보고 판단해야 합니다"
+                       f"(비준기는 추측하지 않습니다). 원인이 해소되면 다음 비준에서 승격됩니다. "
+                       f"매치: {shown}",
                        hits=hits, candidates=cand, projects=len(projects))
     if cand == 0:
         return Verdict(NO_CANDIDATES,
                        f"검사대상 파일 0건 — check-glob {glob} 이 등록 레포 {len(projects)}개에서 "
                        f"아무 파일도 매치하지 않는다. 위반 0 은 공허하다(검증 불가). "
                        f"glob 오타/경로 착오인지 확인하고, 대상이 아직 없는 선제 규칙이면 사람이 승인하라.",
-                       f"⚠️ check_glob {glob} 이 등록 레포 {len(projects)}개에서 **아무 파일도 매치하지 "
-                       f"않는다** → 위반 0 이 공허하므로 이대로면 hold 된다. glob 오타를 확인하라.",
+                       f"검사대상 0건 · 위반 0 — check_glob {glob} 이 등록 레포 {len(projects)}개에서 "
+                       f"**아무 파일도 잡지 못했습니다**. 위반 0 은 아무것도 검사하지 않은 0 과 "
+                       f"구분되지 않으므로 이대로면 **자동 승격이 보류**됩니다(거절 아님). glob 오타·"
+                       f"경로를 확인하세요. 대상 파일이 아직 없는 선제 규칙이라면 사람 승인이 필요합니다.",
                        candidates=0, projects=len(projects))
     return Verdict(CLEAN, "",
-                   f"검증 통과 예측 — 검사대상 {cand}건 · 위반 0 (등록 레포 {len(projects)}개). "
-                   f"다음 세션 시작 시 자동 승격되어 강제된다.",
+                   f"검사대상 {cand}건 · 위반 0 (등록 레포 {len(projects)}개) — 검증 통과 예측. "
+                   f"다음 세션 시작 시 자동 승격되어 강제됩니다.",
                    candidates=cand, projects=len(projects))

@@ -567,16 +567,25 @@ class ProposeTimeVerificationTest(unittest.TestCase):
             json.dumps({"projects": [str(p) for p in projects]}, ensure_ascii=False),
             encoding="utf-8")
 
-    def test_predicts_violations_at_propose_time(self):
-        """제안 즉시 오탐을 알려줘야 한다 — 며칠 뒤 hold 로 알게 되는 대신."""
+    def test_predicts_matches_without_asserting_cause(self):
+        """제안 즉시 **매치**를 알려준다 — 며칠 뒤 보류로 알게 되는 대신.
+
+        문구 규율(비준기 자신의 계약 = dw-ratify.py:7,14): 매치를 **오탐으로 단정하지 않는다.**
+        패턴 문제일 수도, 기존 코드의 실제 위반일 수도 있고 조치가 정반대다(패턴 수정 vs 코드
+        수정·예외 명시). 그래서 두 해석과 각 조치를 함께 제시하고 판단은 사람·LLM 에 남긴다."""
         (self.proj / "lib" / "a.dart").write_text("var x = FORBIDDEN_ZZZ;\n", encoding="utf-8")
         self.register(self.proj)
         msg = self.srv.dw_propose_rule(
             scope="engineering", title="예측 위반 규칙", rule="본문.", enforced_by="code-review",
             check_deny=["FORBIDDEN_ZZZ"], check_glob=["*.dart"])
         self.assertIn("검증 예측", msg)
-        self.assertIn("hold", msg)
-        self.assertIn("FORBIDDEN_ZZZ", msg)
+        self.assertIn("매치", msg)
+        self.assertNotIn("오탐", msg, "매치를 오탐으로 단정하면 안 된다 — 조치가 정반대일 수 있다")
+        self.assertIn("패턴 문제", msg)   # 해석 ① 과 그 조치
+        self.assertIn("실제 위반", msg)   # 해석 ② 와 그 조치
+        self.assertIn("검사대상 1건", msg, "분모(검사대상 N)를 반드시 함께 내야 한다")
+        self.assertIn("보류", msg, "hold 는 거절이 아니라 '자동 승격 보류'로 읽혀야 한다")
+        self.assertIn("lib/a.dart:1", msg, "어느 해석인지 판단하려면 파일:행 이 필요하다")
         rel = f"governance/rules/{self.srv._slugify('예측 위반 규칙')}.md"
         self.assertIn("status: draft", (self.vault / rel).read_text(encoding="utf-8"))
 
@@ -588,13 +597,26 @@ class ProposeTimeVerificationTest(unittest.TestCase):
             check_deny=["FORBIDDEN_ZZZ"], check_glob=["*.dart"])
         self.assertIn("검사대상 1건 · 위반 0", msg)
 
-    def test_predicts_no_candidates(self):
+    def test_predicts_no_candidates_distinctly(self):
+        """검사대상 0 도 원인별로 갈라 안내한다 — glob 이 아무것도 잡지 못한 경우."""
         (self.proj / "lib" / "a.dart").write_text("var x = 1;\n", encoding="utf-8")
         self.register(self.proj)
         msg = self.srv.dw_propose_rule(
             scope="engineering", title="예측 대상없음 규칙", rule="본문.", enforced_by="code-review",
             check_deny=["FORBIDDEN_ZZZ"], check_glob=["*.kt"])
-        self.assertIn("아무 파일도 매치하지 않는다", msg)
+        self.assertIn("검사대상 0건", msg)
+        self.assertIn("잡지 못했습니다", msg)
+        self.assertIn("보류", msg)
+        self.assertNotIn("거절", msg.replace("거절 아님", ""))
+
+    def test_predicts_no_projects_distinctly(self):
+        """같은 '검사대상 0' 이지만 원인이 레지스트리 미등록이면 조치가 다르다."""
+        msg = self.srv.dw_propose_rule(
+            scope="engineering", title="예측 미등록 규칙", rule="본문.", enforced_by="code-review",
+            check_deny=["FORBIDDEN_ZZZ"], check_glob=["*.dart"])
+        self.assertIn("검사대상 0건", msg)
+        self.assertIn("install-project", msg, "등록 방법을 안내해야 한다")
+        self.assertIn("보류", msg)
 
     def test_prediction_matches_ratifier_verdict(self):
         """**예측과 실제가 일치**해야 한다 — 두 구현이 갈라지면 예측이 없는 것보다 나쁘다."""
