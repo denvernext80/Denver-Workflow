@@ -152,10 +152,22 @@ def cmd_ratify(args) -> int:
 
 
 def cmd_review(args) -> int:
-    """OBEY draft 큐(자동 비준 대상/hold) + 헬스체크."""
+    """OBEY draft 큐(자동 비준 대상/hold) + 헬스체크.
+
+    ⚠️ 이 커맨드는 **vault 가 없어도 끝까지 돈다** — 다른 서브커맨드와 달리 `_vault_required()`
+    를 쓰지 않는다. 절반이 헬스체크이고, vault 가 없는 상황이 바로 진단이 필요한 상황이다.
+    (2.15.0 개발 중 실측: `_vault_required()` 를 쓰자 신규 머신에서 헬스체크가 **아예 출력되지
+    않았다** — 종전 `make review` 는 빈 큐 + 진단을 보여줬다. 진단 도구가 진단이 필요한
+    상황에서 먼저 죽는 형태였다.)
+    """
     py = _venv_py()
-    vault = _vault_required()
-    rc = _run([py, BUILD / "review-queue.py", "--vault", vault])
+    vault = dw_runtime.vault_target()
+    if (vault / "governance").is_dir():
+        rc = _run([py, BUILD / "review-queue.py", "--vault", vault])
+    else:
+        print(f"== OBEY draft 큐 — 건너뜀: vault 없음 ({vault}) ==")
+        print("  → /dw-setup 으로 vault(팀 지식 폴더)를 준비하세요. 아래 헬스체크를 함께 보십시오.")
+        rc = 0
     print()
     cmd_doctor(args)          # 종전 `make review` 가 `$(MAKE) -s doctor` 를 이어 붙인 그 자리
     return rc

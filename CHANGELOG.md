@@ -64,6 +64,17 @@ CLI 가 자식(컴파일러·doctor 프로브)을 띄우기 전에 자기 버퍼
 
 - 자식 spawn 전에 `_flush()` 를 호출한다. 회귀는 파이프로 받아 첫 줄을 단정하는 테스트가 잡는다.
 
+### 수정 — `review` 가 vault 없는 머신에서 진단 전에 죽었다 (개발 중 실측으로 밟음)
+
+이식 과정에서 `review` 에 `_vault_required()`(vault 없으면 `SystemExit(1)`)를 붙였는데, 종전
+`make review` 는 vault 가 없어도 **빈 큐 + 헬스체크**를 보여줬다. 즉 신규 머신에서 `/dw-review` 가
+`[..] vault 없음 -> /dw-setup` 안내를 출력하기 **전에** 종료됐다 —
+**진단 도구가 진단이 필요한 상황에서 먼저 죽는** 형태다.
+
+- `review` 만 vault 부재를 **허용**한다(큐는 건너뛰고 이유를 밝히되 헬스체크는 끝까지 출력, rc 0 —
+  종전과 동일). 다른 서브커맨드는 그대로 시끄럽게 중단한다.
+- 회귀는 `HOME`·`DW_VAULT_DIR` 를 빈 곳으로 주입해 헬스체크 출력을 단정하는 테스트가 잡는다.
+
 ### 수정 — 사용자 대면 문구가 make 없는 환경에 make 를 시켰다
 
 `make` 가 없을 수 있는 사용자에게 `make install-project` / `make ratify` / `make dry-run` 을 하라고
@@ -85,21 +96,33 @@ CLI 가 자식(컴파일러·doctor 프로브)을 띄우기 전에 자기 버퍼
 
 ### 검증됨 (macOS, 실측)
 
-- **9 개 타깃 전부 `make` = CLI 동등** — 임시 vault·임시 `CLAUDE_CONFIG_DIR` 로 격리해 실행 비교:
-  - `dry-run`·`doctor`·`review`·`build`: stdout **바이트 동일**.
-  - `install-project`: 산출물 **19 파일 바이트 동일**(대상 경로 정규화 후) + stdout 동일 +
-    vault 역등록(`.dw-state`) 동일 + **양쪽 재실행 멱등** + `make` 의 P 가드 유지 확인.
-  - `scaffold-vault`: 복사 결과 **59 파일 동일** + **no-clobber**(사용자가 고친 파일 보존).
-  - `plugin-scope-user|project|off`: 계정·프로젝트 `settings.json` 동일 + stdout 동일.
+> ⚠️ **`make X` vs `dw.py X` 비교는 동어반복이다** — 위임 후엔 둘 다 CLI 를 돈다. CLI 의 argv
+> 조립이 `--agents-out` 을 빠뜨렸다면 양쪽이 똑같이 틀리고 비교는 통과한다. 그래서 이식 충실도는
+> **git 에서 꺼낸 변경 전 구현**(`git show 213a73c:Makefile`)과 비교해 확인했다.
+
+- **이식 충실도: 구 구현(213a73c) vs 새 CLI** — 임시 vault·임시 `CLAUDE_CONFIG_DIR` 격리, 전부 동일:
+  - `install-project`: 산출물 **19 파일 바이트 동일**(대상 경로 정규화 후) + vault 역등록
+    (`.dw-state`) 동일. `--scopes` 도 구 `SCOPES=` 와 동일하며, **없는 scope 로 프로브**해
+    플래그가 컴파일러에 실제로 닿는 것까지 확인했다(없는 scope → 양쪽 skill 0, 미지정 → 생성됨).
+  - `scaffold-vault`: 손으로 재구현한 `_copy_no_clobber` 가 구 `cp -Rn` 과 **59 파일 동일** +
+    사용자가 고친 파일을 양쪽 모두 보존 + 재실행 후 트리 동일.
+  - `plugin-scope-user|project|off`: 계정·프로젝트 `settings.json` 동일.
+  - `dry-run`: 출력 동일(컴파일 `--out` 이 같은 곳을 가리킨다).
   - `ratify`: **임시 vault 픽스처**로 draft→stable 승격까지 포함해 vault 상태·설치 산출물·stdout
-    동일. **실물 vault 는 대상이 아니었다**(실행 후 실물 레지스트리 4 개 항목 불변 확인).
+    동일(구는 rc 분기를 셸로 했다). **실물 vault 는 대상이 아니었다** — 실행 후 실물 레지스트리
+    4 개 항목 불변 확인.
+- **위임 구조** — `make` 9 타깃이 CLI 를 부르는지 실행 비교(stdout 바이트 동일) + Makefile 파싱
+  테스트로 고정. `make` 의 P 가드 유지, 양쪽 재실행 멱등도 확인.
+- **프로덕션 호출 형태** — 슬래시 커맨드가 부르는 모양대로(절대 스크립트 경로, **cwd = 무관한
+  디렉토리**, `PYTHONPATH` 제거) `doctor`·`dry-run` 실행: 산출물이 플러그인 루트로 가고 cwd 아래엔
+  아무것도 생기지 않으며 출력 순서도 정상.
 - **MCP 회귀 없음** — `dw_runtime` 추출 후 런처 JSON-RPC handshake 재실측: `python3`(3.14.6)과
   `/usr/bin/python3`(**3.9.6**) 양쪽에서 `serverInfo=dw-vault 1.29.0`, proto `2024-11-05`,
   **도구 11 개**. 임의 cwd·`PYTHONPATH` 제거 상태로 실행해 `import dw_runtime` 가 CC 식 spawn 에서
   성립함을 확인했다.
 - **CLI 가 3.9.6 에서 동작** — `--help`·`doctor` 실행 확인(배선·커맨드가 `python3` 을 부르므로
   CC 가 해석한 아무 인터프리터에서 돌아야 한다).
-- `make test` **66/66 OK**(57 → 66, `PortableCliTest` 9 케이스 추가) · `make dry-run`(strict)
+- `make test` **67/67 OK**(57 → 67, `PortableCliTest` 10 케이스 추가) · `make dry-run`(strict)
   에러 0 · `make doctor` 전 항목 ok · `make seed-check` ok.
 
 ### 미검증 (주장하지 않는 것)

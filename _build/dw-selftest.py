@@ -1101,6 +1101,21 @@ class PortableCliTest(unittest.TestCase):
         external = next(i for i, l in enumerate(lines) if "Obsidian" in l)
         self.assertLess(own, external, f"자체 점검이 외부 의존 목록 뒤로 밀렸다:\n{r.stdout}")
 
+    def test_review_still_diagnoses_when_vault_is_missing(self):
+        """vault 가 없어도 `review` 는 헬스체크까지 출력해야 한다.
+
+        `/dw-review` 의 절반은 진단이다 — vault 부재가 바로 진단이 필요한 상황이므로, 큐를 못
+        읽는다는 이유로 조기 종료하면 **신규 머신에서 아무 안내도 못 받는다**. 종전
+        `make review` 는 빈 큐 + 헬스체크를 보여줬다(2.15.0 개발 중 실제로 회귀시켰다가 잡음).
+        """
+        env = os.environ | {"DW_VAULT_DIR": str(self.tmp / "없는-vault"),
+                            "HOME": str(self.tmp)}      # 규약 경로도 비게 만든다
+        r = subprocess.run([sys.executable, str(BUILD / "dw.py"), "review"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, f"진단 커맨드가 실패로 끝났다: {r.stderr}")
+        self.assertIn("헬스체크", r.stdout, f"헬스체크가 출력되지 않았다:\n{r.stdout}")
+        self.assertIn("vault 없음", r.stdout, f"vault 부재를 알리지 않았다:\n{r.stdout}")
+
     def test_cli_runs_under_the_repo_python_floor(self):
         """CLI 는 CC 가 해석한 아무 python3 으로 돌 수 있어야 한다 — `--help` 가 그 최소 증거.
 
