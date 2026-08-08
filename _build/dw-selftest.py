@@ -22,12 +22,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+import unittest.mock
 from pathlib import Path
 
 BUILD = Path(__file__).resolve().parent
 ROOT = BUILD.parent
 SERVER = BUILD / "dw-mcp-server.py"
+LAUNCHER = BUILD / "dw-mcp-launch.py"
 COMPILER = BUILD / "dw-compile.py"
 LINTER = BUILD / "dw-lint.py"
 RATIFIER = BUILD / "dw-ratify.py"
@@ -722,6 +725,224 @@ class SessionHookTest(unittest.TestCase):
         self.assertGreater(marker.stat().st_mtime, 1, "낡은 산출물이 갱신되지 않았다")
         self.assertFalse((other / ".claude" / "dw-checks.json").exists(),
                          "승격이 없는데 다른 레포까지 설치했다(비용 낭비)")
+
+
+def load_launcher():
+    """dw-mcp-launch.py 를 모듈로 로드(파일명에 하이픈이 있어 일반 import 불가).
+
+    런처는 `if __name__ == "__main__"` 가드가 있어야 한다 — 없으면 이 임포트 한 줄이
+    실제 venv 부트스트랩 + exec 를 일으킨다(그 자체가 아래 테스트의 암묵 검증이다).
+    """
+    spec = importlib.util.spec_from_file_location(f"dw_mcp_launch_{next(_counter)}", LAUNCHER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class McpLauncherTest(unittest.TestCase):
+    """(C) dw-vault MCP 런처 — 셸 없이 vault 를 해석하고 서버를 띄운다.
+
+    이 레포의 플러그인 핵심은 dw-vault MCP 다. 런처가 기동하지 못하면 도구 11 개가 전부
+    사라진다. 플랫폼 분기는 **양쪽 다** 고정한다 — Windows 실기가 없으므로(2026-08-08)
+    단위 테스트가 그 분기에 대해 우리가 가진 유일한 증거다.
+    """
+
+    def setUp(self):
+        self.mod = load_launcher()
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-launch-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    # ── venv 레이아웃 분기 ────────────────────────────────────────────────
+    def test_venv_python_posix_layout(self):
+        self.assertEqual(self.mod.venv_python(Path("/x/.venv"), "posix"),
+                         Path("/x/.venv/bin/python"))
+
+    def test_venv_python_windows_layout(self):
+        """Windows: Scripts/python.exe. 실기 없이 고정할 수 있는 최대치."""
+        self.assertEqual(self.mod.venv_python(Path("/x/.venv"), "nt"),
+                         Path("/x/.venv/Scripts/python.exe"))
+
+    def test_venv_python_falls_back_when_venv_schemes_absent(self):
+        """py<3.11 경로 — `nt_venv`/`posix_venv` 스킴이 없으면 CPython 리터럴 레이아웃으로.
+
+        가정이 아니라 **살아있는 경로**다: 배선이 `command: "python3"` 이라 CC 가 해석한 아무
+        python3 이 런처를 임포트한다. 실측(2026-08-08) 이 워크스테이션의 `/usr/bin/python3` 는
+        3.9.6 이고 두 스킴 모두 `KeyError` 다 — 이 분기가 안 맞으면 dw-vault 가 조용히 죽는다.
+        """
+        with unittest.mock.patch.object(self.mod.sysconfig, "get_path",
+                                        side_effect=KeyError("posix_venv")):
+            self.assertEqual(self.mod.venv_python(Path("/x/.venv"), "posix"),
+                             Path("/x/.venv/bin/python"))
+            self.assertEqual(self.mod.venv_python(Path("/x/.venv"), "nt"),
+                             Path("/x/.venv/Scripts/python.exe"))
+
+    def test_venv_python_default_matches_running_platform(self):
+        """기본 인자는 돌고 있는 플랫폼을 따른다(호출부가 os_name 을 잊어도 맞는다)."""
+        self.assertEqual(self.mod.venv_python(Path("/x/.venv")),
+                         self.mod.venv_python(Path("/x/.venv"), os.name))
+
+    # ── DW_VAULT_DIR 홈 접두 확장 ─────────────────────────────────────────
+    def test_home_prefix_expansion(self):
+        e = self.mod.expand_home_prefix
+        self.assertEqual(e("~/v", "/home/d"), "/home/d/v")
+        self.assertEqual(e("$HOME/v", "/home/d"), "/home/d/v")
+
+    def test_home_prefix_expansion_is_prefix_only(self):
+        """경로 중간의 `~`·`$` 는 건드리지 않는다 — 실제 경로를 변형하면 안 된다."""
+        e = self.mod.expand_home_prefix
+        self.assertEqual(e("/abs/~/v", "/home/d"), "/abs/~/v")
+        self.assertEqual(e("/abs/$HOME/v", "/home/d"), "/abs/$HOME/v")
+        self.assertEqual(e("/vaults/my $stuff", "/home/d"), "/vaults/my $stuff")
+
+    # ── vault 해석 순서(env > 규약 > 에러, 폴백 없음) ──────────────────────
+    def test_vault_env_wins(self):
+        v = self.tmp / "custom vault"          # 공백 포함 — 따옴표 없는 세상에서도 안전해야 한다
+        v.mkdir()
+        self.assertEqual(self.mod.resolve_vault({"DW_VAULT_DIR": str(v)}, str(self.tmp),
+                                                warn=lambda m: None), v)
+
+    def test_vault_falls_back_to_convention_when_env_dir_missing(self):
+        conv = self.tmp / self.mod.CONVENTIONAL_VAULT
+        conv.mkdir()
+        warned = []
+        got = self.mod.resolve_vault({"DW_VAULT_DIR": str(self.tmp / "없음")}, str(self.tmp),
+                                     warn=warned.append)
+        self.assertEqual(got, conv)
+        self.assertTrue(any("폴더 없음" in w for w in warned), "조용히 폴백했다")
+
+    def test_vault_absent_refuses_to_start(self):
+        """vault 없이 뜬 서버는 조용히 빈 지식으로 답한다 — 기동을 거부해야 한다."""
+        warned = []
+        with self.assertRaises(SystemExit) as cm:
+            self.mod.resolve_vault({}, str(self.tmp), warn=warned.append)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertTrue(any("vault 없음" in w for w in warned))
+
+    # ── 기동 방식 분기 ────────────────────────────────────────────────────
+    def test_launch_uses_execv_on_posix(self):
+        calls = {}
+        self.mod.launch(Path("/py"), Path("/s.py"), Path("/v"), "posix",
+                        execv=lambda p, a: calls.setdefault("execv", (p, a)),
+                        run=lambda a: self.fail("POSIX 에서 자식 프로세스를 만들었다"))
+        self.assertEqual(calls["execv"],
+                         ("/py", ["/py", "/s.py", "--vault", "/v"]))
+
+    def test_launch_spawns_child_on_windows(self):
+        """Windows 의 execv 는 원래 PID 를 종료시켜 클라이언트가 '서버 죽음' 으로 읽는다."""
+        class R:
+            returncode = 7
+        calls = {}
+
+        def fake_run(argv):
+            calls["run"] = argv
+            return R()
+
+        rc = self.mod.launch(Path("/py"), Path("/s.py"), Path("/v"), "nt",
+                             execv=lambda p, a: self.fail("Windows 에서 execv 를 썼다"),
+                             run=fake_run)
+        self.assertEqual(rc, 7, "자식 종료코드를 전달하지 않았다")
+        self.assertEqual(calls["run"], ["/py", "/s.py", "--vault", "/v"])
+
+    # ── venv 부트스트랩 멱등 ──────────────────────────────────────────────
+    def test_existing_venv_is_reused(self):
+        venv = self.tmp / ".venv"
+        (venv / "bin").mkdir(parents=True)
+        (venv / "bin" / "python").write_text("", encoding="utf-8")
+        self.mod.ensure_venv(venv, "posix",
+                             run=lambda cmd, what: self.fail(f"기존 venv 를 재설치했다: {what}"))
+
+    def test_bootstrap_failure_is_loud(self):
+        """venv 생성 실패(예: Debian 계열 python3-venv 미설치)는 조용히 죽으면 안 된다."""
+        def boom(cmd, what):
+            raise SystemExit(1)
+        with self.assertRaises(SystemExit):
+            self.mod.ensure_venv(self.tmp / ".venv", "posix", run=boom)
+
+    # ── 배선 회귀 가드 ────────────────────────────────────────────────────
+    def test_plugin_wiring_needs_no_shell(self):
+        """plugin.json 의 mcpServers 는 exec 형태(command+args)여야 한다.
+
+        `command` 에 `.sh`/`.bat` 를 두면 그 셸이 없는 플랫폼에서 MCP 가 통째로 죽는다.
+        (mcpServers.command 는 셸을 경유하지 않고 직접 spawn 된다.)
+        """
+        cfg = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        srv = cfg["mcpServers"]["dw-vault"]
+        self.assertEqual(srv["command"], "python3")
+        self.assertEqual(srv["args"], ["${CLAUDE_PLUGIN_ROOT}/_build/dw-mcp-launch.py"])
+        self.assertTrue(LAUNCHER.is_file(), "배선이 가리키는 런처가 없다")
+        self.assertFalse((BUILD / "dw-mcp-launch.sh").exists(),
+                         "POSIX 셸 런처가 되살아났다 — 부트스트랩 경로가 둘로 갈린다")
+
+    def test_dependency_pin_matches_makefile(self):
+        """`mcp<2` 핀은 Makefile 과 런처 양쪽에 있다 — 갈리면 신규 venv 만 조용히 깨진다."""
+        mk = (ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertIn('pip install --quiet pyyaml "mcp<2"', mk)
+        self.assertEqual(self.mod.DEPS, ("pyyaml", "mcp<2"))
+
+    # ── 실제 기동(JSON-RPC handshake) ─────────────────────────────────────
+    def test_launcher_serves_all_tools_over_stdio(self):
+        """런처로 띄운 서버가 initialize 하고 도구를 전부 노출하는지 — 최종 게이트.
+
+        stdout 은 JSON-RPC 채널이므로 한 줄이라도 오염되면 `json.loads` 에서 터진다
+        (부트스트랩 출력이 새는 회귀를 이 테스트가 잡는다).
+        """
+        py = self.mod.venv_python(ROOT / ".venv")
+        if not py.exists():
+            self.skipTest(f"venv 없음({py}) — `make test` 는 부트스트랩 후 실행된다")
+        expected = (BUILD / "dw-mcp-server.py").read_text(encoding="utf-8").count("@mcp.tool()")
+
+        vault = self.tmp / "vault"
+        shutil.copytree(SEED, vault)
+        env = {k: v for k, v in os.environ.items() if k != "DW_VAULT_DIR"}
+        env |= {"CLAUDE_PLUGIN_ROOT": str(ROOT), "DW_VAULT_DIR": str(vault)}
+
+        proc = subprocess.Popen([sys.executable, str(LAUNCHER)],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, env=env, bufsize=1)
+        self.addCleanup(proc.kill)
+        killer = threading.Timer(120, proc.kill)   # 블로킹 read 를 깨우는 워치독
+        killer.start()
+        self.addCleanup(killer.cancel)
+        proc.stdin.write(
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                "protocolVersion": "2024-11-05", "capabilities": {},
+                "clientInfo": {"name": "dw-selftest", "version": "0"}}}) + "\n"
+            + json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
+            + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}) + "\n")
+        proc.stdin.flush()
+
+        got = {}
+        try:
+            for line in proc.stdout:          # 워치독이 kill 하면 EOF 로 풀린다(무한 대기 없음)
+                line = line.strip()
+                if not line:
+                    continue
+                msg = json.loads(line)
+                if msg.get("id") is not None:
+                    got[msg["id"]] = msg
+                if 2 in got:
+                    break
+        finally:
+            # ⚠️ stderr 는 **프로세스를 먼저 끝낸 뒤** 읽는다. 살아있는 자식의 stderr.read()
+            #    는 EOF 까지 블록한다(어서션 메시지 안에서 부르면 즉시 교착 — 실제로 밟았다).
+            killer.cancel()
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        err = proc.stderr.read()
+        proc.stdout.close()
+        proc.stderr.close()
+        self.assertIn(1, got, f"initialize 응답 없음. stderr={err}")
+        self.assertEqual(got[1]["result"]["serverInfo"]["name"], "dw-vault")
+        names = {t["name"] for t in got[2]["result"]["tools"]}
+        self.assertEqual(len(names), expected, f"도구 수 불일치: {sorted(names)}")
+        self.assertIn("dw_search", names)
 
 
 def load_ratifier():

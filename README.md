@@ -228,6 +228,29 @@ Denver는 자체 거버넌스 코어 및 하네스 엔진만 포함하고 있습
 | **impeccable** *(선택)* | 프론트엔드 UI/UX에 대한 전문 비평 | `claude plugin install impeccable@impeccable` |
 | **gstack** *(권장)* | 디자인 시안 구현, 브라우징, 종합 디자인 QA | `git clone` 후 스킬 디렉토리에 타깃팅하여 내장 `./setup` 실행 |
 
+### 5. 플랫폼 — Windows 전제 및 미검증 범위
+
+> **⚠️ "Windows 지원" 이라고 말하지 않습니다.** 2.14.0 에서 한 일은 **MCP 런처의 POSIX 셸 의존
+> 제거(구조적)** 까지입니다. **Windows 실기 검증은 하지 못했습니다**(이 레포에 CI 워크플로우가
+> 없고, 이 계정은 GitHub 호스티드 러너를 쓸 수 없습니다). 실기가 확보되면
+> [docs/windows-smoke-checklist.md](docs/windows-smoke-checklist.md) 로 5 분 안에 판정하십시오.
+
+**무엇이 바뀌었나.** `dw-vault` MCP 런처가 `#!/bin/sh` 스크립트(`_build/dw-mcp-launch.sh`)에서
+순수 Python(`_build/dw-mcp-launch.py`)으로 바뀌었습니다. `plugin.json` 의 `mcpServers.command` 는
+**셸을 경유하지 않고 직접 spawn** 되므로, 종전 배선은 POSIX 셸이 없는 환경에서 런처 자체가 실행되지
+않았고 그 결과 dw-vault MCP 도구 **11 개 전부가 기동하지 않았습니다**(플러그인 핵심 정지).
+
+**Windows 에서 필요한 전제 (충족되지 않으면 조용히 실패하지 않고 시끄럽게 실패합니다).**
+
+| 전제 | 왜 필요한가 | 확인·해결 |
+| --- | --- | --- |
+| **`python3` 이름이 PATH 에서 해석된다** | 배선이 `"command": "python3"` 입니다. 플랫폼별 분기 키가 없어 양쪽에서 동시에 안전한 인터프리터 이름이 **존재하지 않습니다** — 훅 전체가 이미 `python3` 을 쓰고 있어 그쪽에 맞췄습니다. | 터미널에서 `python3 --version`. Microsoft Store 판 Python 은 `python3.exe` 를 제공하고, **python.org 판은 `python.exe`·`py.exe` 만 제공합니다**(이 경우 `python3` 이 해석되지 않아 MCP 가 기동하지 않습니다). Store 판을 쓰거나 PATH 에 `python3` 이름을 만들어 주십시오. |
+| **`make`** | 슬래시 커맨드 10 개 중 **7 개**(`/denver-workflow`, `/dw-build`, `/dw-install`, `/dw-ratify`, `/dw-review`, `/dw-scope`, `/dw-setup`)가 내부적으로 `make` 타깃을 호출합니다. 이 범위는 2.14.0 에서 **손대지 않았습니다** — Windows 에서 그 커맨드들은 여전히 `make` 가 필요합니다. | Git for Windows + `make`(예: MSYS2/Chocolatey) 설치. MCP·훅은 `make` 없이도 동작합니다. |
+| **파이썬의 `venv` 모듈** | 런처가 첫 실행 시 `<플러그인 루트>/.venv` 를 만들고 `pyyaml`·`mcp<2` 를 설치합니다. | 실패 시 런처가 원인과 함께 stderr 로 죽습니다(조용한 실패 없음). |
+
+**훅(배선 10 건·스크립트 9 종)은 문자열 형태를 유지했습니다** — 검토했고 바꾸지 않았습니다. 근거는
+CHANGELOG 2.14.0 항목에 있습니다.
+
 ---
 
 ## 💻 주요 CLI 명령어 (Makefile)

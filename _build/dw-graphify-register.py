@@ -27,7 +27,7 @@ def _expand(p: str) -> str:
 
 def _resolve_vault(project: Path) -> Path:
     """vault 루트 해석 — dw-config.json vault_root > DW_VAULT_DIR env > 규약 ~/denver-workflow-vault
-    (dw-mcp-launch.sh 와 동일 순서)."""
+    (dw-mcp-launch.py 와 동일 순서)."""
     cfg = project / ".claude" / "dw-config.json"
     if cfg.exists():
         try:

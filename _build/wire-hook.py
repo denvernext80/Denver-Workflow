@@ -38,7 +38,14 @@ TELEMETRY_MATCHER = "mcp__.*graphify.*|mcp__.*dw-vault__dw_.*|Grep|Read|Edit|Wri
 
 
 def _cmd(name: str) -> tuple[str, str]:
-    return (f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{name}"', name)
+    # `${CLAUDE_PROJECT_DIR}`(중괄호)는 Claude Code 가 **직접 치환**하는 placeholder 다.
+    # 종전의 `$CLAUDE_PROJECT_DIR`(중괄호 없음)는 셸 변수 문법이라 PowerShell 이 미정의
+    # 변수($null)로 읽는다 — CC 자체가 진단하는 형태였다(2026-08-08 실측: CLI 2.1.225
+    # 바이너리에 "…reads as an undefined variable ($null). Use $env:CLAUDE_PROJECT_DIR
+    # or ${CLAUDE_PROJECT_DIR} instead." 문구 존재).
+    # exec 형태(args)로 바꾸지 않는 이유: `wired_markers` 가 marker 를 command 문자열에서
+    # 찾는다 — 경로를 args 로 옮기면 멱등 판정이 깨져 재설치마다 훅이 중복된다.
+    return (f'python3 "${{CLAUDE_PROJECT_DIR}}/.claude/hooks/{name}"', name)
 
 
 def register_project(vault: Path, project: Path, remove: bool = False) -> str:

@@ -14,7 +14,7 @@ TOOLS_ROOT := $(shell pwd)
 # vault 콘텐츠 위치(프로젝트 워크스페이스에서 분리). DW_VAULT_DIR 우선, 기본 ~/denver-workflow-vault.
 # 도구(.venv·_build·hooks)는 이 워크스페이스에 잔류 — vault 만 외부화.
 # 주의: DW_VAULT_DIR 값에 리터럴 `$HOME`/`~` 가 올 수 있다(settings.json env 규약) —
-#       Python 런처(expanduser+expandvars)와 동일하게 shell eval 로 확장한다(make 는 $H 로 오해석).
+#       Python 런처(리터럴 `~/`·`$HOME/` 접두만 확장)와 동일하게 shell eval 로 확장한다(make 는 $H 로 오해석).
 VAULT_DIR      := $(shell eval echo "$${DW_VAULT_DIR:-$$HOME/denver-workflow-vault}")
 # 컴파일러는 상대 --out 을 vault 기준으로 해석하므로(out=vault/out), 워크스페이스 산출물엔 절대경로 사용.
 COMPILE := $(VPY) _build/dw-compile.py --vault "$(VAULT_DIR)" --out "$(TOOLS_ROOT)/.claude/skills"
@@ -37,7 +37,7 @@ $(VPY):
 
 # mcp 는 <2 로 핀. 2.0.0 이 `mcp.server.fastmcp` 를 제거해 dw-mcp-server.py 가 임포트에서
 # 죽는다(신규 venv 에서만 발현 — 기존 venv 는 1.x 를 들고 있어 무증상). 서버를 2.x API 로
-# 마이그레이션한 뒤에만 핀을 풀어라. (dw-mcp-launch.sh 의 부트스트랩과 반드시 동일하게 유지.)
+# 마이그레이션한 뒤에만 핀을 풀어라. (dw-mcp-launch.py 의 DEPS 와 반드시 동일하게 유지.)
 $(VENV)/.stamp: $(VPY)
 	$(VPY) -m pip install --quiet --upgrade pip
 	$(VPY) -m pip install --quiet pyyaml "mcp<2"
