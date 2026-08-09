@@ -31,6 +31,7 @@ from pathlib import Path
 import dw_runtime
 
 BUILD = Path(__file__).resolve().parent
+ROOT = BUILD.parent                    # 도구 루트(`.venv` 가 여기 산다 — `dw.py` 의 ROOT 와 같다)
 OBEY_DIRS = ("governance/rules", "governance/guidance", "governance/procedures")
 HEAD_BYTES = 400          # status 는 프론트매터 머리에 있다 — 전문을 읽지 않는다
 LOG_MAX_BYTES = 1_000_000  # 넘으면 .1 로 1세대 회전(상한 ≈ 2MB, 과설계 회피)
@@ -113,6 +114,28 @@ def _is_stale(project: Path, vault_mtime: float) -> bool:
         return False
 
 
+def _child_py(notes: list[str], root: Path = ROOT) -> str:
+    """자식(`dw-ratify.py`·`dw-install-registered.py`)을 띄울 인터프리터.
+
+    ⚠️ `sys.executable` 을 쓰면 안 된다. 이 훅의 배선은 `command: "python3"` 이라 **CC 가 해석한
+    아무 python3** 이 우리를 띄우는데, 거기엔 `pyyaml` 이 없다(자식들이 임포트한다). 실측
+    2026-08-08~09: `ModuleNotFoundError: No module named 'yaml'` 로 비준이 이틀간 조용히 죽어
+    승격 백로그가 쌓였다. `dw.py`(CLI)만 `_venv_py()` 로 venv 를 넘기고 있었다.
+
+    **해석만 하고 부트스트랩은 하지 않는다** — `ensure_venv` 는 콜드 상태에서 `python -m venv`
+    + `pip install` 을 돌려 훅 timeout(15s)·예산(BUDGET_S)을 넘긴다. 부트스트랩은 타임아웃이
+    없는 `/dw-install`(사람이 부르는 CLI) 몫이다. venv 가 없으면 폴백하되 **조용히 하지 않는다**.
+
+    `root` 를 주입 가능하게 둔 이유는 이 레포가 이미 정한 규율이다 — `venv_python` 이
+    "테스트로 주입할 수도 없다" 를 근거로 `os_name` 을 명시 파라미터로 뺀 것과 같은 이유.
+    """
+    py = dw_runtime.venv_python(root / ".venv")
+    if py.exists():                     # venv_python 은 경로 조립만 한다 — 존재 검사는 호출자 몫
+        return str(py)
+    notes.append("⚠️ venv 미부트스트랩(pyyaml 없음) — `/dw-install` 로 설치하라")
+    return sys.executable
+
+
 def _run(cmd: list[str], timeout: float) -> tuple[int, str]:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -146,9 +169,10 @@ def main() -> int:
         _log(vault, f"draft 0 · 산출물 최신 → 무작업 ({time.monotonic()-t0:.3f}s) [{project.name}]")
         return 0
 
+    child_py = _child_py(notes)         # 한 번만 해석한다(경고도 한 번만 붙는다)
     promoted = held = 0
     if drafts:
-        rc, out = _run([sys.executable, str(BUILD / "dw-ratify.py"), "--vault", str(vault)],
+        rc, out = _run([child_py, str(BUILD / "dw-ratify.py"), "--vault", str(vault)],
                        timeout=max(2.0, BUDGET_S - (time.monotonic() - t0)))
         m = re.search(r"승격\(draft→stable\)\s*(\d+)건", out)
         promoted = int(m.group(1)) if m else 0
@@ -165,13 +189,13 @@ def main() -> int:
     # 설치: 승격이 있었으면 등록 레포 전체, 아니면 낡은 이 레포만.
     left = BUDGET_S - (time.monotonic() - t0)
     if promoted and left > 1.0:
-        rc, out = _run([sys.executable, str(BUILD / "dw-install-registered.py"),
+        rc, out = _run([child_py, str(BUILD / "dw-install-registered.py"),
                         "--vault", str(vault), "--quiet"], timeout=left)
         _log(vault, f"설치(승격 {promoted}건 전파): exit={rc} :: {out.strip()[-300:]}")
         notes.append(f"규칙 {promoted}건이 승격돼 등록 레포에 설치했다"
                      + (" (일부 실패 — 로그 확인)" if rc != 0 else ""))
     elif stale and left > 1.0:
-        rc, out = _run([sys.executable, str(BUILD / "dw-install-registered.py"),
+        rc, out = _run([child_py, str(BUILD / "dw-install-registered.py"),
                         "--vault", str(vault), "--project", str(project), "--quiet"], timeout=left)
         _log(vault, f"설치(이 레포 산출물 갱신): exit={rc} [{project.name}] :: {out.strip()[-200:]}")
         if rc != 0:

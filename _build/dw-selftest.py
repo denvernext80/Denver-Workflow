@@ -1147,6 +1147,54 @@ def load_ratifier():
     return mod
 
 
+def load_ratify_session():
+    """dw-ratify-session.py 를 모듈로 로드(파일명에 하이픈이 있어 일반 import 불가)."""
+    spec = importlib.util.spec_from_file_location(
+        f"dw_ratify_session_{next(_counter)}", BUILD / "dw-ratify-session.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class SessionHookInterpreterTest(unittest.TestCase):
+    """SessionStart 훅이 자식을 **venv 인터프리터**로 띄우는가.
+
+    회귀 근거(2026-08-08~09 실측): 훅 배선이 `command: "python3"` 이라 **CC 가 해석한 맨
+    python3** 이 `dw-ratify-session.py` 를 띄우는데, 종전 코드는 그 `sys.executable` 을 그대로
+    자식(`dw-ratify.py`·`dw-install-registered.py`→`dw-compile.py`)에 물려줬다. 거기엔
+    `pyyaml` 이 없어 `ModuleNotFoundError: No module named 'yaml'` 로 비준이 **이틀간 조용히
+    죽었고** 승격 35 건이 밀렸다. `dw.py`(CLI)만 `_venv_py()` 로 venv 를 넘기고 있었다.
+
+    ⚠️ 이 버그는 종전 스위트 104 건을 **무편집으로 통과했다** — 스위트가 원리적으로 못 잡는
+    자리였다는 뜻이다. 그래서 두 분기를 여기 고정한다.
+    """
+
+    def setUp(self):
+        self.mod = load_ratify_session()
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-childpy-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_prefers_bootstrapped_venv_over_running_interpreter(self):
+        """venv 가 있으면 그것을 쓴다 — 우리를 띄운 python3 이 아니라."""
+        py = dw_runtime.venv_python(self.tmp / ".venv")
+        py.parent.mkdir(parents=True, exist_ok=True)
+        py.write_text("")                      # 존재만 하면 된다(실행하지 않는다)
+        notes = []
+        self.assertEqual(self.mod._child_py(notes, self.tmp), str(py))
+        self.assertNotEqual(str(py), sys.executable)
+        self.assertEqual(notes, [], "venv 가 정상이면 경고를 붙이지 않는다")
+
+    def test_falls_back_loudly_when_venv_absent(self):
+        """venv 가 없으면 폴백하되 **조용히 죽지 않는다** — 안내가 세션에 뜬다.
+
+        훅 안에서 `ensure_venv` 로 부트스트랩하지 않는 것은 의도다(timeout 15s 를 넘긴다).
+        """
+        notes = []
+        self.assertEqual(self.mod._child_py(notes, self.tmp), sys.executable)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("/dw-install", notes[0])
+
+
 class VaultResolutionTest(unittest.TestCase):
     """(E) vault 해석의 **단일 정본**(`dw_runtime`) — 2.16.0 에서 11 곳을 통합한 그 계약.
 
