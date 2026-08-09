@@ -1,5 +1,72 @@
 # Changelog
 
+## 2.19.1 — 2026-08-09
+
+**SessionStart 훅이 자식을 맨 `python3` 로 띄워, 자동 비준이 이틀간 조용히 죽어 있었다.**
+
+### 증상과 실측
+
+`<vault>/.dw-state/ratify.log` 에 2026-08-08 22:17 부터 같은 줄이 반복됐다:
+
+```
+비준기 exit=1 :: ModuleNotFoundError: No module named 'yaml'
+설치(이 레포 산출물 갱신): exit=1 :: dw-compile.py exit=1 — ModuleNotFoundError: No module named 'yaml'
+```
+
+세션에는 `⚠️ 비준기 비정상 종료(exit=1)` 만 떴다. 그 사이 승격 대기가 **35 건**(rules 4 ·
+procedures 31) 쌓였다.
+
+### 근본 원인 — 미설치가 아니라 배선 누락
+
+훅 배선은 `hooks.json` 의 `command: "python3"` 이다. 즉 **CC 가 해석한 아무 python3** 이
+`dw-ratify-session.py` 를 띄운다(실측: `/opt/homebrew/opt/python@3.14/bin/python3.14`, `pyyaml`
+없음). 종전 코드는 그 `sys.executable` 을 **그대로 자식에게 물려줬다** — `dw-ratify.py` 와
+`dw-install-registered.py`→`dw-compile.py` 는 yaml 을 임포트한다.
+
+부트스트랩 장치는 이미 있었다. `dw_runtime.ensure_venv` 가 `<root>/.venv` 에 `pyyaml`·`mcp<2` 를
+깔고, `dw.py`(CLI)는 `_venv_py()` 로 그걸 넘긴다. **훅 경로만 그 장치를 우회하고 있었다** —
+`dw.py` 는 처음부터 정상이었고 그래서 `/dw-install` 은 늘 성공했다. 증상이 자동 경로에만 난 이유다.
+
+### 고친 것 — `dw-ratify-session.py` 1 파일
+
+`_child_py(notes, root=ROOT)` 를 신설해 자식 인터프리터를 한 번 해석하고 3 개 호출부가 공유한다.
+
+**해석만 하고 부트스트랩은 하지 않는다.** 훅에서 `ensure_venv` 를 부르면 콜드 상태에서
+`python -m venv` + `pip install` 이 돌아 timeout 15s·`BUDGET_S` 를 넘긴다 — 실패 모드만 갈아타는
+것이다. 부트스트랩은 타임아웃이 없는 `/dw-install` 몫으로 남긴다. venv 가 없으면
+`sys.executable` 로 폴백하되 **조용히 하지 않고** `⚠️ venv 미부트스트랩` 을 세션에 띄운다.
+
+`venv_python()` 은 경로 조립만 하므로(`ensure_venv` 도 따로 `py.exists()` 를 본다) 존재 검사는
+호출자인 우리가 한다. `root` 를 주입 가능하게 둔 것은 `venv_python` 이 *"테스트로 주입할 수도
+없다"* 를 근거로 `os_name` 을 명시 파라미터로 뺀 것과 같은 규율이다.
+
+`dw-install-registered.py`·`dw-ratify.py` 는 **건드리지 않았다.** 호출자를 전수 확인하니 맨
+`python3` 로 뜨는 진입점은 `dw-ratify-session.py` 하나뿐이고(`dw.py:151` 은 venv 를 넘기며
+`dw-selftest.py` 는 venv 아래서 돈다), 자식의 `sys.executable` 은 부모만 옳으면 자동으로 옳아진다.
+
+### 회귀 가드 — 종전 스위트가 못 잡던 자리
+
+이 버그는 **selftest 104 건을 무편집으로 통과했다.** 그래서 `SessionHookInterpreterTest` 2 건을
+추가했다(총 106). RED 를 심볼 부재(`AttributeError`)가 아니라 **동작 차이**로 증명했다 — 종전
+의미론(항상 `sys.executable`)을 시뮬레이션하면 두 건 모두 `AssertionError` 로 실패한다.
+
+끝단 검증: 격리 임시 vault(draft 1 건)로 훅 전체를 돌려 체인 완주와 경고 소멸을 확인했다.
+
+### 곁다리 — 설치 캐시에 **깨진 `.venv` 껍데기**가 복사돼 들어온다
+
+`cache/.../2.19.0/.venv` 는 `bin/` 에 `pip`·`mcp` 같은 스크립트만 있고 **`python` 심볼릭이 아예
+없는** 껍데기였다. `.venv/` 는 gitignore 돼 있고 git 이 추적하지도 않는다(실측 0 건) — 원인은
+패키징이 아니라 **마켓플레이스 `source` 가 로컬 경로(`"./"`)** 라는 점이다. 설치가 워킹트리를
+그대로 복사하면서 gitignore 된 `.venv` 까지 딸려가고, 그 복사가 **심볼릭을 잃는다**(소스
+`.venv/bin/python → python3.14` 는 멀쩡하다).
+
+그래서 **버전을 올릴 때마다 새 캐시에 같은 껍데기가 다시 생긴다.** 이번 fix 덕분에 그 상태는
+조용히 죽지 않고 `⚠️ venv 미부트스트랩` 으로 드러나며, `/dw-install` 이
+`ensure_venv`(기존 디렉터리 위 `python -m venv` → 심볼릭 생성 + `pip install`)로 복구한다.
+즉 **범프 직후 첫 세션에 경고 한 번 → `/dw-install` 로 해소**가 정상 흐름이다.
+
+근본 처분(설치 시 `.venv` 제외)은 별건으로 남긴다 — 이 릴리스의 범위가 아니다.
+
 ## 2.19.0 — 2026-08-09
 
 **레버 C — 관측만 켜고 정책은 일부러 쓰지 않았다.** 2026-08-07 패키지의 마지막 미착수 항목이다.
