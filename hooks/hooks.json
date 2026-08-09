@@ -44,7 +44,7 @@
         ]
       },
       {
-        "matcher": "mcp__.*graphify.*|mcp__.*dw-vault__dw_.*|Grep|Read|Edit|Write|MultiEdit",
+        "matcher": "mcp__.*graphify.*|mcp__.*dw-vault__dw_.*|Grep|Read|Edit|Write|MultiEdit|advisor|Agent|Task",
         "hooks": [
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-telemetry.py\"", "timeout": 10 }
         ]

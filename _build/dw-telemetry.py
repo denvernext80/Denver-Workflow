@@ -42,9 +42,23 @@ def _vault_root(project: Path):
                                  self_repo_fallback=True)
 
 
+# 판단형 검증자 — relevance-gate(2.18.0) 준수율을 재려면 '누가 실제로 디스패치됐나' 가 필요하다.
+# Agent 전체를 기록하면 로그가 부풀므로 이 셋만 남기고 나머지 서브에이전트는 버린다.
+VERIFIERS = {"code-review", "design-review", "security-qa"}
+
+
 def _classify(tool: str, ti: dict):
-    """(kind, sub, target) 반환. kind: vault|graphify|grep|file|other."""
+    """(kind, sub, target) 반환. kind: vault|graphify|grep|file|advisor|verifier|other."""
     low = tool.lower()
+    # advisor 호출 빈도(레버 C 관측용). 인자가 없는 도구라 target 은 비운다.
+    if low == "advisor":
+        return "advisor", "advisor", ""
+    # 검증자 디스패치. subagent_type 은 tool_input 에 온다(dw-worktree-guard 가 쓰는 그 필드).
+    if tool in ("Agent", "Task"):
+        sub = str(ti.get("subagent_type", "")).strip().lower()
+        if sub in VERIFIERS:
+            return "verifier", sub, str(ti.get("description", ""))[:120]
+        return "other", tool, ""
     if "dw-vault__" in tool or (tool.startswith("dw_")):
         sub = tool.split("dw-vault__")[-1] if "dw-vault__" in tool else tool
         target = ti.get("name") or ti.get("query") or ti.get("title") or ti.get("note_type") or ""
