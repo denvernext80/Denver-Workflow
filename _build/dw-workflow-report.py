@@ -115,6 +115,11 @@ def main() -> None:
                     reads[rel] += 1
             elif tool.startswith(("dw_write", "dw_propose", "dw_resolve")):
                 c["write_dw"] += 1
+        elif kind == "advisor":
+            c["advisor"] += 1
+        elif kind == "verifier":
+            c["verifier_total"] += 1
+            c[f"verifier_{tool}"] += 1
         elif kind == "file":
             rel = r.get("resolved")
             if tool == "Read":
@@ -157,6 +162,13 @@ def main() -> None:
             "writes": {"dw_write": c["write_dw"], "direct_vault_edit": c["write_direct"]},
             "reads": {"dw_read": c["read_dw"], "direct_vault_read": c["read_direct"]},
         },
+        # 서브에이전트 비용 관측(레버 B·C). 빈도만 잰다 — '그 호출이 결정을 바꿨나' 는
+        # 로그로 알 수 없다(아래 C 절 참조).
+        "dispatch": {
+            "advisor": c["advisor"],
+            "verifiers_total": c["verifier_total"],
+            "verifiers": {v: c[f"verifier_{v}"] for v in ("code-review", "design-review", "security-qa")},
+        },
         "reuse": buckets,
         "archive_candidates": cands,
     }
@@ -189,6 +201,18 @@ def main() -> None:
             print(f"    archive 후보(read 0 & {a.days}일+): {len(cc)}건 — 상위 12")
             for x in cc[:12]:
                 print(f"      - [{x['age_days']}d] {x['path']}")
+
+    dp = report["dispatch"]
+    vv = dp["verifiers"]
+    print("\n## C. 서브에이전트 디스패치 (토큰 비용)")
+    print(f"  advisor: {dp['advisor']}회")
+    print(f"  검증자: 총 {dp['verifiers_total']}회 — "
+          f"code-review {vv['code-review']} · design-review {vv['design-review']} · security-qa {vv['security-qa']}")
+    if dp["advisor"] == 0 and dp["verifiers_total"] == 0:
+        print("  (0 은 '안 불렀다' 가 아니라 '아직 관측 전' 일 수 있다 — 이 계측은 2.19.0 부터 기록한다.)")
+    print("  ⚠️ 이 숫자는 **빈도일 뿐**이다. '그 호출이 결정을 바꿨나'(advisor)·'그 검증자가 볼 파일이")
+    print("     정말 있었나'(relevance-gate 준수)는 로그로 알 수 없다 — 판단이 필요하고, 정책을 바꾸려면")
+    print("     사람이 표본을 직접 봐야 한다. 빈도만 보고 호출을 줄이면 값싼 호출이 아니라 비싼 호출이 잘린다.")
 
 
 if __name__ == "__main__":

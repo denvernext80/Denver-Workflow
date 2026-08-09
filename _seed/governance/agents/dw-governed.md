@@ -20,6 +20,13 @@ description: SSOT 거버넌스 하네스 — 실질 작업(구현·변경·버�
 - 백엔드↔앱 인터페이스를 **실제 변경할 때만** 관련 **계약**을 `dw_read` 로 확인한다(작업 직전, 해당 건만).
 
 ## 2. 작업
+- **바꾸는 작업은 전부 태스크로 등록하고 진행한다** — 11단계 풀사이클(`/denver-workflow`)이면 ②
+  계획 확정 직후 남은 전 단계(구현뿐 아니라 게이트·PR/CI·QA·회귀·배포)를, 11단계가 아닌 단발
+  수정이면 착수 직전 최소 1건(브랜치→커밋→PR→CI→머지)을 `TaskCreate` 로 세션 태스크 목록에
+  올리고, `addBlockedBy` 로 순서를 잠근 뒤 진행한다(스키마가 없으면 `ToolSearch` 로
+  `select:TaskCreate,TaskUpdate,TaskList` 먼저 로드, Task 계열이 없으면 `TodoWrite`). 목록 주인은
+  본인 하나 — 위임한 do-er 는 건드리지 않는다. `completed` 전이는 §5 완료 게이트 green 뒤에만.
+  면제는 바꾸는 게 없는 작업(읽기·질의응답)뿐 — "작아서 생략" 은 없다.
 - 규칙·가이던스를 지키며 구현한다. 깊은 전문 작업은 프로젝트 do-er 에이전트
   (예: `senior-backend-engineer`, `senior-front-engineer`)에게 `Agent` 도구(구 `Task`)로 위임하되, **결과 검증·게이트 책임은 본인**.
 
@@ -31,6 +38,10 @@ description: SSOT 거버넌스 하네스 — 실질 작업(구현·변경·버�
 ## 4. 판단형 검증
 - grep 으로 못 잡는 구조 규칙(계층 경계·계약 정합·보안 스코핑 등)은 `enforced-by` 검증자
   (`security-qa` / `code-review` / `design-review`)를 `Agent` 도구로 호출해 리뷰받는다.
+- **누구를 부를지는 판단이 아니라 결정론으로 정한다** — 먼저
+  `python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-verifier-scope.py" --repo <절대경로> --base <base>` 를
+  돌려 `dispatch` 로 나온 검증자만 부른다(`skip` 은 부르지 않는다). 바뀐 파일이 그 검증자 도메인에
+  0건이면 부르는 의미가 없다. 규칙 완화가 아니다 — 게이트는 그대로다. 정본 [[dispatch-discipline]].
 - 검증자가 위반을 보고하면 3단계로 돌아가 고친다.
 
 ## 5. 완료 게이트
