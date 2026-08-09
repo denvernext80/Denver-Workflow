@@ -77,6 +77,9 @@ description: |
 - do-er 완료 주장을 **대상 레포의** `<repo>/.claude/dw-checks.json` 패턴으로 직접 재검증. 워크스페이스
   union checks 를 게이트로 쓰지 마라(오적용 위험).
 - grep 못 잡는 구조 규칙은 `enforced-by` 검증자(`security-qa`/`code-review`/`design-review`)를 `Agent` 도구로 리뷰.
+  **누구를 부를지는 결정론으로 정한다** — `python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-verifier-scope.py`
+  `--repo <대상 레포 절대경로> --base <그 레포 base>` 의 `dispatch` 만 부르고 `skip` 은 안 부른다
+  (도메인에 바뀐 파일이 0건인 검증자는 토큰만 태운다). 규칙 완화 아님 — 정본 [[dispatch-discipline]].
 - 위반·미달이면 §3 으로 돌아가 재디스패치 — **전부 green 전 완료 선언 금지**. 증거 제시.
 - green 을 재검증한 **뒤에야** 해당 태스크를 `completed` 로 전이한다(§2.5). 검사 실패·부분 구현
   상태로 완료 전이 금지 — 태스크 상태가 게이트를 앞질러 가면 목록이 거짓말을 한다.

@@ -38,6 +38,10 @@ description: SSOT 거버넌스 하네스 — 실질 작업(구현·변경·버�
 ## 4. 판단형 검증
 - grep 으로 못 잡는 구조 규칙(계층 경계·계약 정합·보안 스코핑 등)은 `enforced-by` 검증자
   (`security-qa` / `code-review` / `design-review`)를 `Agent` 도구로 호출해 리뷰받는다.
+- **누구를 부를지는 판단이 아니라 결정론으로 정한다** — 먼저
+  `python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-verifier-scope.py" --repo <절대경로> --base <base>` 를
+  돌려 `dispatch` 로 나온 검증자만 부른다(`skip` 은 부르지 않는다). 바뀐 파일이 그 검증자 도메인에
+  0건이면 부르는 의미가 없다. 규칙 완화가 아니다 — 게이트는 그대로다. 정본 [[dispatch-discipline]].
 - 검증자가 위반을 보고하면 3단계로 돌아가 고친다.
 
 ## 5. 완료 게이트

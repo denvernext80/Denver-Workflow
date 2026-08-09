@@ -108,6 +108,12 @@ plugin-update:               ## 플러그인 한 방 업데이트(클론 pull + 
 doctor:                      ## 콜드스타트 헬스체크(venv·컴파일러·MCP·vault·외부 의존)
 	$(DW) doctor
 
+# 검증자 relevance-gate — 바뀐 파일이 그 검증자 도메인에 없으면 아예 부르지 않는다.
+# 어떤 규칙도 약화하지 않는다(리뷰할 게 0인 검증자를 스킵할 뿐). 사용: make verifier-scope P=/abs/repo [BASE=main]
+verifier-scope:              ## 이 변경에 정말 필요한 검증자만 결정론 산출(토큰 절감)
+	@test -n "$(P)" || (echo "사용: make verifier-scope P=/절대경로 [BASE=main]" && exit 1)
+	python3 _build/dw-verifier-scope.py --repo "$(P)" --base "$(or $(BASE),main)"
+
 # ⚠️ 종전엔 이 레시피 끝에 `$(MAKE) -s doctor` 가 붙어 있었다. 헬스체크는 이제 CLI 의 review
 #    안에서 돈다 — 여기 남겨두면 두 번 출력된다.
 review:                      ## OBEY draft 큐(자동 비준 대상/hold) + 헬스체크

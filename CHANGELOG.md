@@ -1,5 +1,57 @@
 # Changelog
 
+## 2.18.0 — 2026-08-09
+
+**검증자 relevance-gate 를 실행 경로에 배선했다.** `_dw-instrumentation/dw-verifier-scope.py` 는
+2026-08-07 클라우드 세션이 넘긴 패키지의 잔여였다 — 스크립트는 완성돼 있었지만 `_build/` 에도
+없고 레포 어디서도 참조되지 않아, 그 패키지의 실행 순서 **1순위**(안전·즉효)가 2·3순위만 처리된
+채 방치돼 있었다.
+
+### 문제
+
+`code-review`·`design-review`·`security-qa` 는 무거운 서브에이전트다(diff 통째 추론 + 규칙 로드).
+그런데 **누구를 부를지가 판단에 맡겨져 있어** 관련 없는 변경에도 디스패치됐다 — 백엔드만 고쳤는데
+design-review, 순수 UI 만 고쳤는데 security-qa, 문서만 고쳤는데 셋 다. 리뷰할 게 0인 검증자는
+토큰만 태우고 아무 것도 못 잡는다.
+
+### 무엇이 바뀌나
+
+- `_build/dw-verifier-scope.py` — 바뀐 파일을 도메인 글롭과 대조해 **필요한 검증자만 결정론 산출**
+  (`--repo/--base` 로 git diff, 또는 `--files` 직접, `--json` 기계가독). 표준 라이브러리만 쓴다.
+- `make verifier-scope P=/abs/repo [BASE=main]` — 사람·에이전트 공용 진입점.
+- **디스패치 규율 정본에 편입** — `guidance/dispatch-discipline.md` 에 relevance-gate 절 추가.
+  `dw-governed` §4·`dw-orchestrator` §4 는 "누구를 부를지는 판단이 아니라 결정론으로 정한다" 로
+  바뀌었다 — `dispatch` 만 부르고 `skip` 은 안 부른다.
+
+### 규칙 완화가 아니다
+
+결정론 검사(`dw-checks.json`)도, 완료 게이트도 그대로다. 스킵은 **그 검증자가 볼 파일이 0건일
+때만** 일어난다. 다만 도메인 글롭은 레포 무관 범용이라 안 맞는 레포가 있을 수 있어(예: UI 가
+`.vue`), 문서에 **"도구 판정보다 실측 우선 — 더 부르는 쪽으로 어긋내고 이유를 남겨라"** 를 박았다.
+
+### 한계 — 이건 조언이지 게이트가 아니다
+
+같은 패키지의 `IMPLEMENT-workflow-opt.md` 가 남긴 교훈은 **"조언형은 라우팅당한다 — 강제하려면
+PreToolUse 게이트가 필요"** 였다. 이 배선은 그 기준으로는 조언이다. PreToolUse 하드 게이트로
+올리지 않은 이유는 오탐 리스크다 — 도메인 맵이 안 맞는 레포에서 **정말 필요한 검증자를 차단**하면
+enforcement 손실이 실재한다. 조언으로 먼저 깔고, 이미 배선된 텔레메트리(2.x)로 준수율을 관측한 뒤
+라우팅당하는 게 확인되면 게이트로 승격하는 순서가 맞다.
+
+### 실측 (5케이스, 전부 문서가 주장한 대로)
+
+| 입력 | dispatch | skip |
+| --- | --- | --- |
+| 문서만(`README.md`·`docs/x.md`) | (없음) | 셋 다 |
+| 순수 UI(`lib/ui/home_page.dart`) | code-review·design-review | security-qa |
+| 백엔드(`src/Controller/UserController.php`) | code-review·security-qa | design-review |
+| 혼합(`.dart`+`.php`) | 셋 다 | (없음) |
+| 이 레포 현재 브랜치 | code-review | design-review·security-qa |
+
+`_dw-instrumentation/` 의 나머지는 **소진을 확인했다**(폴더 자체는 아직 지우지 않았다) — 지시 문서 3건은 이미 반영돼 있었고
+(텔레메트리·SSOT 쓰기 가드·graphify 게이트는 `hooks.json` 배선 완료, 결정론 check 는 vault 규칙
+보유가 8 → 14개), 스크립트 5개는 2.16.0 의 `dw_runtime` 통합 **이전** 사본이라 `_build/` 쪽이
+최신이었다.
+
 ## 2.17.0 — 2026-08-09
 
 **작업을 태스크로 등록·관리하는 것을 의무화했다.** 종전에는 11단계 어디에도 "진행 상황을 어디에
