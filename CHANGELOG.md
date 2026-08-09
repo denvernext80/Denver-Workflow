@@ -47,7 +47,7 @@ enforcement 손실이 실재한다. 조언으로 먼저 깔고, 이미 배선된
 | 혼합(`.dart`+`.php`) | 셋 다 | (없음) |
 | 이 레포 현재 브랜치 | code-review | design-review·security-qa |
 
-`_dw-instrumentation/` 의 나머지는 **소진을 확인했다**(폴더 자체는 아직 지우지 않았다) — 지시 문서 3건은 이미 반영돼 있었고
+`_dw-instrumentation/` 은 소진돼 정리했다(`aca1068`) — 설계 문서 4건은 `docs/instrumentation/` 으로 보존, 스크립트 5개는 삭제. 지시 문서 3건은 이미 반영돼 있었고
 (텔레메트리·SSOT 쓰기 가드·graphify 게이트는 `hooks.json` 배선 완료, 결정론 check 는 vault 규칙
 보유가 8 → 14개), 스크립트 5개는 2.16.0 의 `dw_runtime` 통합 **이전** 사본이라 `_build/` 쪽이
 최신이었다.
