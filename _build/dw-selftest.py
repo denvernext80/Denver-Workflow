@@ -1681,5 +1681,226 @@ class DoctorHookSafetyTest(unittest.TestCase):
         self.assertIn("git_probe=False", text, "doctor 가 서브프로세스 탐색을 켰다")
 
 
+class SupersedeBannerTest(unittest.TestCase):
+    """(I) 정정된 절차는 **전문을 읽는 자리에서** 정정 사실이 보여야 한다.
+
+    실측(2026-08-10, live vault): 서로 모순되는 두 절차가 둘 다 status:stable 이었고,
+    원본엔 철회 표식이 **전혀 없었다**. 절차는 progressive disclosure 로 컴파일돼
+    (SKILL.md 엔 인덱스 한 줄, 전문은 references/*.md) 「지금 하는 일에 해당하는 항목만
+    Read 한다」가 헤더 지시다 → 원본 references 를 펼친 에이전트는 거짓 단계를 따르고
+    같은 스킬 50줄 아래의 정정 노트를 **영원히 보지 못한다**.
+
+    그래서 `supersedes:` 프론트매터를 계약면으로 두고, 컴파일러가 피-supersede 절차의
+    **references 본문 머리**(+ 인덱스 줄)에 배너를 박는다. archive/retract 가 아닌 이유:
+    정정 노트가 "원본의 1·2·3·4·6·8·9 단계는 유효" 라고 명시했다 — 내리면 유효분이 소실된다.
+    문제는 원본의 **존재**가 아니라 **무표식 존재**다.
+    """
+
+    PROC = "governance/procedures"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-supersede-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.vault = self.tmp / "vault"
+        shutil.copytree(SEED, self.vault)
+        self.out = self.tmp / "skills"
+
+    # --- helpers ----------------------------------------------------------
+    def write_proc(self, stem: str, title: str, body: str,
+                   status: str = "stable", supersedes: str | None = None) -> str:
+        fm = ["---", "type: procedure", "scope: engineering", f"status: {status}",
+              "compiles-to: skill", f"title: {title}"]
+        if supersedes is not None:
+            fm.append(f"supersedes: {supersedes}")
+        fm.append("---")
+        d = self.vault / self.PROC
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{stem}.md").write_text("\n".join(fm) + "\n\n" + body + "\n", encoding="utf-8")
+        return f"{self.PROC}/{stem}.md"
+
+    def compile(self, expect: int = 0) -> subprocess.CompletedProcess:
+        r = subprocess.run(
+            [sys.executable, str(COMPILER), "--vault", str(self.vault),
+             "--out", str(self.out)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, expect,
+                         f"컴파일 반환코드 {r.returncode} (기대 {expect}):\n{r.stdout}\n{r.stderr}")
+        return r
+
+    def refs(self) -> Path:
+        return self.out / "dev-engineering-charter" / "references"
+
+    def ref_text(self, stem: str) -> str:
+        return (self.refs() / f"{stem}.md").read_text(encoding="utf-8")
+
+    def skill_text(self) -> str:
+        return (self.out / "dev-engineering-charter" / "SKILL.md").read_text(encoding="utf-8")
+
+    def banner_mark(self) -> str:
+        """배너 표식은 컴파일러의 단일 상수에서 읽는다 — 테스트가 문구를 따로 들고 있으면
+        상수를 바꿨을 때 테스트만 조용히 통과하는 이중 정의가 된다."""
+        m = re.search(r'^SUPERSEDE_MARK\s*=\s*"(.+)"\s*$',
+                      COMPILER.read_text(encoding="utf-8"), re.MULTILINE)
+        self.assertIsNotNone(m, "dw-compile.py 에 SUPERSEDE_MARK 상수가 없다")
+        return m.group(1)
+
+    # --- a. 비-공허성 ------------------------------------------------------
+    def test_no_supersedes_yields_no_banner_anywhere(self):
+        """`supersedes:` 가 하나도 없으면 배너도 하나도 없어야 한다.
+
+        (b)~(d) 만 있으면 「모든 references 에 배너를 다는」 컴파일러도 전부 통과한다 —
+        이 테스트가 그 공허한 통과를 막는 유일한 축이다."""
+        self.write_proc("plain-a", "평범한 절차 A", "1. 첫 단계.\n2. 둘째 단계.")
+        self.write_proc("plain-b", "평범한 절차 B", "1. 첫 단계.\n2. 둘째 단계.")
+        self.compile()
+        mark = self.banner_mark()
+        for p in sorted(self.refs().glob("*.md")):
+            self.assertNotIn(mark, p.read_text(encoding="utf-8"),
+                             f"supersedes 가 없는데 {p.name} 에 배너가 붙었다")
+        self.assertNotIn(mark, self.skill_text(), "supersedes 가 없는데 인덱스에 표식이 붙었다")
+
+    # --- b. 전문(references) 본문 배너 -------------------------------------
+    def test_superseded_reference_body_carries_banner_before_content(self):
+        self.write_proc("orig-lock", "DB 잠금 배리어 동시성 재현",
+                        "1. 두 프로세스를 띄운다.\nSENTINEL_ORIGINAL_BODY\n7. pre === 0 을 단언한다.")
+        self.write_proc("fix-lock", "정정 — pre===0 은 증인이 아니라 동어반복",
+                        "원본 5·7 단계는 틀렸다. 1·2·3·4·6·8·9 는 유효하다.",
+                        supersedes="orig-lock")
+        self.compile()
+        text = self.ref_text("orig-lock")
+        mark = self.banner_mark()
+        self.assertIn(mark, text, "피-supersede 절차의 references 본문에 배너가 없다")
+        self.assertIn("정정 — pre===0 은 증인이 아니라 동어반복", text,
+                      "배너가 supersede 하는 노트의 제목을 명시하지 않았다")
+        self.assertIn("references/fix-lock.md", text,
+                      "배너가 정정 노트의 references 파일을 가리키지 않았다")
+        self.assertLess(text.index(mark), text.index("SENTINEL_ORIGINAL_BODY"),
+                        "배너가 원본 본문보다 뒤에 있다 — 본문을 읽고 나서야 보이면 소용없다")
+        # 타깃팅 축 — 이 두 줄이 없으면 "supersedes 가 하나라도 있으면 **모든** 절차에
+        # 배너를 박는" 컴파일러가 (a)~(e) 를 전부 통과한다(변이 실험으로 실측).
+        self.assertNotIn(mark, self.ref_text("fix-lock"), "정정 노트 자신에 배너가 붙었다")
+        self.assertNotIn(mark, self.ref_text("api-spec-update"),
+                         "무관한 절차(seed)에 배너가 붙었다")
+
+    # --- c. 인덱스 줄 표식 -------------------------------------------------
+    def test_superseded_index_line_is_marked(self):
+        self.write_proc("orig-idx", "인덱스 표식 대상 절차", "1. 무언가 한다.")
+        self.write_proc("fix-idx", "정정 — 인덱스 표식 대상 절차는 틀렸다",
+                        "반증한다.", supersedes="orig-idx")
+        self.compile()
+        lines = [ln for ln in self.skill_text().splitlines()
+                 if "references/orig-idx.md" in ln]
+        self.assertEqual(len(lines), 1, f"인덱스 줄을 특정하지 못했다: {lines}")
+        self.assertIn(self.banner_mark(), lines[0], f"인덱스 줄에 표식이 없다: {lines[0]!r}")
+
+    # --- d. dangling = fail-closed ----------------------------------------
+    def test_dangling_supersedes_is_a_compile_error(self):
+        """오타가 조용히 no-op 되면 지금 고치려는 **바로 그 버그 클래스**가 재생산된다."""
+        self.write_proc("fix-dangling", "정정 — 없는 노트를 가리킨다",
+                        "반증한다.", supersedes="존재하지-않는-노트")
+        r = self.compile(expect=1)
+        self.assertIn("supersedes", r.stderr, f"에러 메시지에 supersedes 언급이 없다:\n{r.stderr}")
+        self.assertIn("존재하지-않는-노트", r.stderr,
+                      f"에러가 어떤 값이 깨졌는지 말하지 않는다:\n{r.stderr}")
+
+    def test_draft_superseder_stamps_nothing(self):
+        """비준 전 draft 가 남의 stable 절차에 "정정됨" 을 박으면 안 된다.
+
+        `dw_write_procedure` 는 **항상 draft** 로 쓴다 → 이 축이 없으면 새 파라미터의 첫
+        실사용이 곧바로 비준되지 않은 노트를 "먼저 Read 하라" 고 지시하게 된다(다른 모든
+        산출물이 지키는 stable 게이트를 supersede 포인터만 우회)."""
+        self.write_proc("orig-draftsup", "비준전 표식 대상 절차", "1. 무언가 한다.")
+        self.write_proc("fix-draftsup", "아직 비준되지 않은 정정", "반증한다.",
+                        status="draft", supersedes="orig-draftsup")
+        self.compile()
+        self.assertNotIn(self.banner_mark(), self.ref_text("orig-draftsup"),
+                         "draft 정정이 stable 절차에 배너를 박았다")
+        self.assertNotIn(self.banner_mark(), self.skill_text())
+
+    def test_supersedes_pointing_at_a_non_procedure_is_an_error(self):
+        """해석은 됐는데 배너 붙을 자리가 없으면 **효력 0** — dangling 과 같은 조용한 no-op 다.
+        (배너가 사는 자리는 references 전문뿐이라 rule·guidance·draft 절차는 대상이 못 된다.)"""
+        for target, label in (("no-project-backlog-files", "stable rule"),
+                              ("orig-draft-target", "draft 절차")):
+            with self.subTest(target=label):
+                shutil.rmtree(self.vault)
+                shutil.copytree(SEED, self.vault)
+                self.write_proc("orig-draft-target", "아직 비준 안 된 절차", "1. 한다.",
+                                status="draft")
+                self.write_proc("fix-noeffect", "효력 없는 정정", "반증한다.", supersedes=target)
+                r = self.compile(expect=1)
+                self.assertIn("supersedes", r.stderr)
+                self.assertIn(target, r.stderr)
+                # 구별 문구까지 단언 — 없으면 이 에러가 평범한 dangling 으로 퇴행해도 통과한다.
+                self.assertIn("컴파일되는 절차가 아니다", r.stderr)
+
+    def test_retired_target_is_silent_not_fatal(self):
+        """대상을 은퇴(superseded/archived)시키는 것은 **정상 워크플로우의 다음 단계**다.
+
+        live vault 실측: superseded 5건·archived 2건. 여기서 에러를 내면 "정정 노트를 쓴다 →
+        원본을 superseded 로 내린다" 의 2단계에서 전 프로젝트 컴파일이 fatal 이 된다.
+        그리고 이 경우 막을 위험도 없다 — 컴파일되지 않는 문서엔 표식 없는 전문을 펼쳐 읽을
+        독자가 존재하지 않는다(배너를 못 박는 게 아니라 박을 문서가 없다)."""
+        for status in ("superseded", "archived"):
+            with self.subTest(status=status):
+                shutil.rmtree(self.vault)
+                shutil.copytree(SEED, self.vault)
+                self.write_proc("orig-retired", "은퇴한 절차", "1. 한다.", status=status)
+                self.write_proc("fix-retired", "은퇴한 절차의 정정", "반증한다.",
+                                supersedes="orig-retired")
+                r = self.compile()
+                self.assertNotIn("supersedes", r.stderr, f"은퇴 대상에 진단이 났다:\n{r.stderr}")
+                self.assertFalse((self.refs() / "orig-retired.md").exists(),
+                                 "은퇴 절차가 컴파일됐다 — 이 테스트의 전제가 깨졌다")
+
+    def test_self_supersede_is_an_error(self):
+        self.write_proc("selfsup", "자기 자신을 가리키는 절차", "1. 한다.", supersedes="selfsup")
+        self.assertIn("자기 자신", self.compile(expect=1).stderr)
+
+    def test_full_path_disambiguates_a_shared_stem(self):
+        """완전 경로는 애초에 모호할 수 없다. 꼬리만 떼어 stem 으로 보면 **다른 폴더의 동명
+        노트가 나중에 하나 추가되는 것만으로** 모든 프로젝트의 컴파일이 깨진다(실측 재현)."""
+        self.write_proc("twin", "같은 stem 절차 A", "1. 한다.")
+        d = self.vault / "project" / "reference"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "twin.md").write_text(
+            "---\ntype: memory\nstatus: stable\nscope: engineering\ntitle: 무관한 동명 노트\n---\n\n다른 폴더.\n",
+            encoding="utf-8")
+        self.write_proc("fix-twin", "정정 — 같은 stem 절차 A", "반증한다.",
+                        supersedes=f"{self.PROC}/twin.md")
+        self.compile()
+        self.assertIn(self.banner_mark(), self.ref_text("twin"))
+
+    # --- e. MCP 왕복 -------------------------------------------------------
+    def test_write_procedure_records_supersedes_in_frontmatter(self):
+        srv = load_server(self.vault)
+        msg = srv.dw_write_procedure(scope="engineering", title="정정 절차 왕복",
+                                     steps="1. 반증한다.", supersedes="orig-lock")
+        rel = f"governance/procedures/{srv._slugify('정정 절차 왕복')}.md"
+        self.assertIn(rel, msg)
+        self.assertEqual(frontmatter((self.vault / rel).read_text(encoding="utf-8"))["supersedes"],
+                         "orig-lock")
+
+    def test_write_procedure_without_supersedes_is_byte_identical(self):
+        """미지정 시 종전과 **바이트 동일**해야 한다 — safe_dump(sort_keys=False) 는 삽입
+        순서를 보존하므로 새 키는 조건부로 fm **끝에** 붙어야 한다(line 141 의 골든과 같은 이유)."""
+        srv = load_server(self.vault)
+        srv.dw_write_procedure(scope="engineering", title="키없는 절차", steps="1. 한다.")
+        rel = f"governance/procedures/{srv._slugify('키없는 절차')}.md"
+        self.assertEqual((self.vault / rel).read_text(encoding="utf-8"), (
+            "---\n"
+            "type: procedure\n"
+            "status: draft\n"
+            "scope: engineering\n"
+            "compiles-to: skill\n"
+            f"date: '{__import__('datetime').date.today().isoformat()}'\n"
+            "title: 키없는 절차\n"
+            "---\n"
+            "\n"
+            "1. 한다.\n"
+        ))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
