@@ -389,7 +389,9 @@ def dw_write_procedure(scope: str, title: str, steps: str, supersedes: str = "")
     펼쳐 읽는 에이전트도 정정 사실을 보게 한다(절차는 progressive disclosure 라 원본 전문을 읽는
     자리에 표식이 없으면 정정을 영원히 못 본다 — 2026-08-10 실측된 사고). **원본을 지우거나
     내리지 않는다**: 정정이 원본의 일부 단계만 반증하는 경우 유효분이 소실되기 때문이다.
-    존재하지 않는 노트를 가리키면 stable 승격 시 컴파일이 실패한다(조용한 no-op 금지).
+    대상은 **컴파일되는 절차**(type:procedure·status:stable)여야 한다 — 없는 노트를 가리키거나
+    절차가 아닌 것을 가리키면 stable 승격 시 컴파일이 실패한다(조용한 no-op 금지). 배너는 이 노트가
+    stable 로 비준된 뒤 나타난다(비준 전 draft 가 남의 stable 절차에 표식을 박지 않는다).
     """
     today = datetime.date.today().isoformat()
     scope, note = _canonical_scope(scope)

@@ -256,15 +256,35 @@ def validate(notes: list[Note], diag: Diagnostics) -> None:
 SUPERSEDE_MARK = "⚠️ 정정됨"
 
 
+def is_banner_target(n: Note) -> bool:
+    """배너를 실제로 박을 수 있는 노트인가 = **컴파일되는 절차**.
+
+    배너가 사는 자리는 references/*.md(절차 전문) 뿐이다. 그 외(rule·guidance·draft 절차·
+    비컴파일 노트)를 supersedes 로 지목하면 표식이 **어디에도** 나타나지 않는다 — 해석은
+    성공했는데 효력이 0 인 조용한 no-op. 그래서 아래에서 이 술어로 걸러 에러를 낸다.
+    """
+    return n.type == "procedure" and is_compilable_rule(n)
+
+
 def build_supersede_index(notes: list[Note], diag: Diagnostics) -> dict[str, list[Note]]:
     """{피-정정 노트 경로(str): [그 노트를 정정하는 노트들]} 역인덱스.
 
-    `supersedes:` 값은 대상의 **파일명(stem)** 우선, 없으면 **title** 로 해석한다
-    (사람이 `.md`·폴더 경로째 적는 경우도 흡수).
+    `supersedes:` 값 해석 순서: **vault 상대경로 → 파일명(stem) → title → 경로 꼬리의 stem**.
+    경로를 먼저 보는 이유 — 완전 경로는 애초에 모호할 수 없는데, 꼬리만 떼어 stem 으로 보면
+    다른 폴더의 동명 노트 하나가 나중에 추가되는 것만으로 "모호함" 에러가 나 전 프로젝트
+    컴파일이 깨진다(실측 재현). title 은 원문 그대로 본다('/' 포함 제목 보존).
+
+    **stable 만 취급한다.** draft 가 지목한 정정은 인덱스에 넣지 않는다 — dw_write_procedure 는
+    항상 draft 로 쓰므로, 넣으면 비준되지 않은 노트가 stable 절차 전문에 "정정됨" 을 박고
+    "먼저 Read 하라" 고 지시하게 된다(다른 모든 산출물이 지키는 stable 게이트 우회).
+    같은 이유로 draft 의 dangling 값도 침묵한다(orphan-scope 검사와 동일 근거: dw-ratify 가
+    stable 승격 직후 compile --strict 로 검증해 깨지면 그 승격을 되돌린다).
     """
+    by_path: dict[str, list[Note]] = {}
     by_stem: dict[str, list[Note]] = {}
     by_title: dict[str, list[Note]] = {}
     for n in notes:
+        by_path.setdefault(n.path.as_posix(), []).append(n)
         by_stem.setdefault(n.path.stem, []).append(n)
         t = str(n.meta.get("title", "")).strip()
         if t:
@@ -273,24 +293,34 @@ def build_supersede_index(notes: list[Note], diag: Diagnostics) -> dict[str, lis
     index: dict[str, list[Note]] = {}
     for n in sorted(notes, key=lambda x: str(x.path).lower()):
         for raw in _as_list(n.meta.get("supersedes")):
-            key = raw.strip().split("/")[-1]
-            if key.endswith(".md"):
-                key = key[:-3]
-            if not key:
+            if n.status != "stable":
                 continue
-            hits = by_stem.get(key) or by_title.get(key) or []
+            key = raw.strip()
+            bare = key[:-3] if key.endswith(".md") else key
+            if not bare:
+                continue
+            hits = (by_path.get(bare + ".md") or by_stem.get(bare)
+                    or by_title.get(key) or by_stem.get(bare.split("/")[-1]) or [])
             if len(hits) != 1:
                 # fail-closed. 오타가 조용히 no-op 되면 "정정했다고 믿는데 원본엔 표식이 없는"
                 # 상태 — 이 기능이 고치려는 **바로 그 버그**가 그대로 재생산된다.
-                # 단 draft 는 침묵한다(위 orphan-scope 검사와 같은 근거: draft 는 컴파일 대상이
-                # 아니고, dw-ratify 가 stable 승격 직후 compile --strict 로 검증해 깨지면 되돌린다).
-                if n.status == "stable":
-                    why = ("vault 에 그런 노트가 없음" if not hits
-                           else "여러 노트와 일치(" + ", ".join(str(h.path) for h in hits) + ")")
-                    diag.error(f"{n.path}: supersedes '{raw}' 가 {why} — "
-                               "대상의 파일명(stem, .md 없이) 또는 title 로 정확히 지목하라")
+                why = ("vault 에 그런 노트가 없음" if not hits
+                       else "여러 노트와 일치(" + ", ".join(str(h.path) for h in hits) + ")")
+                diag.error(f"{n.path}: supersedes '{raw}' 가 {why} — "
+                           "대상의 vault 상대경로·파일명(stem)·title 중 하나로 정확히 지목하라")
                 continue
-            index.setdefault(str(hits[0].path), []).append(n)
+            target = hits[0]
+            if target.path == n.path:
+                diag.error(f"{n.path}: supersedes 가 자기 자신을 가리킨다 — 정정 대상을 지목하라")
+                continue
+            if not is_banner_target(target):
+                # 해석은 됐는데 배너가 붙을 자리가 없다 = 효력 0. 위 dangling 과 같은 실패다.
+                diag.error(
+                    f"{n.path}: supersedes '{raw}' 대상({target.path})은 컴파일되는 절차가 아니다"
+                    f"(type={target.type or '없음'}·status={target.status or '없음'}) — 배너를 박을"
+                    " references 전문이 생기지 않아 정정 표식이 어디에도 나타나지 않는다")
+                continue
+            index.setdefault(str(target.path), []).append(n)
     return index
 
 

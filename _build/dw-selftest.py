@@ -1777,6 +1777,11 @@ class SupersedeBannerTest(unittest.TestCase):
                       "배너가 정정 노트의 references 파일을 가리키지 않았다")
         self.assertLess(text.index(mark), text.index("SENTINEL_ORIGINAL_BODY"),
                         "배너가 원본 본문보다 뒤에 있다 — 본문을 읽고 나서야 보이면 소용없다")
+        # 타깃팅 축 — 이 두 줄이 없으면 "supersedes 가 하나라도 있으면 **모든** 절차에
+        # 배너를 박는" 컴파일러가 (a)~(e) 를 전부 통과한다(변이 실험으로 실측).
+        self.assertNotIn(mark, self.ref_text("fix-lock"), "정정 노트 자신에 배너가 붙었다")
+        self.assertNotIn(mark, self.ref_text("api-spec-update"),
+                         "무관한 절차(seed)에 배너가 붙었다")
 
     # --- c. 인덱스 줄 표식 -------------------------------------------------
     def test_superseded_index_line_is_marked(self):
@@ -1798,6 +1803,53 @@ class SupersedeBannerTest(unittest.TestCase):
         self.assertIn("supersedes", r.stderr, f"에러 메시지에 supersedes 언급이 없다:\n{r.stderr}")
         self.assertIn("존재하지-않는-노트", r.stderr,
                       f"에러가 어떤 값이 깨졌는지 말하지 않는다:\n{r.stderr}")
+
+    def test_draft_superseder_stamps_nothing(self):
+        """비준 전 draft 가 남의 stable 절차에 "정정됨" 을 박으면 안 된다.
+
+        `dw_write_procedure` 는 **항상 draft** 로 쓴다 → 이 축이 없으면 새 파라미터의 첫
+        실사용이 곧바로 비준되지 않은 노트를 "먼저 Read 하라" 고 지시하게 된다(다른 모든
+        산출물이 지키는 stable 게이트를 supersede 포인터만 우회)."""
+        self.write_proc("orig-draftsup", "비준전 표식 대상 절차", "1. 무언가 한다.")
+        self.write_proc("fix-draftsup", "아직 비준되지 않은 정정", "반증한다.",
+                        status="draft", supersedes="orig-draftsup")
+        self.compile()
+        self.assertNotIn(self.banner_mark(), self.ref_text("orig-draftsup"),
+                         "draft 정정이 stable 절차에 배너를 박았다")
+        self.assertNotIn(self.banner_mark(), self.skill_text())
+
+    def test_supersedes_pointing_at_a_non_procedure_is_an_error(self):
+        """해석은 됐는데 배너 붙을 자리가 없으면 **효력 0** — dangling 과 같은 조용한 no-op 다.
+        (배너가 사는 자리는 references 전문뿐이라 rule·guidance·draft 절차는 대상이 못 된다.)"""
+        for target, label in (("no-project-backlog-files", "stable rule"),
+                              ("orig-draft-target", "draft 절차")):
+            with self.subTest(target=label):
+                shutil.rmtree(self.vault)
+                shutil.copytree(SEED, self.vault)
+                self.write_proc("orig-draft-target", "아직 비준 안 된 절차", "1. 한다.",
+                                status="draft")
+                self.write_proc("fix-noeffect", "효력 없는 정정", "반증한다.", supersedes=target)
+                r = self.compile(expect=1)
+                self.assertIn("supersedes", r.stderr)
+                self.assertIn(target, r.stderr)
+
+    def test_self_supersede_is_an_error(self):
+        self.write_proc("selfsup", "자기 자신을 가리키는 절차", "1. 한다.", supersedes="selfsup")
+        self.assertIn("자기 자신", self.compile(expect=1).stderr)
+
+    def test_full_path_disambiguates_a_shared_stem(self):
+        """완전 경로는 애초에 모호할 수 없다. 꼬리만 떼어 stem 으로 보면 **다른 폴더의 동명
+        노트가 나중에 하나 추가되는 것만으로** 모든 프로젝트의 컴파일이 깨진다(실측 재현)."""
+        self.write_proc("twin", "같은 stem 절차 A", "1. 한다.")
+        d = self.vault / "project" / "reference"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "twin.md").write_text(
+            "---\ntype: memory\nstatus: stable\nscope: engineering\ntitle: 무관한 동명 노트\n---\n\n다른 폴더.\n",
+            encoding="utf-8")
+        self.write_proc("fix-twin", "정정 — 같은 stem 절차 A", "반증한다.",
+                        supersedes=f"{self.PROC}/twin.md")
+        self.compile()
+        self.assertIn(self.banner_mark(), self.ref_text("twin"))
 
     # --- e. MCP 왕복 -------------------------------------------------------
     def test_write_procedure_records_supersedes_in_frontmatter(self):
