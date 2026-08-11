@@ -165,6 +165,32 @@ def compile_check(vault: Path) -> subprocess.CompletedProcess:
          "--dry-run", "--strict"], capture_output=True, text=True)
 
 
+# 진단 줄의 `error:`/`warning:` 접두. 뒤에 오는 `<노트경로>:` 가 **결함 노트**다.
+_DIAG_PREFIX = re.compile(r"^\s*(?:error|warning)\s*:\s*", re.IGNORECASE)
+
+
+def attributes_to(rel: str, line: str) -> bool:
+    """이 진단 줄이 `rel` 을 **자기 결함으로** 지목하는가(단순 언급이 아니라).
+
+    🔴 이 구별이 없으면 결백한 노트를 되돌린다. `dw-compile.py` 의 진단은 예외 없이
+    `f"{n.path}: …"` 형태라 **결함 노트가 접두**인데, 한 줄이 **두 노트를 언급**하는 진단이 있다:
+
+        {A}: supersedes 'X' 대상({B})은 컴파일되는 절차가 아니다      (dw-compile.py:333)
+        {A}: supersedes 'X' 가 여러 노트와 일치({B}, {C})             (dw-compile.py:315)
+
+    여기서 B·C 는 **결백하다** — 에러를 만든 건 A 의 `supersedes` 다. A 만 draft 로 돌리면
+    `build_supersede_index` 가 non-stable superseder 를 건너뛰어 컴파일이 통과한다. B 를
+    되돌려도 에러는 그대로다(인과 0). 게다가 B 의 hold 사유엔 A 를 가리키는 진단이 붙어
+    **무정보가 아니라 «오정보»** 가 된다("네가 깼다" 로 읽힌다) — 이 파일이 고치려는 결함
+    클래스(무인 경로의 잘못된 신호)의 변종이라 더 나쁘다. 그래서 **접두만** 본다.
+
+    접두가 노트 경로가 아닌 진단(예: `scope '…' 의 skill-manifest 중복`)은 아무에게도
+    귀속되지 않는다 → 호출부가 전량 후퇴로 안전하게 떨어진다(종전 동작).
+    """
+    body = _DIAG_PREFIX.sub("", line.strip())
+    return body.split(":", 1)[0].strip() == rel
+
+
 def diagnostics_for(rel: str, output: str) -> str:
     """컴파일 진단 중 **이 노트를 지목한** 줄만 모은다.
 
@@ -174,8 +200,8 @@ def diagnostics_for(rel: str, output: str) -> str:
     전례가 있다 — CHANGELOG 2.19.1). 무인 경로에서 정보 없는 실패는 실패하지 않은 것과
     구별되지 않는다. 그래서 진단 원문을 사유에 그대로 싣는다.
     """
-    hits = [ln.strip() for ln in output.splitlines() if rel in ln and "error" in ln.lower()]
-    if not hits:
+    hits = [ln.strip() for ln in output.splitlines() if attributes_to(rel, ln)]
+    if not hits:   # 접두 판정이 빗나가도 사유가 «비지» 않게 — 단순 언급까지 넓힌다.
         hits = [ln.strip() for ln in output.splitlines() if rel in ln]
     return " / ".join(hits[:3])
 
@@ -288,7 +314,11 @@ def main() -> int:
             if r.returncode == 0:
                 break
             blob = r.stdout + r.stderr
-            culprits = [rel for rel in promoted if rel in blob]
+            # 🔴 단순 언급(`rel in blob`)이 아니라 **진단이 자기 결함으로 지목한** 것만.
+            #    한 진단 줄이 두 노트를 언급할 수 있어서다 — attributes_to 독스트링 참조.
+            lines = blob.splitlines()
+            culprits = [rel for rel in promoted
+                        if any(attributes_to(rel, ln) for ln in lines)]
             if not culprits:
                 # 진단이 승격분을 하나도 지목하지 않는다 = 원인이 승격분 «밖» 에 있다
                 # (이미 깨져 있던 stable 노트 등). 좁힐 근거가 없으니 전량 후퇴한다.
@@ -296,7 +326,11 @@ def main() -> int:
                     p.write_text(orig, encoding="utf-8")
                 why = ("승격 시 컴파일 strict 실패 — 원인 특정 실패"
                        f"(진단이 승격분을 지목하지 않는다): {summarize_errors(blob)}")
-                narrowed = [(rel, why) for rel, _p, _o in snapshot]
+                # ⚠️ 재대입하지 마라 — 앞 라운드에서 원인으로 특정해 **구체 진단**을 붙인
+                #    노트가 있으면 그 사유가 제네릭 문구로 덮인다(이 파일의 핵심 가치를
+                #    부분적으로 되돌린다). 사유 없는 노트만 보강한다.
+                already = {rel for rel, _why in narrowed}
+                narrowed.extend((rel, why) for rel, _p, _o in snapshot if rel not in already)
                 rolled_back_all = True
                 promoted = []
                 break

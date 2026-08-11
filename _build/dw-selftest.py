@@ -2000,6 +2000,35 @@ class RatifyNarrowRollbackTest(unittest.TestCase):
         self.assertNotIn(ok, out.split("hold(", 1)[-1], "무고한 노트가 hold 목록에 있다")
         self.assertVaultCompiles()
 
+    # --- b2. 진단에 «대상» 으로 등장한 결백한 노트는 원인이 아니다 ----------
+    def test_a_note_merely_named_as_the_target_is_not_a_culprit(self):
+        """한 진단 줄이 **두 노트를 언급**하는 경우 — 접두만 원인이다.
+
+        `dw-compile.py:333` 은 `f"{n.path}: supersedes '{raw}' 대상({target.path})은 …"` 를
+        낸다. 즉 **결백한 대상의 경로가 같은 줄에 들어간다.** 단순 `rel in blob` 로 원인을
+        고르면 그 대상까지 되돌려지는데, 인과는 **0** 이다 — 에러를 만든 건 A 의 supersedes 고,
+        A 만 draft 로 돌아가면 `build_supersede_index` 가 non-stable superseder 를 건너뛰어
+        컴파일이 통과한다. 대상을 되돌려도 에러는 그대로다.
+
+        게다가 그 대상의 hold 사유엔 **A 를 가리키는 진단**이 붙는다 — 무정보가 아니라
+        «오정보» 다("네가 깼다" 로 읽힌다). 이 PR 이 스스로 인용한 결함 클래스(무인 경로의
+        잘못된 신호)의 변종이라 더 나쁘다."""
+        (self.vault / "governance/guidance/무고한가이던스.md").write_text(
+            "---\ntype: guidance\nstatus: draft\nscope: engineering\n"
+            "compiles-to: skill\ntitle: 무고한 가이던스\n---\n\n본문.\n", encoding="utf-8")
+        innocent = "governance/guidance/무고한가이던스.md"
+        # 절차가 아닌 노트를 가리킨다 → 배너를 박을 자리가 없어 컴파일 에러(원인은 A).
+        a = self.write_proc("정정A", "정정 A", supersedes="무고한가이던스")
+
+        out = self.ratify()
+
+        self.assertEqual(self.status_of(a), "draft", f"원인이 승격됐다:\n{out}")
+        self.assertEqual(self.status_of(innocent), "stable",
+                         f"진단에 «대상» 으로 등장했을 뿐인 결백한 노트가 되돌려졌다:\n{out}")
+        self.assertEqual(self.hold_note(innocent), "",
+                         "결백한 노트에 «남의» 진단이 hold 사유로 붙었다(오정보)")
+        self.assertVaultCompiles()
+
     # --- c. supersedes 교착 해소 -------------------------------------------
     def test_supersede_deadlock_names_the_blocking_target(self):
         """정정 A 가 draft 대상 B 를 가리키고 B 는 독립 사유(고아 scope)로 hold 되는 배치.
@@ -2030,7 +2059,10 @@ class RatifyNarrowRollbackTest(unittest.TestCase):
             self.assertEqual(self.status_of(rel), "stable", f"정상 배치가 승격되지 않았다:\n{out}")
             self.assertEqual(self.hold_note(rel), "", "정상 노트에 hold 낙인이 붙었다")
         self.assertIn("hold(판단 필요, draft 유지) 0건", out, f"hold 가 0 이 아니다:\n{out}")
-        self.assertNotIn("[롤백]", out, f"정상 배치에서 롤백이 발화했다:\n{out}")
+        # ⚠️ 리터럴 `[롤백]` 만 보면 **죽은 단언**이다 — 이 코드가 내는 문구는 `[좁힌 롤백]`
+        #    과 `[전량 후퇴]` 둘뿐이라 어느 쪽도 `[롤백]` 을 부분문자열로 갖지 않는다.
+        for marker in ("[좁힌 롤백]", "[전량 후퇴]"):
+            self.assertNotIn(marker, out, f"정상 배치에서 {marker} 가 발화했다:\n{out}")
         self.assertVaultCompiles()
 
     # --- e. 원인 특정 실패 시 전량 후퇴 ------------------------------------
@@ -2051,6 +2083,32 @@ class RatifyNarrowRollbackTest(unittest.TestCase):
                          f"컴파일이 깨진 채로 승격을 남겼다:\n{out}")
         self.assertIn("원인 특정 실패", out, f"후퇴 사유가 문면에 없다:\n{out}")
         self.assertIn("원인 특정 실패", self.hold_note(rel))
+
+    # --- e2. 후퇴가 앞 라운드의 «구체» 진단을 덮지 않는다 -------------------
+    def test_fallback_keeps_the_specific_reason_already_established(self):
+        """1라운드에서 원인을 특정했는데 2라운드가 「원인 특정 실패」로 빠지는 배치.
+
+        이미 깨진 stable 노트 + 진짜 원인 노트 + **결백한 노트**를 같이 둔다. 1라운드는 원인
+        노트를 지목해 **구체 진단**을 사유로 붙이고, 2라운드는 (남은 원인이 승격분 밖이라)
+        전량 후퇴로 떨어진다. 이때 사유 목록을 통째로 재대입하면 1라운드의 구체 진단이
+        제네릭 「원인 특정 실패」로 덮인다 — 이 파일의 핵심 가치를 부분적으로 되돌린다.
+
+        ⚠️ 결백한 노트가 **반드시** 있어야 이 경로를 탄다. 승격분이 전부 원인이면
+        `if not promoted: break` 로 루프가 끝나 2라운드 자체가 없다(첫 시도에서 실측)."""
+        self.write_proc("이미깨진stable", "이미 깨진 stable",
+                        status="stable", scope="존재하지-않는-스코프")
+        bad = self.write_proc("진짜원인", "진짜 원인", supersedes="존재하지-않는-노트")
+        innocent = self.write_proc("결백한동승자", "결백한 동승자")
+
+        out = self.ratify()
+
+        self.assertEqual(self.status_of(innocent), "draft",
+                         f"컴파일이 깨진 채로 승격을 남겼다:\n{out}")
+
+        self.assertIn("원인 특정 실패", out, f"후퇴가 보고되지 않았다:\n{out}")
+        # 1라운드에서 확보한 «자기» 진단이 살아 있어야 한다.
+        self.assertIn("존재하지-않는-노트", self.hold_note(bad),
+                      f"구체 진단이 제네릭 후퇴 문구로 덮였다:\n{self.hold_note(bad)}")
 
     # --- f. 좁히기가 연쇄를 따라간다 ---------------------------------------
     def test_narrowing_follows_a_chain(self):
