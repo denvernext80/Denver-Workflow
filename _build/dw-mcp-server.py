@@ -377,17 +377,28 @@ def dw_write_spec(scope: str, title: str, body: str, kind: str = "spec") -> str:
 
 
 @mcp.tool()
-def dw_write_procedure(scope: str, title: str, steps: str) -> str:
+def dw_write_procedure(scope: str, title: str, steps: str, supersedes: str = "") -> str:
     """재사용 가능한 절차(playbook/how-to)를 vault procedures/ 에 기록한다(항상 status:draft).
 
     비자명한 작업을 풀어낸 뒤 "다음에 또 이걸 어떻게 하지"를 절차로 남긴다(Hermes 식 자동 스킬 생성을
     Denver 거버넌스로 감싼 것). draft 로 제안하면 dw-ratifier 가 검증 후 자동 stable·컴파일한다.
     rule(강제)이 아니라 reusable how-to 다 — enforced-by 없음. steps 는 번호 단계로.
+
+    **supersedes** — 이 절차가 **기존 절차를 정정·반증**한다면 그 노트의 파일명(stem, `.md` 없이)
+    또는 title 을 준다. 컴파일러가 피-정정 절차의 references 전문 **머리에 배너**를 박아, 원본만
+    펼쳐 읽는 에이전트도 정정 사실을 보게 한다(절차는 progressive disclosure 라 원본 전문을 읽는
+    자리에 표식이 없으면 정정을 영원히 못 본다 — 2026-08-10 실측된 사고). **원본을 지우거나
+    내리지 않는다**: 정정이 원본의 일부 단계만 반증하는 경우 유효분이 소실되기 때문이다.
+    존재하지 않는 노트를 가리키면 stable 승격 시 컴파일이 실패한다(조용한 no-op 금지).
     """
     today = datetime.date.today().isoformat()
     scope, note = _canonical_scope(scope)
     fm = {"type": "procedure", "status": "draft", "scope": scope,
           "compiles-to": "skill", "date": today, "title": title}
+    # 새 키는 조건부로 **끝에** 붙인다 — safe_dump(sort_keys=False) 가 삽입 순서를 보존하므로
+    # 중간에 끼우면 supersedes 를 안 쓴 기존 절차의 산출물까지 바뀐다(하위호환 골든).
+    if (supersedes or "").strip():
+        fm["supersedes"] = supersedes.strip()
     path = _emit("governance/procedures", f"{_slugify(title)}.md", fm, steps)
     return (f"제안됨(draft): {path} {note}— draft 라 아직 컴파일 안 됨. "
             "dw-ratifier 가 검증 통과 시 자동 stable·설치 합니다(사람 불요).")

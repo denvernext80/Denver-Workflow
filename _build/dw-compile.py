@@ -241,6 +241,60 @@ def validate(notes: list[Note], diag: Diagnostics) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 3-b. supersede(정정) 역인덱스 — 정정된 절차에 표식을 박기 위한 해석
+#
+# 왜 필요했나(2026-08-10 실측): 서로 모순되는 두 절차가 vault 에 **둘 다 status:stable** 로
+# 있었고, 원본엔 철회·정정 표식이 한 글자도 없었다. 절차는 progressive disclosure 로
+# 컴파일된다 — SKILL.md 엔 인덱스 한 줄, 전문은 references/*.md 이고 헤더가 "지금 하는 일에
+# 해당하는 항목만 Read 한다" 로 지시한다. 그래서 원본 references 를 펼친 에이전트는 거짓
+# 단계를 그대로 따르고, 같은 스킬 인덱스 50줄 아래에 있는 정정 노트를 **영원히 보지 못한다**.
+#
+# 해법으로 archive/retract(원본 내리기)를 쓰지 않는다 — 정정이 원본의 일부 단계만 반증하는
+# 경우(실측 사례: "1·2·3·4·6·8·9 는 유효") 유효분이 통째로 소실된다. 문제는 원본의 **존재**가
+# 아니라 **무표식 존재**다. 그래서 원본은 남기고 전문 머리에 배너를 박는다.
+# ---------------------------------------------------------------------------
+SUPERSEDE_MARK = "⚠️ 정정됨"
+
+
+def build_supersede_index(notes: list[Note], diag: Diagnostics) -> dict[str, list[Note]]:
+    """{피-정정 노트 경로(str): [그 노트를 정정하는 노트들]} 역인덱스.
+
+    `supersedes:` 값은 대상의 **파일명(stem)** 우선, 없으면 **title** 로 해석한다
+    (사람이 `.md`·폴더 경로째 적는 경우도 흡수).
+    """
+    by_stem: dict[str, list[Note]] = {}
+    by_title: dict[str, list[Note]] = {}
+    for n in notes:
+        by_stem.setdefault(n.path.stem, []).append(n)
+        t = str(n.meta.get("title", "")).strip()
+        if t:
+            by_title.setdefault(t, []).append(n)
+
+    index: dict[str, list[Note]] = {}
+    for n in sorted(notes, key=lambda x: str(x.path).lower()):
+        for raw in _as_list(n.meta.get("supersedes")):
+            key = raw.strip().split("/")[-1]
+            if key.endswith(".md"):
+                key = key[:-3]
+            if not key:
+                continue
+            hits = by_stem.get(key) or by_title.get(key) or []
+            if len(hits) != 1:
+                # fail-closed. 오타가 조용히 no-op 되면 "정정했다고 믿는데 원본엔 표식이 없는"
+                # 상태 — 이 기능이 고치려는 **바로 그 버그**가 그대로 재생산된다.
+                # 단 draft 는 침묵한다(위 orphan-scope 검사와 같은 근거: draft 는 컴파일 대상이
+                # 아니고, dw-ratify 가 stable 승격 직후 compile --strict 로 검증해 깨지면 되돌린다).
+                if n.status == "stable":
+                    why = ("vault 에 그런 노트가 없음" if not hits
+                           else "여러 노트와 일치(" + ", ".join(str(h.path) for h in hits) + ")")
+                    diag.error(f"{n.path}: supersedes '{raw}' 가 {why} — "
+                               "대상의 파일명(stem, .md 없이) 또는 title 로 정확히 지목하라")
+                continue
+            index.setdefault(str(hits[0].path), []).append(n)
+    return index
+
+
+# ---------------------------------------------------------------------------
 # 4. Filter
 # ---------------------------------------------------------------------------
 def is_compilable_rule(n: Note) -> bool:
@@ -406,9 +460,22 @@ def build_session_digest(notes: list["Note"], scopes: set[str]) -> str:
     return "\n".join(L).rstrip() + "\n"
 
 
+def _supersede_pointers(sups: list[Note], fnames: dict[str, str]) -> str:
+    """정정 노트들을 '제목 + 닿는 경로' 로 렌더. 같은 스킬의 절차면 references 파일을 가리키고
+    (독자가 바로 열 수 있게), 아니면 dw_read 를 준다 — 경로 없는 배너는 독자를 막다른 길에 둔다."""
+    out: list[str] = []
+    for s in sups:
+        title = str(s.meta.get("title", s.path.stem)).strip()
+        where = (f"`references/{fnames[str(s.path)]}`" if str(s.path) in fnames
+                 else f"`dw_read({s.path.stem})`")
+        out.append(f"**{title}** ({where})")
+    return " · ".join(out)
+
+
 def emit(
     notes: list[Note], out: Path, diag: Diagnostics, dry_run: bool,
     only_scopes: set[str] | None = None,
+    supersede_index: dict[str, list[Note]] | None = None,
 ) -> dict[str, str]:
     """scope 별로 묶어 SKILL.md 생성. 반환: {skill-name: scope} 매니페스트.
 
@@ -489,17 +556,40 @@ def emit(
                 "> 전문은 아래 `references/` 파일에 있다. 지금 하는 일에 해당하는 항목만 Read 한다.",
                 "",
             ]
+            # 1차: 파일명부터 전부 확정한다. 배너는 **정정 노트의** references 경로를 가리켜야
+            # 하는데, 정렬(path 소문자)상 정정 노트가 원본보다 뒤에 오는 게 보통이라
+            # 한 루프에서 만들면 아직 존재하지 않는 이름을 참조하게 된다.
+            fnames: dict[str, str] = {}
             used: set[str] = set()
             for p in procs:
-                title = str(p.meta.get("title", p.path.stem)).strip()
                 fname = f"{p.path.stem}.md"
                 if fname in used:   # 서로 다른 폴더의 동명 노트 — 충돌 회피
                     fname = f"{p.path.parent.name}--{p.path.stem}.md"
                 used.add(fname)
-                parts.append(f"- **{title}** — {_gist(p.body)}  ·  `references/{fname}`")
-                ref_files[fname] = "\n".join([
+                fnames[str(p.path)] = fname
+
+            # 2차: 인덱스 줄 + references 전문. 정정된 절차엔 **양쪽 다** 표식을 박는다 —
+            # 전문을 실제로 통독하는 자리는 references 이고(주 타깃), 인덱스는 무엇을 펼칠지
+            # 고르는 자리다(펼치기 전에 알면 더 좋다).
+            for p in procs:
+                title = str(p.meta.get("title", p.path.stem)).strip()
+                fname = fnames[str(p.path)]
+                sups = (supersede_index or {}).get(str(p.path), [])
+                pointers = _supersede_pointers(sups, fnames) if sups else ""
+                mark = f"  ·  {SUPERSEDE_MARK}: {pointers}" if sups else ""
+                parts.append(f"- **{title}** — {_gist(p.body)}  ·  `references/{fname}`{mark}")
+                head = [
                     f"# {title}",
                     f"> 출처: `{p.path}` · 생성 파일 — 직접 편집 금지(vault 에서 컴파일).",
+                ]
+                if sups:
+                    head += [
+                        "",
+                        f"> {SUPERSEDE_MARK} — 이 절차는 이후 노트가 정정·반증했다: {pointers}.",
+                        "> **아래 단계를 따르기 전에 정정 노트를 먼저 Read 한다.** 정정이 일부 단계만"
+                        " 반증했을 수 있어(그래서 이 문서를 내리지 않았다) 무엇이 유효한지는 정정 노트가 정한다.",
+                    ]
+                ref_files[fname] = "\n".join(head + [
                     "",
                     transform(p.body, p.path, diag),
                 ]).rstrip() + "\n"
@@ -700,6 +790,11 @@ def run(vault: Path, out: Path, dry_run: bool, strict: bool,
 
     validate(notes, diag)
 
+    # supersede 해석은 **fatal 판정 앞**이어야 한다. emit 안에서 diag.error 를 올리면
+    # 메시지는 찍히는데 종료코드는 0 이다(fatal 은 아래 한 줄에서 이미 확정된다) —
+    # dangling supersedes 가 조용히 통과하는, 이 기능이 막으려는 바로 그 실패 모드가 된다.
+    supersede_index = build_supersede_index(notes, diag)
+
     # --scopes 로 존재하지 않는 scope 를 지정하면 사용자 실수 — 경고
     if only_scopes is not None:
         known = {n.scope for n in notes if n.scope}
@@ -720,7 +815,7 @@ def run(vault: Path, out: Path, dry_run: bool, strict: bool,
         print("실패: 검증 에러로 중단(산출물 미생성).")
         return 1
 
-    emitted = emit(notes, out, diag, dry_run, only_scopes)
+    emitted = emit(notes, out, diag, dry_run, only_scopes, supersede_index)
     removed = clean(out, emitted, dry_run)
 
     checks = collect_checks(notes, diag, only_scopes)
