@@ -1902,5 +1902,174 @@ class SupersedeBannerTest(unittest.TestCase):
         ))
 
 
+class RatifyNarrowRollbackTest(unittest.TestCase):
+    """승격분이 컴파일을 깨면 **원인만** 되돌린다 — 배치 전체를 인질로 잡지 않는다.
+
+    종전 `dw-ratify.py` 는 승격 후 strict 컴파일이 실패하면 `snapshot` 을 **전량** 되돌리고
+    승격분 전원에게 똑같은 사유(`"승격 시 컴파일 strict 실패(아래 dry-run 확인)"`)를 붙였다.
+    두 겹으로 나쁘다:
+
+      ① **한 노트가 배치 전체를 인질로 잡는다.** 깨는 노트가 1건이면 무고한 노트 전부가
+         draft 로 돌아가고 hold 로 낙인찍힌다. 다음 run 도 같은 배치면 같은 일이 반복된다.
+      ② **사유가 원인을 지목하지 않는다.** `ratify.log` 만 보는 사람은 어느 노트가 깼는지
+         알 수 없다. 이 비준기는 SessionStart 훅에서 **무인으로** 돈다 — 2026-08-09 에
+         조용히 죽어 이틀간 35건을 쌓은 전례가 있다(CHANGELOG 2.19.1). 무인 경로의
+         무정보 실패는 이 레포가 이미 값을 치른 결함 클래스다.
+
+    2.20.0 의 supersedes fail-closed(정정 노트가 draft 대상을 가리키면 컴파일 에러)가
+    ①②를 처음으로 **재현 가능한 교착**으로 만들었다: 정정 A 가 승격되고 대상 B 가 독립
+    사유로 hold 면 → 컴파일 실패 → 전량 롤백 → B 가 풀릴 때까지 A 는 영원히 비준 안 되고,
+    그 사실이 로그 어디에도 안 드러난다.
+
+    ⚠️ 이 클래스는 **`--dry-run` 없이** 돌린다(롤백 경로는 `not args.dry_run` 안에만 있다).
+       vault 는 매번 `_seed` 복사본이라 사용자 vault 는 건드리지 않는다.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-narrow-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.vault = self.tmp / "vault"
+        shutil.copytree(SEED, self.vault)
+
+    # --- helpers ----------------------------------------------------------
+    def write_proc(self, stem: str, title: str, *, status: str = "draft",
+                   scope: str = "engineering", supersedes: str = "") -> str:
+        sup = f"supersedes: {supersedes}\n" if supersedes else ""
+        rel = f"governance/procedures/{stem}.md"
+        (self.vault / rel).write_text(
+            f"---\ntype: procedure\nstatus: {status}\nscope: {scope}\n"
+            f"compiles-to: skill\ntitle: {title}\n{sup}---\n\n1. 한다.\n",
+            encoding="utf-8")
+        return rel
+
+    def ratify(self) -> str:
+        """**실제 승격**(dry-run 아님). 롤백 경로를 타려면 이래야 한다."""
+        r = subprocess.run([sys.executable, str(RATIFIER), "--vault", str(self.vault)],
+                           capture_output=True, text=True)
+        self.assertIn(r.returncode, (0, 10), f"비준기 비정상 종료:\n{r.stdout}\n{r.stderr}")
+        return r.stdout
+
+    def status_of(self, rel: str) -> str:
+        t = (self.vault / rel).read_text(encoding="utf-8")
+        m = re.search(r"^status:\s*(\S+)\s*$", t, re.MULTILINE)
+        return m.group(1) if m else "?"
+
+    def hold_note(self, rel: str) -> str:
+        t = (self.vault / rel).read_text(encoding="utf-8")
+        m = re.search(r"<!-- ratify-hold:(.*?)-->", t, re.DOTALL)
+        return m.group(1).strip() if m else ""
+
+    def assertVaultCompiles(self):
+        """🔴 안전 불변식 — 어떤 경로로 끝나든 디스크 최종 상태는 strict 컴파일을 통과한다.
+
+        종전 all-or-nothing 은 (거칠지만) 이걸 항상 만족했다. 좁힌 롤백이 이걸 깨면
+        지금보다 «나쁘다» — 그래서 모든 시나리오 끝에 이 단언을 건다."""
+        r = subprocess.run(
+            [sys.executable, str(COMPILER), "--vault", str(self.vault),
+             "--out", str(self.tmp / "out"), "--dry-run", "--strict"],
+            capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0,
+                         f"비준 후 vault 가 컴파일되지 않는다:\n{r.stdout}\n{r.stderr}")
+
+    # --- a. 무고한 노트 생존 ----------------------------------------------
+    def test_innocent_notes_survive_a_broken_sibling(self):
+        bad = self.write_proc("깨는절차", "깨는 절차", supersedes="존재하지-않는-노트")
+        ok1 = self.write_proc("멀쩡한절차-하나", "멀쩡한 절차 하나")
+        ok2 = self.write_proc("멀쩡한절차-둘", "멀쩡한 절차 둘")
+
+        out = self.ratify()
+
+        self.assertEqual(self.status_of(ok1), "stable", f"무고한 노트가 되돌려졌다:\n{out}")
+        self.assertEqual(self.status_of(ok2), "stable", f"무고한 노트가 되돌려졌다:\n{out}")
+        self.assertEqual(self.status_of(bad), "draft", f"깨는 노트가 승격됐다:\n{out}")
+        self.assertVaultCompiles()
+
+    # --- b. 원인 지목 + 무고한 노트엔 낙인 없음 ---------------------------
+    def test_culprit_is_named_and_the_innocent_are_not_annotated(self):
+        bad = self.write_proc("깨는절차", "깨는 절차", supersedes="존재하지-않는-노트")
+        ok = self.write_proc("멀쩡한절차", "멀쩡한 절차")
+
+        out = self.ratify()
+
+        # 원인 노트의 hold 사유에 «그 노트의 진단 원문» 이 들어간다.
+        self.assertIn("supersedes", self.hold_note(bad),
+                      "원인 노트의 hold 사유가 진단을 담지 않는다")
+        self.assertIn("존재하지-않는-노트", self.hold_note(bad))
+        # 🔴 음성 단언이 핵심 — 이게 없으면 "전원에게 사유를 붙이는" 구현도 통과한다.
+        self.assertEqual(self.hold_note(ok), "", f"무고한 노트에 hold 낙인이 붙었다:\n{out}")
+        self.assertNotIn(ok, out.split("hold(", 1)[-1], "무고한 노트가 hold 목록에 있다")
+        self.assertVaultCompiles()
+
+    # --- c. supersedes 교착 해소 -------------------------------------------
+    def test_supersede_deadlock_names_the_blocking_target(self):
+        """정정 A 가 draft 대상 B 를 가리키고 B 는 독립 사유(고아 scope)로 hold 되는 배치.
+
+        A 는 hold 되는 게 맞다(B 가 draft 인 한 A 는 컴파일을 깬다). 요점은 **사유가 B 를
+        지목하는가** 와 **무관한 노트가 함께 죽지 않는가** 다."""
+        b = self.write_proc("대상절차", "대상 절차", scope="존재하지-않는-스코프")
+        a = self.write_proc("정정절차", "정정 절차", supersedes="대상절차")
+        unrelated = self.write_proc("무관한절차", "무관한 절차")
+
+        out = self.ratify()
+
+        self.assertEqual(self.status_of(b), "draft", "고아 scope 대상이 승격됐다")
+        self.assertEqual(self.status_of(a), "draft", "draft 대상을 가리키는 정정이 승격됐다")
+        self.assertIn("대상절차", self.hold_note(a),
+                      f"정정의 hold 사유가 «차단하는 대상» 을 지목하지 않는다:\n{self.hold_note(a)}")
+        self.assertEqual(self.status_of(unrelated), "stable",
+                         f"교착과 무관한 노트가 함께 죽었다:\n{out}")
+        self.assertVaultCompiles()
+
+    # --- d. 비-공허성 — 정상 배치에선 롤백이 발화하지 않는다 ---------------
+    def test_clean_batch_promotes_everyone_with_no_rollback(self):
+        rels = [self.write_proc(f"정상절차-{i}", f"정상 절차 {i}") for i in range(3)]
+
+        out = self.ratify()
+
+        for rel in rels:
+            self.assertEqual(self.status_of(rel), "stable", f"정상 배치가 승격되지 않았다:\n{out}")
+            self.assertEqual(self.hold_note(rel), "", "정상 노트에 hold 낙인이 붙었다")
+        self.assertIn("hold(판단 필요, draft 유지) 0건", out, f"hold 가 0 이 아니다:\n{out}")
+        self.assertNotIn("[롤백]", out, f"정상 배치에서 롤백이 발화했다:\n{out}")
+        self.assertVaultCompiles()
+
+    # --- e. 원인 특정 실패 시 전량 후퇴 ------------------------------------
+    def test_unattributable_failure_falls_back_to_reverting_everything(self):
+        """컴파일이 깨지는데 진단이 «승격분» 을 지목하지 않는 경우.
+
+        여기서는 **원래부터 깨져 있던** stable 노트(고아 scope)가 원인이다. 승격분은
+        결백하므로 좁히기가 원인을 못 찾는다 — 그때는 종전대로 전량 후퇴하되 사유에
+        「원인 특정 실패」를 명시하고 stderr 를 남겨야 한다(조용히 성공으로 넘기면
+        컴파일 안 되는 vault 를 그대로 두게 된다)."""
+        self.write_proc("이미깨진stable", "이미 깨진 stable",
+                        status="stable", scope="존재하지-않는-스코프")
+        rel = self.write_proc("결백한절차", "결백한 절차")
+
+        out = self.ratify()
+
+        self.assertEqual(self.status_of(rel), "draft",
+                         f"컴파일이 깨진 채로 승격을 남겼다:\n{out}")
+        self.assertIn("원인 특정 실패", out, f"후퇴 사유가 문면에 없다:\n{out}")
+        self.assertIn("원인 특정 실패", self.hold_note(rel))
+
+    # --- f. 좁히기가 연쇄를 따라간다 ---------------------------------------
+    def test_narrowing_follows_a_chain(self):
+        """A 를 되돌리면 A 를 가리키던 B 가 «새로» 깨진다 — 한 번의 좁히기로 안 끝난다.
+
+        B(`supersedes: A`) 와 A(`supersedes: 없는노트`) 를 같이 올린다. 1차 좁히기가 A 를
+        되돌리면 B 의 대상이 draft 가 되어 B 가 새 원인이 된다. 반복하지 않는 구현은
+        여기서 「컴파일 안 되는 vault」를 남긴다 — 그래서 안전 불변식이 이 테스트의 핵심이다."""
+        a = self.write_proc("사슬-a", "사슬 A", supersedes="존재하지-않는-노트")
+        b = self.write_proc("사슬-b", "사슬 B", supersedes="사슬-a")
+        ok = self.write_proc("사슬-무관", "사슬 무관")
+
+        out = self.ratify()
+
+        self.assertEqual(self.status_of(a), "draft", f"A 가 승격됐다:\n{out}")
+        self.assertEqual(self.status_of(b), "draft", f"B 가 승격됐다:\n{out}")
+        self.assertEqual(self.status_of(ok), "stable", f"무관한 노트가 함께 죽었다:\n{out}")
+        self.assertVaultCompiles()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
