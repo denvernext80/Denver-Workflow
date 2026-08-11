@@ -1832,6 +1832,27 @@ class SupersedeBannerTest(unittest.TestCase):
                 r = self.compile(expect=1)
                 self.assertIn("supersedes", r.stderr)
                 self.assertIn(target, r.stderr)
+                # 구별 문구까지 단언 — 없으면 이 에러가 평범한 dangling 으로 퇴행해도 통과한다.
+                self.assertIn("컴파일되는 절차가 아니다", r.stderr)
+
+    def test_retired_target_is_silent_not_fatal(self):
+        """대상을 은퇴(superseded/archived)시키는 것은 **정상 워크플로우의 다음 단계**다.
+
+        live vault 실측: superseded 5건·archived 2건. 여기서 에러를 내면 "정정 노트를 쓴다 →
+        원본을 superseded 로 내린다" 의 2단계에서 전 프로젝트 컴파일이 fatal 이 된다.
+        그리고 이 경우 막을 위험도 없다 — 컴파일되지 않는 문서엔 표식 없는 전문을 펼쳐 읽을
+        독자가 존재하지 않는다(배너를 못 박는 게 아니라 박을 문서가 없다)."""
+        for status in ("superseded", "archived"):
+            with self.subTest(status=status):
+                shutil.rmtree(self.vault)
+                shutil.copytree(SEED, self.vault)
+                self.write_proc("orig-retired", "은퇴한 절차", "1. 한다.", status=status)
+                self.write_proc("fix-retired", "은퇴한 절차의 정정", "반증한다.",
+                                supersedes="orig-retired")
+                r = self.compile()
+                self.assertNotIn("supersedes", r.stderr, f"은퇴 대상에 진단이 났다:\n{r.stderr}")
+                self.assertFalse((self.refs() / "orig-retired.md").exists(),
+                                 "은퇴 절차가 컴파일됐다 — 이 테스트의 전제가 깨졌다")
 
     def test_self_supersede_is_an_error(self):
         self.write_proc("selfsup", "자기 자신을 가리키는 절차", "1. 한다.", supersedes="selfsup")

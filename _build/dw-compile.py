@@ -254,6 +254,12 @@ def validate(notes: list[Note], diag: Diagnostics) -> None:
 # 아니라 **무표식 존재**다. 그래서 원본은 남기고 전문 머리에 배너를 박는다.
 # ---------------------------------------------------------------------------
 SUPERSEDE_MARK = "⚠️ 정정됨"
+# 은퇴 상태 — 이 상태의 노트는 컴파일되지 않아 references 전문 자체가 생기지 않는다.
+# 즉 "표식 없는 원본을 펼쳐 읽는 독자" 가 존재하지 않으므로 배너를 못 박아도 위험이 없다.
+# (live vault 실측: superseded 5건·archived 2건 — "정정 노트를 쓴다 → 원본을 superseded 로
+# 내린다" 는 가장 자연스러운 2단계 워크플로우다. 여기서 에러를 내면 그 2단계가 전 프로젝트
+# 컴파일을 fatal 로 만든다.)
+TERMINAL_STATUSES = {"superseded", "archived"}
 
 
 def is_banner_target(n: Note) -> bool:
@@ -292,9 +298,9 @@ def build_supersede_index(notes: list[Note], diag: Diagnostics) -> dict[str, lis
 
     index: dict[str, list[Note]] = {}
     for n in sorted(notes, key=lambda x: str(x.path).lower()):
+        if n.status != "stable":
+            continue
         for raw in _as_list(n.meta.get("supersedes")):
-            if n.status != "stable":
-                continue
             key = raw.strip()
             bare = key[:-3] if key.endswith(".md") else key
             if not bare:
@@ -313,8 +319,16 @@ def build_supersede_index(notes: list[Note], diag: Diagnostics) -> dict[str, lis
             if target.path == n.path:
                 diag.error(f"{n.path}: supersedes 가 자기 자신을 가리킨다 — 정정 대상을 지목하라")
                 continue
+            if target.status in TERMINAL_STATUSES:
+                # 대상을 은퇴시킨 상태 — 정상적인 종착지다(정정 뒤 원본을 superseded 로 내리는
+                # 2단계 워크플로우). 배너는 생략하되 **에러도 내지 않는다**: 컴파일되지 않는
+                # 문서엔 표식 없는 전문을 펼쳐 읽을 독자가 없다. 여기서 에러를 내면 은퇴시키는
+                # 순간 전 프로젝트 컴파일이 fatal 이 된다(--strict 라 warning 도 같은 결과).
+                continue
             if not is_banner_target(target):
                 # 해석은 됐는데 배너가 붙을 자리가 없다 = 효력 0. 위 dangling 과 같은 실패다.
+                # draft 대상은 여기서 침묵하면 안 된다 — 나중에 stable 이 되면 표식 없는 전문이
+                # 생기고, 이 기능이 막으려던 상태가 그대로 다시 열린다.
                 diag.error(
                     f"{n.path}: supersedes '{raw}' 대상({target.path})은 컴파일되는 절차가 아니다"
                     f"(type={target.type or '없음'}·status={target.status or '없음'}) — 배너를 박을"
