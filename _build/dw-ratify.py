@@ -151,8 +151,68 @@ def annotate_hold(path: Path, text: str, fm_end: int, reason: str) -> None:
     body = text[fm_end:].lstrip("\n")
     marker = "<!-- ratify-hold:"
     body = re.sub(rf"{re.escape(marker)}.*?-->\n*", "", body, flags=re.DOTALL)
-    note = f"{marker} {reason} -->\n\n"
+    # 사유에 컴파일 진단 원문이 실리면서 `-->` 가 섞여 들어올 수 있다 — 그러면 주석이 조기
+    # 종료돼 사유 뒷부분이 «본문» 으로 새고, 다음 run 의 멱등 제거도 어긋난다.
+    note = f"{marker} {reason.replace('-->', '--&gt;')} -->\n\n"
     path.write_text(text[:fm_end] + "\n" + note + body, encoding="utf-8")
+
+
+def compile_check(vault: Path) -> subprocess.CompletedProcess:
+    """승격분이 컴파일을 깨지 않는지 strict 로 확인(쓰기 없음)."""
+    return subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parent / "dw-compile.py"),
+         "--vault", str(vault), "--out", str(vault / ".claude" / "skills"),
+         "--dry-run", "--strict"], capture_output=True, text=True)
+
+
+# 진단 줄의 `error:`/`warning:` 접두. 뒤에 오는 `<노트경로>:` 가 **결함 노트**다.
+_DIAG_PREFIX = re.compile(r"^\s*(?:error|warning)\s*:\s*", re.IGNORECASE)
+
+
+def attributes_to(rel: str, line: str) -> bool:
+    """이 진단 줄이 `rel` 을 **자기 결함으로** 지목하는가(단순 언급이 아니라).
+
+    🔴 이 구별이 없으면 결백한 노트를 되돌린다. `dw-compile.py` 의 진단은 예외 없이
+    `f"{n.path}: …"` 형태라 **결함 노트가 접두**인데, 한 줄이 **두 노트를 언급**하는 진단이 있다:
+
+        {A}: supersedes 'X' 대상({B})은 컴파일되는 절차가 아니다      (dw-compile.py:333)
+        {A}: supersedes 'X' 가 여러 노트와 일치({B}, {C})             (dw-compile.py:315)
+
+    여기서 B·C 는 **결백하다** — 에러를 만든 건 A 의 `supersedes` 다. A 만 draft 로 돌리면
+    `build_supersede_index` 가 non-stable superseder 를 건너뛰어 컴파일이 통과한다. B 를
+    되돌려도 에러는 그대로다(인과 0). 게다가 B 의 hold 사유엔 A 를 가리키는 진단이 붙어
+    **무정보가 아니라 «오정보»** 가 된다("네가 깼다" 로 읽힌다) — 이 파일이 고치려는 결함
+    클래스(무인 경로의 잘못된 신호)의 변종이라 더 나쁘다. 그래서 **접두만** 본다.
+
+    접두가 노트 경로가 아닌 진단(예: `scope '…' 의 skill-manifest 중복`)은 아무에게도
+    귀속되지 않는다 → 호출부가 전량 후퇴로 안전하게 떨어진다(종전 동작).
+    """
+    body = _DIAG_PREFIX.sub("", line.strip())
+    return body.split(":", 1)[0].strip() == rel
+
+
+def diagnostics_for(rel: str, output: str) -> str:
+    """컴파일 진단 중 **이 노트를 지목한** 줄만 모은다.
+
+    이게 이 파일의 요점이다 — 종전엔 승격분 전원에게 `"승격 시 컴파일 strict 실패"` 라는
+    같은 문구가 붙어서, `ratify.log` 만 보는 사람은 **어느 노트가 깼는지 알 수 없었다**.
+    비준기는 SessionStart 훅에서 무인으로 돈다(2026-08-09 에 조용히 죽어 이틀간 35건을 쌓은
+    전례가 있다 — CHANGELOG 2.19.1). 무인 경로에서 정보 없는 실패는 실패하지 않은 것과
+    구별되지 않는다. 그래서 진단 원문을 사유에 그대로 싣는다.
+    """
+    hits = [ln.strip() for ln in output.splitlines() if attributes_to(rel, ln)]
+    if not hits:   # 접두 판정이 빗나가도 사유가 «비지» 않게 — 단순 언급까지 넓힌다.
+        hits = [ln.strip() for ln in output.splitlines() if rel in ln]
+    return " / ".join(hits[:3])
+
+
+def summarize_errors(output: str, limit: int = 2) -> str:
+    """원인을 승격분에 귀속시키지 못했을 때 사람에게 넘길 최소 단서."""
+    lines = [ln.strip() for ln in output.splitlines() if "error:" in ln]
+    if lines:
+        return " / ".join(lines[:limit])
+    tail = [ln.strip() for ln in output.strip().splitlines() if ln.strip()]
+    return tail[-1][:200] if tail else "(컴파일 출력 없음)"
 
 
 def main() -> int:
@@ -219,7 +279,7 @@ def main() -> int:
                 if v.state == dw_verify.CLEAN:
                     scan_notes.append(f"{rel}: 검사대상 {v.candidates}건 · 위반 0")
             # 승격 — status:stable + scope 를 canonical 로 정규화(불일치 데이터 정리).
-            snapshot.append((p, text))
+            snapshot.append((rel, p, text))
             head = re.sub(r"^status:\s*draft\s*$", "status: stable", text[:fm_end],
                           count=1, flags=re.MULTILINE)
             if canon != str(fm.get("scope") or "").strip():
@@ -232,16 +292,55 @@ def main() -> int:
                 p.write_text(new, encoding="utf-8")
             promoted.append(rel)
 
-    # 승격분 검증 — 컴파일 깨지면 롤백
-    rolled_back = False
+    # 승격분 검증 — 컴파일이 깨지면 **원인만** 되돌린다.
+    #
+    # ⚠️ 종전엔 실패 시 snapshot 을 **전량** 되돌리고 승격분 전원에게 같은 사유를 붙였다.
+    #    한 노트가 배치 전체를 인질로 잡았고(무고한 노트까지 draft 로 회귀), 사유가 원인을
+    #    지목하지 않아 사람이 손쓸 수도 없었다. 2.20.0 의 supersedes fail-closed 가 이걸
+    #    재현 가능한 **교착**으로 만들었다 — 정정 A 가 승격되고 대상 B 가 독립 사유로 hold 면
+    #    컴파일이 깨지고 전량 롤백되어, B 가 풀릴 때까지 A 는 영원히 비준되지 않는다.
+    #
+    # 🔴 안전 불변식은 그대로다: 어떤 경로로 끝나든 **디스크 최종 상태는 strict 를 통과**한다.
+    #    좁히기가 원인을 못 찾으면 종전대로 전량 후퇴한다(컴파일 안 되는 vault 를 남기느니).
+    rolled_back_all = False
+    narrowed: list[tuple[str, str]] = []
     if promoted and not args.dry_run:
-        r = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "dw-compile.py"),
-                            "--vault", str(vault), "--out", str(vault / ".claude" / "skills"),
-                            "--dry-run", "--strict"], capture_output=True, text=True)
-        if r.returncode != 0:
-            for p, orig in snapshot:
+        by_rel = {rel: (p, orig) for rel, p, orig in snapshot}
+        # 한 바퀴마다 최소 1건이 promoted 에서 빠지므로 len(promoted) 회면 반드시 수렴한다.
+        # (되돌린 노트가 «다른» 노트를 새로 깨뜨릴 수 있어 한 번으로는 안 끝난다 —
+        #  B 가 A 를 supersede 하는데 A 가 되돌려지면 B 의 대상이 draft 가 된다.)
+        for _ in range(len(promoted) + 1):
+            r = compile_check(vault)
+            if r.returncode == 0:
+                break
+            blob = r.stdout + r.stderr
+            # 🔴 단순 언급(`rel in blob`)이 아니라 **진단이 자기 결함으로 지목한** 것만.
+            #    한 진단 줄이 두 노트를 언급할 수 있어서다 — attributes_to 독스트링 참조.
+            lines = blob.splitlines()
+            culprits = [rel for rel in promoted
+                        if any(attributes_to(rel, ln) for ln in lines)]
+            if not culprits:
+                # 진단이 승격분을 하나도 지목하지 않는다 = 원인이 승격분 «밖» 에 있다
+                # (이미 깨져 있던 stable 노트 등). 좁힐 근거가 없으니 전량 후퇴한다.
+                for _rel, p, orig in snapshot:
+                    p.write_text(orig, encoding="utf-8")
+                why = ("승격 시 컴파일 strict 실패 — 원인 특정 실패"
+                       f"(진단이 승격분을 지목하지 않는다): {summarize_errors(blob)}")
+                # ⚠️ 재대입하지 마라 — 앞 라운드에서 원인으로 특정해 **구체 진단**을 붙인
+                #    노트가 있으면 그 사유가 제네릭 문구로 덮인다(이 파일의 핵심 가치를
+                #    부분적으로 되돌린다). 사유 없는 노트만 보강한다.
+                already = {rel for rel, _why in narrowed}
+                narrowed.extend((rel, why) for rel, _p, _o in snapshot if rel not in already)
+                rolled_back_all = True
+                promoted = []
+                break
+            for rel in culprits:
+                p, orig = by_rel[rel]
                 p.write_text(orig, encoding="utf-8")
-            rolled_back = True
+                narrowed.append((rel, f"승격 시 컴파일이 깨졌다 — {diagnostics_for(rel, blob)}"))
+                promoted.remove(rel)
+            if not promoted:
+                break
 
     print(f"== SSOT 자동 비준 ==")
     # 스캔 대상을 **먼저** 보고한다 — 대상이 0 이면 이 아래 '위반 0' 은 아무 의미가 없다.
@@ -253,10 +352,13 @@ def main() -> int:
               f"검증 불가로 hold 된다. `/dw-install` 로 등록하라.")
     for n in scan_notes:
         print(f"    ✓ {n}")
-    if rolled_back:
-        print(f"  [롤백] 승격 {len(promoted)}건이 컴파일을 깨 전부 되돌림 — 모두 hold 로 간주.")
-        held.extend((r, "승격 시 컴파일 strict 실패(아래 dry-run 확인)") for r in promoted)
-        promoted = []
+    if rolled_back_all:
+        print(f"  [전량 후퇴] 승격분이 컴파일을 깼으나 **원인 특정 실패** — {len(narrowed)}건 전부 되돌림. "
+              f"진단이 승격분을 지목하지 않는다(이미 깨져 있던 노트를 의심하라).")
+    elif narrowed:
+        print(f"  [좁힌 롤백] 원인 {len(narrowed)}건만 되돌리고 나머지 {len(promoted)}건은 승격 유지 "
+              f"— 무고한 노트를 인질로 잡지 않는다.")
+    held.extend(narrowed)
     print(f"  승격(draft→stable) {len(promoted)}건:")
     for r in promoted:
         print(f"    + {r}")
