@@ -2129,5 +2129,225 @@ class RatifyNarrowRollbackTest(unittest.TestCase):
         self.assertVaultCompiles()
 
 
+def load_verifier_scope():
+    """dw-verifier-scope.py 를 모듈로 로드(파일명에 하이픈이 있어 일반 import 불가)."""
+    spec = importlib.util.spec_from_file_location(
+        f"dw_verifier_scope_{next(_counter)}", BUILD / "dw-verifier-scope.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class VerifierScopeFailOpenTest(unittest.TestCase):
+    """검증자 relevance-gate 의 **극성** 회귀 가드 (issue 25).
+
+    이 도구의 호출 규약은 「`dispatch` 만 부르고 `skip` 은 안 부른다」다. 따라서 변경 집합을
+    **틀리게 비워** 내면 결과가 「검수 없는 머지」다 — 위음성의 비용이 위양성의 비용과 비대칭이다.
+    2.20.1 까지 조용한 fail-open 이 넷 있었고, 아래 테스트는 각각의 재발을 막는다:
+
+      (A) 예외를 삼켜 `return []`   → test_missing_base_ref_is_undetermined
+      (B) returncode 미확인          → test_missing_base_ref_is_undetermined (rev-parse rc)
+      (C) 「변경 0개」=「판정 불가」  → test_worktree_change_lands_undetermined,
+                                       test_head_behind_base_is_undetermined
+      (D) staged·untracked 미수집    → test_staged_only_code_still_dispatches
+
+    ⚠️ `test_docs_only_still_skips` 는 **퇴화 가드**다 — 이게 없으면 「무조건 전량 디스패치」로
+    퇴화한 구현도 나머지 테스트를 전부 통과한다. 지우지 마라.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_verifier_scope()
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-vscope-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    # --- 픽스처 헬퍼 -------------------------------------------------------
+    def git(self, repo: Path, *args: str) -> str:
+        """결정론 픽스처: 기본 브랜치명·author·서명을 환경에 맡기지 않는다."""
+        p = subprocess.run(
+            ["git", "-C", str(repo),
+             "-c", "user.email=selftest@example.invalid", "-c", "user.name=selftest",
+             "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", *args],
+            capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, f"픽스처 git 실패: {args}\n{p.stderr}")
+        return p.stdout
+
+    def new_repo(self, name: str) -> Path:
+        repo = self.tmp / name
+        repo.mkdir(parents=True)
+        self.git(repo, "init", "-q", "-b", "main", ".")
+        (repo / "README.md").write_text("seed\n")
+        self.git(repo, "add", "README.md")
+        self.git(repo, "commit", "-qm", "seed")
+        self.git(repo, "branch", "-f", "base-main")
+        return repo
+
+    def run_scope(self, repo: Path, base: str) -> dict:
+        """collect()+scope() 를 main() 과 같은 순서로 엮는다(빈 목록 승격 포함)."""
+        ev = self.mod.collect(str(repo), base)
+        r = self.mod.scope(ev["files"], ev["undetermined"])
+        r["undetermined"] = ev["undetermined"]
+        r["reason"] = ev["reason"]
+        return r
+
+    def assertDispatchesAll(self, r: dict, msg: str):
+        self.assertTrue(r["undetermined"], f"{msg} — 판정 불가로 표시되지 않았다: {r}")
+        self.assertEqual(sorted(r["dispatch"]), sorted(self.mod.ALL_VERIFIERS),
+                         f"{msg} — 전량 디스패치가 아니다: {r}")
+        self.assertEqual(r["skip"], [], f"{msg} — 스킵이 남았다(fail-open): {r}")
+
+    # --- (A)(B) 해석 불가 base ------------------------------------------------
+    def test_missing_base_ref_is_undetermined(self):
+        """존재하지 않는 base ref → 전부 스킵이 아니라 판정 불가 + 전량 디스패치.
+
+        종전: rev-parse 가 rc≠0 이어도 stdout 이 빌 뿐이라 diff 가 빈 집합을 내고
+        「변경 0개 → 문서/설정만 → 전부 스킵」으로 착지했다."""
+        repo = self.new_repo("badbase")
+        r = self.run_scope(repo, "no-such-ref-xyz")
+        self.assertDispatchesAll(r, "해석 불가 base")
+        self.assertIn("no-such-ref-xyz", r["reason"])
+        # 진단 문면이 **원인 구간을 갈라야** 한다. 하류(merge-base)도 이 오류를 잡긴 하지만
+        # 「merge-base 판정 실패」로 뭉뚱그리면 사람이 base 오타인지 트리 문제인지 모른 채
+        # 재시도만 반복한다 — rev-parse 단계의 rc 확인이 지워지지 않게 못박는다.
+        self.assertIn("base ref", r["reason"],
+                      f"base 해석 실패가 제네릭 문면으로 뭉뚱그려졌다: {r['reason']}")
+
+    def test_nonexistent_repo_is_undetermined(self):
+        """repo 경로가 git repo 가 아니어도 「검증 불필요」로 착지하지 않는다."""
+        r = self.run_scope(self.tmp / "없는경로", "main")
+        self.assertDispatchesAll(r, "repo 아님")
+
+    # --- (C) 「변경 0개」 ≠ 「판정 불가」 -------------------------------------
+    def test_worktree_change_lands_undetermined(self):
+        """오늘의 사고 재현 — 변경은 격리 워크트리에 있고 --repo 는 메인 체크아웃.
+
+        do-er 는 **항상** 워크트리에서 일하도록 규율돼 있으므로 이건 예외가 아니라 기본
+        경로다. 종전엔 여기서 조용히 검증자 전부를 껐다."""
+        repo = self.new_repo("wtmain")
+        wt = self.tmp / "wt"
+        self.git(repo, "worktree", "add", "-q", str(wt), "-b", "feat/work", "base-main")
+        (wt / "lib").mkdir()
+        for i in range(14):
+            (wt / "lib" / f"screen_{i}.dart").write_text(f"// {i}\n")
+        self.git(wt, "add", "lib")
+        self.git(wt, "commit", "-qm", "코드 14파일")
+
+        self.assertDispatchesAll(self.run_scope(repo, "base-main"),
+                                 "변경이 형제 워크트리에만 있음")
+        # 짝: 워크트리 경로를 넘기면 정확히 판정된다(완화책이 여전히 동작하는지).
+        r = self.run_scope(wt, "base-main")
+        self.assertFalse(r["undetermined"], f"워크트리 직접 지정이 판정 불가로 퇴화: {r}")
+        self.assertEqual(r["code_changed"], 14, f"코드 14파일을 못 셌다: {r}")
+        self.assertIn("design-review", r["dispatch"])
+
+    def test_head_behind_base_is_undetermined(self):
+        """issue 25 문면 그대로 — HEAD 가 base 보다 뒤처짐. **미커밋 변경이 있어도** 잡아야 한다.
+
+        집합이 비지 않으므로 「빈 집합」 안전망으로는 못 잡는다. 뒤처짐 판정이 유일한 감지
+        표면이고, 종전엔 「변경 1개(코드 0개) → 전부 스킵」으로 착지했다."""
+        repo = self.new_repo("behind")
+        self.git(repo, "branch", "-f", "stale-head")
+        (repo / "src").mkdir()
+        (repo / "src" / "New.php").write_text("<?php\n")
+        self.git(repo, "add", "src")
+        self.git(repo, "commit", "-qm", "base 가 앞서나감")
+        self.git(repo, "branch", "-f", "base-main")
+        self.git(repo, "checkout", "-q", "stale-head")
+        (repo / "README.md").write_text("seed\n메모\n")      # 미커밋 문서 1개
+
+        r = self.run_scope(repo, "base-main")
+        self.assertDispatchesAll(r, "HEAD 가 base 보다 뒤처짐")
+        self.assertIn("뒤처져", r["reason"])
+
+    def test_clean_repo_is_undetermined_not_skip_all(self):
+        """진짜로 변경 0개여도 「전부 스킵」으로 착지시키지 않는다 — 0개는 의심 신호다."""
+        repo = self.new_repo("clean")
+        self.assertDispatchesAll(self.run_scope(repo, "base-main"), "변경 0개")
+
+    # --- (D) staged·untracked 를 본다 ---------------------------------------
+    def test_staged_only_code_still_dispatches(self):
+        """staged 코드 10 + unstaged 문서 1, 커밋 0 → code-review 가 디스패치돼야 한다.
+
+        워크트리 생성 → 신규 파일 → `git add` → 커밋 전 게이트 호출이 정확히 이 상태다.
+        종전 수집은 커밋범위 + unstaged 뿐이라 **「변경 1개(코드 0개) → 전부 스킵」** 을 냈다 —
+        집합이 비지 않아 「빈 집합」 안전망마저 우회하는, 가장 조용한 경로였다."""
+        repo = self.new_repo("staged")
+        self.git(repo, "checkout", "-q", "-b", "feat/staged")
+        (repo / "src").mkdir()
+        for i in range(10):
+            (repo / "src" / f"Svc{i}.php").write_text(f"<?php // {i}\n")
+        (repo / "README.md").write_text("seed\n노트\n")       # unstaged 문서 1개
+        self.git(repo, "add", "src")                          # 코드 10개 staged, 커밋 안 함
+
+        r = self.run_scope(repo, "base-main")
+        self.assertFalse(r["undetermined"], f"판정 가능한 상태인데 판정 불가로 냈다: {r}")
+        self.assertEqual(r["code_changed"], 10, f"staged 코드 10개를 못 셌다: {r}")
+        self.assertIn("code-review", r["dispatch"], f"staged 코드가 스킵됐다(fail-open): {r}")
+        self.assertIn("security-qa", r["dispatch"], f"*.php 가 스킵됐다: {r}")
+
+    def test_untracked_code_is_counted(self):
+        """`git add` 조차 안 한 신규 코드 파일도 변경으로 센다."""
+        repo = self.new_repo("untracked")
+        (repo / "svc.php").write_text("<?php\n")
+        r = self.run_scope(repo, "base-main")
+        self.assertFalse(r["undetermined"], f"판정 불가로 냈다: {r}")
+        self.assertIn("code-review", r["dispatch"], f"untracked 코드가 스킵됐다: {r}")
+
+    # --- 퇴화 가드 -----------------------------------------------------------
+    def test_docs_only_still_skips(self):
+        """⚠️ 퇴화 가드 — 진짜 문서 전용 변경은 **여전히** 전부 스킵이어야 한다.
+
+        이 테스트가 없으면 「무조건 전량 디스패치」로 퇴화한 구현이 위 전부를 통과한다.
+        relevance-gate 의 존재 이유(토큰 절감) 자체가 이 단언에 걸려 있다."""
+        repo = self.new_repo("docsonly")
+        self.git(repo, "checkout", "-q", "-b", "docs/only")
+        (repo / "docs").mkdir()
+        (repo / "docs" / "guide.md").write_text("# 문서\n")
+        (repo / "README.md").write_text("seed\n갱신\n")
+        self.git(repo, "add", "docs", "README.md")
+        self.git(repo, "commit", "-qm", "문서만")
+
+        r = self.run_scope(repo, "base-main")
+        self.assertFalse(r["undetermined"], f"문서 전용이 판정 불가로 퇴화: {r}")
+        self.assertEqual(r["changed"], 2, f"변경 파일 수가 2가 아니다: {r}")
+        self.assertEqual(r["code_changed"], 0, f"문서가 코드로 셈됐다: {r}")
+        self.assertEqual(r["dispatch"], [], f"문서 전용인데 검증자를 불렀다(퇴화): {r}")
+        self.assertEqual(sorted(r["skip"]), sorted(self.mod.ALL_VERIFIERS))
+
+    # --- 호출 규약(출력 계약) -------------------------------------------------
+    def test_output_contract_lines_survive(self):
+        """스킬 문면이 읽는 `디스패치:`/`스킵:` 줄은 판정 불가에서도 사라지지 않는다.
+
+        전량 디스패치라 스킵 목록이 비어도 줄 자체는 `(없음)` 으로 남아야 한다 —
+        `if skipped:` 로 감싸 줄을 없애면 파서가 깨진다. 종료 코드는 0 을 유지한다
+        (판정 불가는 「도구 고장」이 아니라 「안전한 답」이다 — 비영 종료는 호출자가
+        결과를 무시할 여지를 준다)."""
+        repo = self.new_repo("contract")
+        p = subprocess.run([sys.executable, str(BUILD / "dw-verifier-scope.py"),
+                            "--repo", str(repo), "--base", "no-such-ref-xyz"],
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, f"판정 불가가 비영 종료했다: {p.stderr}")
+        self.assertRegex(p.stdout, r"(?m)^디스패치: .*code-review")
+        self.assertRegex(p.stdout, r"(?m)^스킵:\s+\(없음\)")
+        self.assertIn("판정 불가", p.stdout, "「변경 0개」와 구별되는 문면이 없다")
+        # 요구 4: 무엇을 비교했는지가 출력에 있어야 사람이 오판을 알아챈다.
+        self.assertIn(str(repo), p.stdout, "비교 대상 repo 가 출력에 없다")
+        self.assertRegex(p.stdout, r"(?m)^HEAD:\s+[0-9a-f]{8}", "해석된 HEAD SHA 가 없다")
+
+    def test_json_consumer_gets_safe_dispatch(self):
+        """--json 소비자가 `dispatch` 만 읽어도 안전한 값이 나온다."""
+        repo = self.new_repo("jsonsafe")
+        p = subprocess.run([sys.executable, str(BUILD / "dw-verifier-scope.py"),
+                            "--repo", str(repo), "--base", "no-such-ref-xyz", "--json"],
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        data = json.loads(p.stdout)
+        self.assertTrue(data["undetermined"])
+        self.assertEqual(sorted(data["dispatch"]), sorted(self.mod.ALL_VERIFIERS))
+        self.assertEqual(data["skip"], [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
