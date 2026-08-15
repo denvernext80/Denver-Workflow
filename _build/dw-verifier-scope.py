@@ -109,6 +109,23 @@ def _short(sha) -> str:
     return sha[:8] if sha else "?"
 
 
+def _branch_name(full: str) -> str | None:
+    """`refs/heads/x` · `refs/remotes/origin/x` → `x`. 분리(detached)면 None.
+
+    `origin/main` 과 `main` 을 **같은 브랜치**로 보기 위한 정규화다 — 사고 실측에서 base 는
+    `origin/main`, HEAD 는 `main` 이었다.
+    """
+    full = (full or "").strip()
+    if not full or full == "HEAD":
+        return None
+    if full.startswith("refs/heads/"):
+        return full[len("refs/heads/"):]
+    if full.startswith("refs/remotes/"):
+        rest = full[len("refs/remotes/"):]
+        return rest.split("/", 1)[1] if "/" in rest else rest
+    return None
+
+
 def _worktrees(repo: str) -> list[dict]:
     """형제 워크트리 열거(best-effort — 실패해도 판정에 영향 주지 않는다)."""
     rc, out, _ = _git(repo, ["worktree", "list", "--porcelain"])
@@ -186,6 +203,20 @@ def collect(repo: str, base: str) -> dict:
             "뒤처져 있다 — 커밋 범위가 구조적으로 비어 판정이 불가능하다. "
             "작업 중인 격리 워크트리가 아니라 낡은 메인 체크아웃을 가리키고 있지 않은가?")
 
+    # ── ②b 「작업 브랜치가 아니다」. do-er 규율상 base 브랜치 위에서 작업하는 일이 없으므로,
+    #     HEAD 가 base 브랜치 «자체» 면 작업 트리를 가리키고 있지 않다는 뜻이다. 이게 실제
+    #     사고의 서명이었다(base=origin/main, HEAD=main).
+    rc, out, _ = _git(repo, ["rev-parse", "--symbolic-full-name", "HEAD"])
+    head_branch = _branch_name(out) if rc == 0 else None
+    rc, out, _ = _git(repo, ["rev-parse", "--symbolic-full-name", base])
+    base_branch = _branch_name(out) if rc == 0 else None
+    if head_branch is not None and base_branch is not None and head_branch == base_branch:
+        return undet(
+            f"HEAD 가 base 브랜치 자체('{head_branch}')를 가리킨다 — 작업 브랜치가 아니다. "
+            "격리 워크트리의 작업 브랜치를 --repo 로 넘겼는지 확인하라")
+    if head_branch is None and ev["head_sha"] == ev["base_sha"]:
+        return undet("HEAD 가 base 와 같은 커밋에 분리(detached)돼 있다 — 작업 브랜치가 아니다")
+
     # ── ③ 변경 수집. 넷 다 봐야 한다 — 커밋범위·unstaged·staged·untracked.
     #     staged/untracked 누락이 (D): 워크트리에서 `git add` 후 커밋 전 게이트가 정확히 그 상태다.
     sources = [
@@ -203,6 +234,27 @@ def collect(repo: str, base: str) -> dict:
         ev["sources"][name] = len(got)
         files += got
     ev["files"] = sorted(set(files))
+
+    # ── ③b 이 트리엔 base 너머 커밋이 «없는데» 형제 워크트리엔 «있다».
+    #     🔴 (D) 의 untracked 수집이 (C) 의 「빈 집합」 안전망을 무력화하는 잔여 케이스를 잡는다.
+    #     작업과 무관한 untracked 노이즈(에이전트 산출물·메모 등)만으로 집합이 비지 않게 되면
+    #     「판정 가능」이 확정되고, **다른 트리의 실제 작업에 대해 검증자가 «자신 있게» 스킵된다.**
+    #     실측: 이 레포 메인 체크아웃에서 untracked 128개(.agents/) 때문에 design-review 가
+    #     비어 있지 않은 skip 목록으로 나왔다 — 워크트리에 UI 파일이 있었다면 그대로 누락이다.
+    #     ⚠️ 자기 트리는 committed==0 조건상 이미 base 의 조상이라 busy 에 들어오지 않는다
+    #        (경로 비교가 어긋나도 위양성이 안 생기는 이유).
+    if ev["sources"].get("committed", 0) == 0:
+        busy = []
+        for w in ev["worktrees"]:
+            if not w.get("path") or w.get("path") == repo or not w.get("head"):
+                continue
+            rc, _, _ = _git(repo, ["merge-base", "--is-ancestor", w["head"], base])
+            if rc == 1:                       # base 의 조상이 아니다 = base 너머 작업이 있다
+                busy.append(f"{w['path']} [{w.get('branch', '?')}]")
+        if busy:
+            return undet(
+                "이 트리엔 base 너머 커밋이 없는데 형제 워크트리엔 있다 — 작업 중인 트리를 "
+                f"가리키고 있지 않을 가능성이 높다: {', '.join(busy)}")
 
     # ── ④ 「변경 0개」도 의심 신호다. 변경이 0인데 이 스크립트를 부를 이유가 거의 없다.
     if not ev["files"]:

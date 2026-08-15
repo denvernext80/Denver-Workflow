@@ -2226,6 +2226,13 @@ class VerifierScopeFailOpenTest(unittest.TestCase):
         do-er 는 **항상** 워크트리에서 일하도록 규율돼 있으므로 이건 예외가 아니라 기본
         경로다. 종전엔 여기서 조용히 검증자 전부를 껐다."""
         repo = self.new_repo("wtmain")
+        # ⚠️ 픽스처를 현실만큼 «지저분하게» 둔다. 실제 메인 체크아웃엔 작업과 무관한 untracked
+        # (에이전트 산출물·메모 등)가 늘 있다. 그게 있으면 집합이 비지 않아 「빈 집합 → 판정 불가」
+        # 안전망이 **발사되지 않는다** — (D) 의 untracked 수집이 (C) 의 안전망을 무력화하는
+        # 상호작용이다. 깨끗한 픽스처는 이 상호작용을 숨긴다(실측으로 뒤늦게 발견).
+        (repo / ".agents").mkdir()
+        (repo / ".agents" / "notes.md").write_text("# 무관한 산출물\n")
+        (repo / "noise.php").write_text("<?php // 작업과 무관\n")
         wt = self.tmp / "wt"
         self.git(repo, "worktree", "add", "-q", str(wt), "-b", "feat/work", "base-main")
         (wt / "lib").mkdir()
@@ -2260,6 +2267,19 @@ class VerifierScopeFailOpenTest(unittest.TestCase):
         r = self.run_scope(repo, "base-main")
         self.assertDispatchesAll(r, "HEAD 가 base 보다 뒤처짐")
         self.assertIn("뒤처져", r["reason"])
+
+    def test_head_on_base_branch_is_undetermined(self):
+        """HEAD 가 base 브랜치 «자체» 면 작업 브랜치가 아니다 — 사고의 ref 이름 배치 그대로.
+
+        실측 사고는 base=`origin/main`, HEAD=`main` 이었다. 둘은 이름이 달라 보이지만 같은
+        브랜치를 가리킨다(원격 접두 정규화). do-er 규율상 base 브랜치 위에서 작업하지 않으므로
+        이 배치 자체가 「엉뚱한 트리를 보고 있다」는 서명이다. 여기선 작업과 무관한 untracked
+        코드까지 둬서 「빈 집합」 안전망이 발사되지 않는 상태로 만든다."""
+        repo = self.new_repo("onbase")
+        (repo / "noise.php").write_text("<?php // 무관\n")   # 집합이 비지 않게 한다
+        r = self.run_scope(repo, "main")                     # HEAD 도 main
+        self.assertDispatchesAll(r, "HEAD 가 base 브랜치 자체")
+        self.assertIn("작업 브랜치가 아니다", r["reason"])
 
     def test_clean_repo_is_undetermined_not_skip_all(self):
         """진짜로 변경 0개여도 「전부 스킵」으로 착지시키지 않는다 — 0개는 의심 신호다."""
