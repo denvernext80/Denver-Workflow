@@ -249,7 +249,9 @@ def collect(repo: str, base: str) -> dict:
             if not w.get("path") or w.get("path") == repo or not w.get("head"):
                 continue
             rc, _, _ = _git(repo, ["merge-base", "--is-ancestor", w["head"], base])
-            if rc == 1:                       # base 의 조상이 아니다 = base 너머 작업이 있다
+            # rc 0=조상(작업 없음) · 1=조상 아님(작업 있음) · >1=에러. 에러를 「작업 없음」으로
+            # 접으면 여기서 새 fail-open 이 난다 — 안전측(busy)으로 센다.
+            if rc != 0:                       # base 의 조상이 아니다 = base 너머 작업이 있다
                 busy.append(f"{w['path']} [{w.get('branch', '?')}]")
         if busy:
             return undet(
