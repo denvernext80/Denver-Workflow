@@ -2369,5 +2369,104 @@ class VerifierScopeFailOpenTest(unittest.TestCase):
         self.assertEqual(data["skip"], [])
 
 
+class MetricsTest(unittest.TestCase):
+    """dw-metrics 의 결정론(deterministic) 추출·집계 회귀 가드.
+
+    알려진 커밋(conventional 접두사 + Claude 트레일러 + revert + hotfix)의 임시 git repo 를 만들고
+    `dw-metrics.py --no-github`(Git-only, gh 비의존 → 결정론)를 돌려, metrics.json 의 핵심 필드가
+    입력에서 예측한 값과 정확히 일치하는지 본다. behavior-preserving 포팅의 semantics 를 고정한다.
+    """
+
+    METRICS = BUILD / "dw-metrics.py"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-metrics-selftest-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def git(self, repo, *args, env_extra=None):
+        env = dict(os.environ)
+        if env_extra:
+            env.update(env_extra)
+        p = subprocess.run(
+            ["git", "-C", str(repo),
+             "-c", "user.email=selftest@example.invalid", "-c", "user.name=selftest",
+             "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", *args],
+            capture_output=True, text=True, env=env)
+        self.assertEqual(p.returncode, 0, f"픽스처 git 실패: {args}\n{p.stderr}")
+        return p.stdout
+
+    def commit(self, repo, fname, subject, date, body=None):
+        (repo / fname).write_text(fname + "\n", encoding="utf-8")
+        self.git(repo, "add", fname)
+        msg = ["-m", subject] + (["-m", body] if body else [])
+        env = {"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+        self.git(repo, "commit", "-q", *msg, env_extra=env)
+
+    def build_repo(self):
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        self.git(repo, "init", "-q", "-b", "main", ".")
+        # 6 개 first-parent 커밋(선형). 각 커밋 1 파일 → files=1.
+        self.commit(repo, "a", "feat(a): first (#1)", "2026-01-01T00:00:00")
+        self.commit(repo, "b", "fix(b): second (#2)", "2026-01-02T00:00:00")
+        self.commit(repo, "c", "docs(c): third", "2026-02-01T00:00:00")
+        self.commit(repo, "d", "revert: undo b (#3)", "2026-02-02T00:00:00")
+        self.commit(repo, "e", "hotfix: urgent", "2026-03-01T00:00:00")
+        self.commit(repo, "f", "feat(d): ai commit (#4)", "2026-03-02T00:00:00",
+                    body="Co-Authored-By: Claude <noreply@anthropic.com>")
+        return repo
+
+    def run_metrics(self, repo, phases=None):
+        out = self.tmp / ("outp" if phases else "out")
+        argv = [sys.executable, str(self.METRICS), "--project", str(repo),
+                "--no-github", "--out", str(out)]
+        if phases:
+            argv += ["--phases", phases]
+        p = subprocess.run(argv, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, f"dw-metrics 실패:\n{p.stdout}\n{p.stderr}")
+        return out, json.loads((out / "metrics.json").read_text(encoding="utf-8"))
+
+    def test_deterministic_period_and_scale(self):
+        _, m = self.run_metrics(self.build_repo())
+        self.assertEqual(m["period"]["first_parent"], 6)
+        self.assertEqual(m["period"]["first"], "2026-01-01")
+        self.assertEqual(m["period"]["last"], "2026-03-02")
+
+    def test_classification_matches_prefixes(self):
+        _, m = self.run_metrics(self.build_repo())
+        cls = m["classification"]
+        self.assertEqual(cls.get("feature"), 2)               # feat(a), feat(d)
+        self.assertEqual(cls.get("bugfix"), 1)                # fix(b)
+        self.assertEqual(cls.get("docs"), 1)                  # docs(c)
+        self.assertEqual(cls.get("기타(non-conforming)"), 2)   # revert:, hotfix:
+
+    def test_stability_signals(self):
+        _, m = self.run_metrics(self.build_repo())
+        self.assertEqual(m["stability"]["reverts"], 1)
+        self.assertEqual(m["stability"]["hotfix"], 1)
+
+    def test_ai_native_trailer_counted(self):
+        _, m = self.run_metrics(self.build_repo())
+        self.assertEqual(int(m["ai_native"]["commits_with_claude_coauthor"]), 1)
+
+    def test_size_and_report_written(self):
+        out, m = self.run_metrics(self.build_repo())
+        self.assertEqual(m["size"]["median_files"], 1)
+        self.assertEqual(m["size"]["small_pct"], 100)
+        self.assertTrue((out / "REPORT.md").exists())
+        self.assertIn("Engineering Evidence", (out / "REPORT.md").read_text(encoding="utf-8"))
+
+    def test_git_only_mode_has_no_github_metrics(self):
+        """gh 없이(--no-github)도 결정론 git 지표는 나오고, PR/velocity 는 비어야 한다."""
+        _, m = self.run_metrics(self.build_repo())
+        self.assertNotIn("velocity", m)      # gh 없음 → prs 없음 → velocity 없음
+        self.assertIn("classification", m)   # git 지표는 존재
+
+    def test_phases_bucketing(self):
+        _, m = self.run_metrics(self.build_repo(), phases="2026-02-01,2026-03-01")
+        buckets = m["phases"]["buckets"]
+        self.assertEqual(sum(b["prs"] for b in buckets.values()), 6)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
