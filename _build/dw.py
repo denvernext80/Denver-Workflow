@@ -288,6 +288,26 @@ def cmd_plugin_scope_off(args) -> int:
     return _scope("off", args.project)
 
 
+def cmd_metrics(args) -> int:
+    """repository 이력(history) → 재현 가능한 Engineering Evidence(엔지니어링 증거).
+
+    `<repo>/.claude/dw-metrics/` 에 결정론(deterministic) raw 증거 + metrics.json + REPORT.md 를
+    만든다(Evidence first). 해석(FACT/INFERENCE/UNKNOWN)은 /dw-metrics 커맨드 층에서 이 산출물을
+    읽은 **뒤에** 붙는다 — LLM 이 숫자를 추측하지 않는다. `gh` 없으면 Git-only mode 로 동작한다.
+
+    dw-metrics.py 는 stdlib-only 라 venv 가 필요 없다 — 현재 인터프리터로 실행한다.
+    """
+    proj = _project(args.project)
+    argv = [sys.executable, BUILD / "dw-metrics.py", "--project", proj]
+    if getattr(args, "phases", None):
+        argv += ["--phases", args.phases]
+    if getattr(args, "json", False):
+        argv += ["--json"]
+    if getattr(args, "no_github", False):
+        argv += ["--no-github"]
+    return _run(argv)
+
+
 # ── 파서 ──────────────────────────────────────────────────────────────────────────
 # 서브커맨드 이름은 Makefile 타깃과 **1:1 동일**하게 유지한다 — 위임이 눈으로 감사되고,
 # 자기검사가 "타깃 ↔ 서브커맨드" 매핑을 기계적으로 고정할 수 있다.
@@ -306,6 +326,8 @@ SUBCOMMANDS = {
     "plugin-scope-user": (cmd_plugin_scope_user, ()),
     "plugin-scope-project": (cmd_plugin_scope_project, ("project",)),
     "plugin-scope-off": (cmd_plugin_scope_off, ("project",)),
+    # Makefile 타깃이 아니다(관찰/증거 도구) — plugin-scope-* 처럼 CLI 전용 서브커맨드.
+    "metrics": (cmd_metrics, ("project", "metrics")),
 }
 
 
@@ -324,6 +346,11 @@ def build_parser() -> argparse.ArgumentParser:
                            help="대상 프로젝트(반복 가능). 생략 = vault 레지스트리 전체")
         if "scopes" in opts:
             p.add_argument("--scopes", metavar="a,b", help="설치할 scope 묶음(생략 = 전체 union)")
+        if "metrics" in opts:
+            p.add_argument("--phases", metavar="d1,d2", default="",
+                           help="쉼표구분 페이즈(phase) 경계일 — 예: 2026-07-05,2026-08-11 (생략 = 비교 없음)")
+            p.add_argument("--json", action="store_true", help="metrics.json 을 stdout 에도 출력")
+            p.add_argument("--no-github", action="store_true", help="gh 무시(Git-only mode)")
     return ap
 
 

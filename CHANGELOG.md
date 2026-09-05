@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.21.0 — 2026-09-05
+## 2.22.0 — 2026-09-05
 
 **graphify 그래프는 온디맨드 갱신이라 방치하면 묵는다 — `dw-graphify-register.py --post-merge-hook`
 로 git post-merge 훅을 옵트인 설치한다.**
@@ -38,6 +38,50 @@ post-merge 훅도 "graphify 를 이 레포에 세팅한다"의 일부라 같은 
 ### 문서
 
 `/dw-setup` 의 "(선택) graphify" 절에 `--post-merge-hook` 를 `--graphifyignore` 옆에 명문화.
+
+## 2.21.0 — 2026-08-30
+
+**`/dw-metrics` 신설 — 저장소 이력을 재현 가능한 Engineering Evidence 로 바꾸는 Measure/Evidence 레이어.**
+소프트웨어가 실제로 어떻게 만들어지고·검증되고·전달되는지 **관찰**한다. DW 자체 사용량을 재는
+telemetry 와는 별개·직교다. 성과를 과장하거나 인과를 증명하기 위한 것이 아니다.
+
+### Evidence first, interpretation second
+
+결정론(deterministic) 계산이 원시 증거(`raw/`)와 집계(`metrics.json`·`REPORT.md`)를 **먼저**
+만들고, LLM 해석(**FACT/INFERENCE/UNKNOWN**)은 그 산출물을 읽은 **뒤에만** 이뤄진다 — LLM 이 숫자를
+추측하거나 git 이력을 기억으로 해석하지 않는다. correlation 을 causation 으로 표현하지 않고, CI/deploy
+실패를 production defect·incident 로, revert 를 outage 로 단정하지 않는다(hotfix=corrective change).
+production incident·사용자 영향·실제 장애 여부는 git/GitHub 이력만으로 확인 불가 → 추정하지 않는다(UNKNOWN).
+
+### 검증된 도구의 behavior-preserving 포팅
+
+외부에서 검증된 engineering-metrics 도구(`extract.sh` + `analyze.py`)를 플러그인의 **python3-only ·
+make/bash 비의존 · Windows 이식성** SSOT 에 맞춰 stdlib 로 **behavior-preserving 포팅**했다(bash 를
+플러그인에 들이지 않기 위해). extraction semantics · raw evidence schema · aggregation semantics 는
+변경하지 않았고, 원 `extract.sh` 를 **oracle 로 삼아 회귀 검증**했다 — 결정론 git 파일 byte-identical,
+metrics 일치, baseline(2,413 commits · 1,321/1,292 PR · deploy 1,791 · revert 40 · hotfix 6 ·
+Claude 88%) 정확 재현.
+
+### 동작
+
+- 현재 저장소 자동 감지(GitHub remote → `owner/repo`, `origin/HEAD` → 기본 ref). `gh` 없거나
+  미인증이면 **Git-only mode** 로 graceful — git 기반 지표(커밋·PR규율·분류·크기·revert·성장·AI 흔적)는
+  모두 산출하고, `gh` 가능 시 배포·CI·PR 상태가 더해진다(**GitHub-enhanced mode**).
+- 산출물은 대상 저장소 `.claude/dw-metrics/{raw/, metrics.json, REPORT.md}` — `.claude/` 는 gitignore
+  대상이라 **저장소를 오염시키지 않으며** 모든 숫자를 `raw/` 로 재검산할 수 있다.
+- 사용: `/dw-metrics [--phases d1,d2] [--json] [--no-github] [-p 경로]`. 예시 출력은 `docs/dw-metrics-example.md`.
+
+### 추가/수정
+
+- 신규: `_build/dw-metrics.py`(detect→extract→analyze→report, stdlib only), `commands/dw-metrics.md`,
+  `docs/dw-metrics-example.md`.
+- 수정: `_build/dw.py`(`metrics` 서브커맨드), `_build/dw-selftest.py`(`MetricsTest` 7종), `README.md`.
+- 외부 Python 의존성 추가 없음. 기존 governance/deploy/review/hooks 무변경, backward-compatible(순수 추가).
+
+### known limitation (follow-up 후보)
+
+`raw/evolution.txt` 의 개념 발생 키워드 검색은 `git --grep` 기본(BRE)이라 `|` alternation 이
+리터럴로 처리된다(단일 토큰만 매칭). oracle 동작 보존 차원에서 이번 릴리스에선 수정하지 않는다.
 
 ## 2.20.2 — 2026-08-15
 

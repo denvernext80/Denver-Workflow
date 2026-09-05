@@ -59,6 +59,7 @@
 | `/dw-ci-review` | **(선택) GitHub PR 자동 리뷰어** 설치 — PR 생성 시 Claude가 브랜치 단위 코드 리뷰 수행 |
 | `/dw-api-spec` | **API 명세 점검·갱신** — 코드와 vault 명세가 어긋났는지 확인(인자 없음), `재추출`·`<도메인>` 으로 다시 훑기 |
 | `/dw-batch-spec` | **배치·크론 명세 점검·갱신** — 실제 도는 정기 실행과 명세 대조(인자 없음), `재추출`·`<그룹>` 으로 다시 훑기 |
+| `/dw-metrics` | **(선택) Engineering Evidence 측정** — 저장소 이력을 재현 가능한 증거(개발 패턴·전달·안정성)로 변환해 관찰 (Git-only / GitHub 확장) |
 
 ---
 
@@ -168,6 +169,21 @@ Pull Request가 생성되거나 업데이트되면, GitHub Actions가 자동으�
 
 * `/dw-setup` 실행 중 graphify 환경이 감지되면 프로젝트별 .mcp.json에 자동으로 등록됩니다. 전역 설정을 변경하지 않고, 프로젝트 단위로 독립적으로 구성됩니다.
 * graphify가 설치되어 있지 않거나 정상적으로 응답하지 않는 경우에는 기존 dw_search로 자동 전환(Fallback)되어 기능을 계속 사용할 수 있습니다.
+
+### 3. Engineering Evidence 측정 (`/dw-metrics`)
+
+저장소 이력(history)을 **재현 가능한 Engineering Evidence(엔지니어링 증거 — 숫자로 확인 가능한 근거)**로 변환합니다. 단순한 Git 통계 유틸리티가 아니라, Denver-Workflow 의 AI-native Software Engineering 관점에서 **소프트웨어가 실제로 어떻게 만들어지고·검증되고·전달되고 있는지를 관찰하는 Measure/Evidence 레이어**입니다.
+
+핵심 설계 원칙은 **Evidence first, interpretation second(증거 먼저, 해석은 그 다음)**입니다. 결정론적(deterministic) 계산이 원시 증거(raw)와 집계(metrics.json·REPORT.md)를 **먼저** 만들고, LLM 해석은 그 산출물을 읽은 **뒤에만** 이뤄집니다 — LLM 이 숫자를 추측하거나 Git 이력을 기억에 의존해 해석하지 않습니다.
+
+* **목적:** Denver-Workflow 자체 사용량을 재는 telemetry 가 아닙니다(그건 별개 기능). 대상 저장소가 어떤 개발·전달·안정성 패턴을 보이는지 **관찰**하기 위한 것이며, 성과를 과장하거나 인과(causation)를 증명하기 위한 것이 아닙니다.
+* **사용법:** 작업 중인 저장소에서 `/dw-metrics` 를 실행하면 현재 저장소를 자동 감지해 측정합니다. 선택 인자 — `--phases <d1,d2>`(페이즈 비교 경계일), `--json`, `--no-github`(Git-only 강제), `-p <경로>`(다른 저장소 지정).
+* **사전 요건:** `git` 필수. `gh`(GitHub CLI)는 선택 — 있고 인증돼 있으면 배포·PR·CI 지표가 추가됩니다.
+* **Git-only vs GitHub-enhanced:** `gh` 가 없거나 인증되지 않았거나 remote 가 없으면 **Git-only mode** 로 graceful 하게 동작합니다(커밋·PR규율·분류·크기·revert·성장·AI 흔적 등 Git 기반 지표는 모두 산출). `gh` 가 되면 **GitHub-enhanced mode** 로 배포 워크플로 실행·CI 실패율·PR 상태/처리량이 더해집니다.
+* **주요 지표:** 개발 기간·커밋·PR(생성/병합/종료), 처리량, PR 크기 분포, 변경 분류, 코드베이스 성장, CI 활동·실패, 배포 활동, revert, hotfix, 테스트 활동, AI-assisted 개발 흔적, (경계가 주어지면) 페이즈별 변화.
+* **출력 구조:** 대상 저장소의 `.claude/dw-metrics/` 아래에 `raw/`(원시 증거) · `metrics.json`(결정론 집계) · `REPORT.md`(사람 판독 요약)를 만듭니다. `.claude/` 는 gitignore 대상이라 **저장소를 오염시키지 않으며**, 모든 숫자는 `raw/` 로 직접 재검산할 수 있습니다.
+* **FACT / INFERENCE / UNKNOWN 원칙:** 해석은 재계산 가능한 값(FACT), 규칙 기반 추정(INFERENCE), 이력만으로 확인 불가한 것(UNKNOWN)을 구분합니다. **상관을 인과로 표현하지 않고**, CI/배포 실패를 production defect·incident 로, revert 를 곧바로 outage 로 단정하지 않습니다(hotfix 는 corrective change 로 분류). production incident·사용자 영향·실제 장애 여부는 Git/GitHub 이력만으로 확인 불가하므로 추정하지 않습니다.
+* **한계:** GitHub Actions run count 는 실행 시점에 따라 증가하는 live 값입니다. 개념 발생 추적(`raw/evolution.txt`)의 키워드 검색은 `git --grep` 기본(BRE) 동작이라 `|` alternation 이 적용되지 않습니다(단일 토큰만 매칭 — 검증된 도구의 동작을 그대로 보존). 예시 출력은 `docs/dw-metrics-example.md` 참조.
 
 ---
 
