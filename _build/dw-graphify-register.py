@@ -140,6 +140,117 @@ def _write_graphifyignore(project: Path, content: str) -> bool:
     return True
 
 
+# 이 문자열이 멱등 마커다 — 훅 본문에 그대로 들어가며, 재실행 시 「우리 훅인가」 판정에 쓴다.
+# (지우면 재실행이 우리 훅을 남의 훅으로 오인해 갱신을 못 한다.)
+_HOOK_MARKER = "dw-graphify post-merge hook"
+
+# git pull/merge 후 로컬 코드 그래프를 다시 그리는 post-merge 훅(제네릭 — 프로젝트 종속 금지).
+# 설계: 비차단(백그라운드·detached)이라 `git pull` 을 막지 않고, 항상 exit 0 이라 머지를 실패시키지
+# 않으며, lock 으로 연속 pull 중복 실행을 막되 stale lock(>60분)은 회수해 크래시 후 영구잠금을 막는다.
+_POST_MERGE_HOOK = """#!/bin/sh
+# dw-graphify post-merge hook (denver-workflow) — rebuild the local code graph
+# after merge/pull so graphify queries stay current. AST-only (no LLM / no API cost).
+# Non-blocking: runs detached, logs to graphify-out/.post-merge-graphify.log, and
+# NEVER blocks or fails the merge. The comment line above is the idempotency marker.
+
+REPO="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[ -n "$REPO" ] || exit 0
+
+# graphify usually lives at ~/.local/bin; git hooks may run with a minimal PATH.
+GRAPHIFY="$(command -v graphify 2>/dev/null)"
+[ -n "$GRAPHIFY" ] || GRAPHIFY="$HOME/.local/bin/graphify"
+[ -x "$GRAPHIFY" ] || exit 0
+
+# Only maintain a graph where one already exists (fresh clone / worktree w/o a graph = no-op).
+[ -f "$REPO/graphify-out/graph.json" ] || exit 0
+
+LOG="$REPO/graphify-out/.post-merge-graphify.log"
+LOCK="$REPO/graphify-out/.post-merge-graphify.lock"
+
+# Reap a stale lock (>60 min) so a crashed run never disables the hook forever.
+if [ -d "$LOCK" ] && [ -n "$(find "$LOCK" -maxdepth 0 -mmin +60 2>/dev/null)" ]; then
+  rmdir "$LOCK" 2>/dev/null
+fi
+
+# Skip if a previous rebuild is still running (avoid pile-ups on rapid pulls).
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "[$(date '+%F %T')] skip: previous graphify update still running" >> "$LOG"
+  exit 0
+fi
+
+# Detached background rebuild so `git pull` / `git merge` returns immediately.
+(
+  echo "[$(date '+%F %T')] graphify update start ($REPO)" >> "$LOG"
+  "$GRAPHIFY" update "$REPO" >> "$LOG" 2>&1
+  echo "[$(date '+%F %T')] graphify update done (exit $?)" >> "$LOG"
+  rmdir "$LOCK" 2>/dev/null
+) >/dev/null 2>&1 &
+
+exit 0
+"""
+
+
+def _git_out(project: Path, *args: str) -> tuple[int, str]:
+    """git 하위명령 실행 → (returncode, stdout.strip())."""
+    r = subprocess.run(["git", "-C", str(project), *args], capture_output=True, text=True)
+    return r.returncode, r.stdout.strip()
+
+
+def _hooks_dir(project: Path) -> tuple[Path | None, str | None]:
+    """(hooks_dir, dead_hookspath). hooks_dir=None → git repo 아님.
+    dead_hookspath 는 core.hooksPath 가 설정됐는데 그 경로가 실재하지 않을 때 그 값(경고용)."""
+    rc, out = _git_out(project, "rev-parse", "--git-path", "hooks")
+    if rc != 0 or not out:
+        return None, None
+    hd = Path(out)
+    if not hd.is_absolute():
+        hd = project / hd
+    hd = hd.resolve()
+    rc2, hp = _git_out(project, "config", "--get", "core.hooksPath")
+    dead = hp if (rc2 == 0 and hp and not hd.exists()) else None
+    return hd, dead
+
+
+def _install_post_merge_hook(project: Path, do_install: bool) -> None:
+    """post-merge git 훅을 설치(do_install)하거나 제안(미설치)한다. 절대 예외를 던지지 않는다.
+
+    정책(제네릭 도구): core.hooksPath 가 죽은 경로면 **경고+스킵**(남의 config 를 unset 하지 않는다).
+    기존 post-merge 가 우리 마커를 가지면 갱신, 남의 훅이면 경고+스킵(덮지 않는다)."""
+    hd, dead = _hooks_dir(project)
+    if hd is None:
+        return  # git repo 아님 — 배선할 게 없다
+    if dead is not None:
+        print(f"\n[주의] core.hooksPath 가 실재하지 않는 경로를 가리켜 git 훅이 전부 비활성이다: {dead}")
+        print("       (post-merge 를 어디에 설치해도 git 이 부르지 않는다) 고치려면:")
+        print(f"         git -C {project} config --unset core.hooksPath")
+        print("       그 뒤 --post-merge-hook 로 재실행하면 설치된다.")
+        return
+    hook = hd / "post-merge"
+    if hook.exists():
+        content = hook.read_text(encoding="utf-8", errors="ignore")
+        if _HOOK_MARKER in content:
+            if do_install:
+                hook.write_text(_POST_MERGE_HOOK, encoding="utf-8")
+                hook.chmod(0o755)
+                print("  post-merge 훅: 이미 설치됨 — 최신 내용으로 갱신(멱등).")
+            else:
+                print("  post-merge 훅: 이미 설치됨(멱등).")
+            return
+        print(f"\n[주의] 기존 post-merge 훅이 있어 건드리지 않는다: {hook}")
+        print('       graphify 자동 갱신을 원하면 그 훅에 `graphify update "$(git rev-parse --show-toplevel)"` 를 직접 추가하라.')
+        return
+    if not do_install:
+        print("\n[제안] git pull/merge(원격 변경 내려받기·합치기) 후 로컬 그래프를 자동으로 다시 그리려면")
+        print("       post-merge 훅을 설치할 수 있다 — 비차단(git 을 안 막음)·AST 전용(비용 0).")
+        print("       설치하려면 --post-merge-hook 로 재실행.")
+        return
+    hd.mkdir(parents=True, exist_ok=True)
+    hook.write_text(_POST_MERGE_HOOK, encoding="utf-8")
+    hook.chmod(0o755)
+    print(f"  post-merge 훅 설치: {hook}")
+    print("     → 앞으로 git pull/merge 후 graphify 그래프가 백그라운드로 자동 갱신된다(비차단).")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="graphify MCP 서버를 프로젝트 .mcp.json 에 등록")
     ap.add_argument("--project", required=True)
@@ -147,6 +258,8 @@ def main() -> int:
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--graphifyignore", action="store_true",
                     help="네이티브 혼재 레포에 .graphifyignore 스캐폴드 기록(옵트인)")
+    ap.add_argument("--post-merge-hook", action="store_true",
+                    help="git pull/merge 후 로컬 그래프를 자동 갱신하는 post-merge 훅 설치(옵트인)")
     args = ap.parse_args()
 
     project = Path(args.project).expanduser().resolve()
@@ -158,8 +271,13 @@ def main() -> int:
         print("graphify 미감지(CLI 또는 graph.json 없음) — 등록 스킵.")
         return 0
     print(f"graphify python: {py}\ngraph.json: {graph}\n대상 .mcp.json: {project/'.mcp.json'}")
+    # 훅만 설치(--post-merge-hook 단독, --apply 없음): 워크스페이스-레벨 graphify 를 쓰는 레포는
+    # per-repo .mcp.json 이 필요 없다(단일 서버 + project_path 라우팅). MCP 등록을 건너뛰고 훅만 건다.
+    if args.post_merge_hook and not args.apply:
+        _install_post_merge_hook(project, True)
+        return 0
     if not args.apply:
-        print("\n(dry-run — 적용하려면 --apply)")
+        print("\n(dry-run — 적용하려면 --apply. post-merge 훅만 설치하려면 --post-merge-hook)")
         return 0
     if not _ensure_mcp(py):
         return 1
@@ -169,6 +287,8 @@ def main() -> int:
     # git 위생: graphify-out/ 산출물 커밋 방지(additive·멱등)
     if _add_gitignore(project):
         print(f".gitignore 에 {_GITIGNORE_LINE} 추가.")
+    # post-merge 훅: git pull/merge 후 로컬 그래프 자동 갱신(--post-merge-hook 없으면 제안만)
+    _install_post_merge_hook(project, args.post_merge_hook)
     # 네이티브 혼재: .graphifyignore 제안(옵트인 기록)
     label = _native_mixed(project)
     if label:
