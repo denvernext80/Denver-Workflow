@@ -2,6 +2,28 @@
 
 # Changelog (English)
 
+## 2.22.1 — 2026-09-05
+
+**`--post-merge-hook` follow-up: warn when a missing local graph makes the installed hook a silent no-op.**
+`detect()` falls back to the vault graph when a repo has no local `graphify-out/graph.json`. Installing `--post-merge-hook` in that state prints "hook installed" (green), but the installed hook's `[ -f graph.json ]` guard keeps it a **no-op until a local graph exists** — a coverage-zero shape where "install green" is misread as "working" (noted as a known follow-up in the 2.22.0 PR). The installer now prints a warning right after install when no local graph is present: the hook is inert until `graphify update <repo>` builds a local graph.
+
+## 2.22.0 — 2026-09-05
+
+**graphify graphs go stale because updates are on-demand — opt-in `dw-graphify-register.py --post-merge-hook` installs a git post-merge hook.**
+Nothing enforces when `graphify update` runs (no watch, git hook, cron, or launchd), so graphs quietly rot. Measured (2026-09-05): one workspace's 3 repos + vault were ~2 months stale (Jul 18–Aug 9). The "graph first" query discipline is only accurate when the graph is fresh.
+
+### Why `dw-graphify-register.py` (not `wire-hook.py`)
+
+`wire-hook.py` / `hooks.json` wire **Claude Code lifecycle hooks** (PostToolUse etc., settings.json) — a different mechanism from git hooks, so putting it there crosses layers. The home for graphify integration is the existing `dw-graphify-register.py` (the opt-in step that registers `.mcp.json` and gitignores `graphify-out/`); the post-merge hook is part of "set graphify up for this repo," so it lives there.
+
+### Design (safe defaults for a generic tool)
+
+- **Opt-in flag** `--post-merge-hook`, mirroring `--graphifyignore`. `--apply` alone only prints a suggestion (never auto-enables).
+- **Standalone path**: `--post-merge-hook` **without** `--apply` skips `.mcp.json` registration and installs only the hook. Repos using a workspace-level graphify (single `.mcp.json` + `project_path` routing) don't need per-repo MCP registration — the hook install, previously trapped inside `--apply`, was decoupled to support that topology.
+- **Non-blocking**: the hook runs `graphify update` detached and returns immediately (never blocks `git pull`/`merge`), always exits 0 (a failed rebuild never breaks the merge), AST-only (no LLM / no API cost). A lock with a 60-min stale reap prevents pile-ups without permanent lockout; a `[ -f graph.json ]` guard makes graph-less clones/worktrees a no-op.
+- **Idempotency marker** (`dw-graphify post-merge hook`): our hook is updated on re-run; a **foreign post-merge hook is left untouched with a warning**.
+- 🔴 **dead `core.hooksPath` trap**: a repo migrated from another machine can point `core.hooksPath` at a non-existent absolute path, disabling all git hooks (measured 2026-09-05: two migrated repos were exactly in this state). The generic tool does **not** unset another repo's config — it warns and prints the fix command, then skips.
+
 ## 2.21.0 — 2026-08-30
 
 **New `/dw-metrics` — a Measure/Evidence layer that turns repository history into reproducible Engineering Evidence.**

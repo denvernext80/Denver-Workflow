@@ -211,7 +211,18 @@ def _hooks_dir(project: Path) -> tuple[Path | None, str | None]:
     return hd, dead
 
 
-def _install_post_merge_hook(project: Path, do_install: bool) -> None:
+def _warn_if_inert(project: Path, local_graph: bool) -> None:
+    """로컬 그래프가 없으면(vault 폴백) 설치한 훅이 가드로 no-op 임을 알린다.
+    설치기는 「설치됨」을 찍지만 훅의 `[ -f graph.json ]` 가 로컬 그래프가 생길 때까지 막는다 —
+    이 신호가 없으면 「설치 green」을 「동작함」으로 오독한다(커버리지 0 오독 형태)."""
+    if local_graph:
+        return
+    print("     ⚠️ 단, 이 레포엔 로컬 graphify-out/graph.json 이 없다(그래프는 vault 폴백).")
+    print("        훅은 `[ -f graph.json ]` 가드로 로컬 그래프가 생길 때까지 no-op 이다 —")
+    print(f"        `graphify update {project}` 로 로컬 그래프를 먼저 빌드해야 동작한다.")
+
+
+def _install_post_merge_hook(project: Path, do_install: bool, local_graph: bool = True) -> None:
     """post-merge git 훅을 설치(do_install)하거나 제안(미설치)한다. 절대 예외를 던지지 않는다.
 
     정책(제네릭 도구): core.hooksPath 가 죽은 경로면 **경고+스킵**(남의 config 를 unset 하지 않는다).
@@ -233,6 +244,7 @@ def _install_post_merge_hook(project: Path, do_install: bool) -> None:
                 hook.write_text(_POST_MERGE_HOOK, encoding="utf-8")
                 hook.chmod(0o755)
                 print("  post-merge 훅: 이미 설치됨 — 최신 내용으로 갱신(멱등).")
+                _warn_if_inert(project, local_graph)
             else:
                 print("  post-merge 훅: 이미 설치됨(멱등).")
             return
@@ -249,6 +261,7 @@ def _install_post_merge_hook(project: Path, do_install: bool) -> None:
     hook.chmod(0o755)
     print(f"  post-merge 훅 설치: {hook}")
     print("     → 앞으로 git pull/merge 후 graphify 그래프가 백그라운드로 자동 갱신된다(비차단).")
+    _warn_if_inert(project, local_graph)
 
 
 def main() -> int:
@@ -271,10 +284,12 @@ def main() -> int:
         print("graphify 미감지(CLI 또는 graph.json 없음) — 등록 스킵.")
         return 0
     print(f"graphify python: {py}\ngraph.json: {graph}\n대상 .mcp.json: {project/'.mcp.json'}")
+    # 로컬 그래프가 없으면 detect 가 vault 그래프로 폴백한 것 — 그 경우 훅은 가드로 no-op 이다.
+    local_graph = (project / "graphify-out" / "graph.json").is_file()
     # 훅만 설치(--post-merge-hook 단독, --apply 없음): 워크스페이스-레벨 graphify 를 쓰는 레포는
     # per-repo .mcp.json 이 필요 없다(단일 서버 + project_path 라우팅). MCP 등록을 건너뛰고 훅만 건다.
     if args.post_merge_hook and not args.apply:
-        _install_post_merge_hook(project, True)
+        _install_post_merge_hook(project, True, local_graph)
         return 0
     if not args.apply:
         print("\n(dry-run — 적용하려면 --apply. post-merge 훅만 설치하려면 --post-merge-hook)")
@@ -288,7 +303,7 @@ def main() -> int:
     if _add_gitignore(project):
         print(f".gitignore 에 {_GITIGNORE_LINE} 추가.")
     # post-merge 훅: git pull/merge 후 로컬 그래프 자동 갱신(--post-merge-hook 없으면 제안만)
-    _install_post_merge_hook(project, args.post_merge_hook)
+    _install_post_merge_hook(project, args.post_merge_hook, local_graph)
     # 네이티브 혼재: .graphifyignore 제안(옵트인 기록)
     label = _native_mixed(project)
     if label:
