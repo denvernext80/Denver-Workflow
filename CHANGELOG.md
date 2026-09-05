@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.21.0 — 2026-09-05
+
+**graphify 그래프는 온디맨드 갱신이라 방치하면 묵는다 — `dw-graphify-register.py --post-merge-hook`
+로 git post-merge 훅을 옵트인 설치한다.**
+`graphify update` 를 누가 언제 돌리는지 강제하는 장치가 없어(watch·git hook·cron·launchd 전무)
+그래프가 조용히 낡는다. 실측(2026-09-05): 한 워크스페이스의 3레포+vault 그래프가 Jul 18~Aug 9 로
+약 2개월 stale 이었다. graphify 조회 규율("그래프 먼저")은 그래프가 신선할 때만 정확한데, 낡은
+그래프는 낡은 코드 지도라 조회가 조용히 틀린다.
+
+### 왜 `dw-graphify-register.py` 인가 (wire-hook.py 아님)
+
+`wire-hook.py`/`hooks.json` 은 **Claude Code 생명주기 훅**(PostToolUse 등, settings.json)이다 —
+git 훅과 다른 메커니즘이라 여기 넣으면 층위가 어긋난다. graphify 통합의 집은 이미 있던
+`dw-graphify-register.py`(`.mcp.json` 등록 + `graphify-out/` gitignore 를 하는 옵트인 단계)다.
+post-merge 훅도 "graphify 를 이 레포에 세팅한다"의 일부라 같은 자리에 둔다.
+
+### 설계 (제네릭 도구의 안전 정책)
+
+- **옵트인 플래그** `--post-merge-hook` — `--graphifyignore` 와 같은 결. `--apply` 만 하면 설치하지
+  않고 제안만 출력한다(자동 켜지지 않는다).
+- **비차단**: 훅은 백그라운드(detached)로 `graphify update` 를 돌리고 즉시 반환 — `git pull`/`merge`
+  를 막지 않는다. 항상 exit 0 이라 갱신이 실패해도 머지를 깨지 않는다. AST 전용(LLM 없음·비용 0).
+- **lock + stale 회수**: 연속 pull 시 중복 실행을 막되, 60분 넘은 lock 은 회수해 크래시 후 영구잠금을
+  막는다. `[ -f graph.json ]` 가드로 그래프 없는 fresh clone·worktree pull 은 no-op.
+- **멱등 마커**: 훅 본문의 주석 한 줄(`dw-graphify post-merge hook`)로 "우리 훅"을 식별 — 재실행 시
+  우리 훅이면 최신으로 갱신, **남의 post-merge 훅이면 건드리지 않고 경고+수동 안내**.
+- 🔴 **`core.hooksPath` 죽은 경로 함정**: 다른 머신에서 이관된 레포는 `core.hooksPath` 가 실재하지
+  않는 절대경로를 가리켜 **git 훅이 전부 비활성**일 수 있다(2026-09-05 실측: 이관된 두 레포가 정확히
+  이 상태였고, 어떤 훅을 넣어도 안 떴다). 제네릭 도구는 남의 config 를 `unset` 하지 않고 **경고 +
+  고치는 명령**을 안내하고 스킵한다.
+
+### 문서
+
+`/dw-setup` 의 "(선택) graphify" 절에 `--post-merge-hook` 를 `--graphifyignore` 옆에 명문화.
+
 ## 2.20.2 — 2026-08-15
 
 **`dw-verifier-scope` 가 조용한 fail-open 이었다 — 「판정 불가」를 「검증 불필요」로 착지시켰다.**

@@ -209,6 +209,12 @@ graphify 는 optional — 감지될 때만 사용자에게 등록을 제안한�
 - 등록(`--apply`)은 대상 레포 `.gitignore` 에 `graphify-out/`(그래프 산출물, 수십 MB)를 자동 추가한다.
   Flutter/node 등 네이티브 혼재 레포면 god-node 오염 방지용 `.graphifyignore` 스캐폴드를 제안하며,
   기록하려면 `--graphifyignore` 로 재실행한다(자동 기록 안 함 — 제외 경로는 레포마다 다름).
+- **자동 갱신 훅(옵트인)**: 그래프는 온디맨드로 `graphify update` 를 돌려야 최신이 된다(안 돌리면 묵는다).
+  `--post-merge-hook` 로 재실행하면 git **post-merge 훅**(git pull/merge 로 원격 변경을 내려받아 합친
+  «직후» 자동 실행되는 스크립트)을 설치해, 앞으로 pull/merge 때마다 로컬 그래프를 백그라운드로 다시
+  그린다 — **비차단**(git 을 안 막음)·**AST 전용**(LLM 없음·비용 0). 로그는 `graphify-out/.post-merge-graphify.log`.
+  플래그 없이 `--apply` 만 하면 설치하지 않고 제안만 출력한다. 이미 다른 post-merge 훅이 있거나
+  `core.hooksPath` 가 죽은 경로를 가리키면(=git 훅 전부 비활성) 건드리지 않고 경고+고치는 법을 알린다.
 - 조회 라우팅: **지식**은 기본 그래프(vault ingest), **특정 레포 코드**는 `project_path=<repo 절대경로>` 인자.
 - 참고: `graphify install --platform claude` 가 `.claude/CLAUDE.md` 에 넣는 graphify 블록은 graphify
   자체 산출물이다 — 워크스페이스 루트엔 그래프가 없어 문구가 거짓일 수 있다. 그래프 라우팅 정본은
