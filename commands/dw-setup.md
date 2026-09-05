@@ -215,6 +215,12 @@ graphify 는 optional — 감지될 때만 사용자에게 등록을 제안한�
   그린다 — **비차단**(git 을 안 막음)·**AST 전용**(LLM 없음·비용 0). 로그는 `graphify-out/.post-merge-graphify.log`.
   플래그 없이 `--apply` 만 하면 설치하지 않고 제안만 출력한다. 이미 다른 post-merge 훅이 있거나
   `core.hooksPath` 가 죽은 경로를 가리키면(=git 훅 전부 비활성) 건드리지 않고 경고+고치는 법을 알린다.
+  - **훅만 단독 설치**: 워크스페이스-레벨 graphify(단일 `.mcp.json` + `project_path` 라우팅)를 쓰는
+    레포는 per-repo MCP 등록이 필요 없다 — `--post-merge-hook` 를 `--apply` **없이** 단독으로 실행하면
+    `.mcp.json` 을 건드리지 않고 훅만 설치한다:
+    ```bash
+    python3 "${CLAUDE_PLUGIN_ROOT}/_build/dw-graphify-register.py" --project "$(pwd)" --post-merge-hook
+    ```
 - 조회 라우팅: **지식**은 기본 그래프(vault ingest), **특정 레포 코드**는 `project_path=<repo 절대경로>` 인자.
 - 참고: `graphify install --platform claude` 가 `.claude/CLAUDE.md` 에 넣는 graphify 블록은 graphify
   자체 산출물이다 — 워크스페이스 루트엔 그래프가 없어 문구가 거짓일 수 있다. 그래프 라우팅 정본은

@@ -271,8 +271,13 @@ def main() -> int:
         print("graphify 미감지(CLI 또는 graph.json 없음) — 등록 스킵.")
         return 0
     print(f"graphify python: {py}\ngraph.json: {graph}\n대상 .mcp.json: {project/'.mcp.json'}")
+    # 훅만 설치(--post-merge-hook 단독, --apply 없음): 워크스페이스-레벨 graphify 를 쓰는 레포는
+    # per-repo .mcp.json 이 필요 없다(단일 서버 + project_path 라우팅). MCP 등록을 건너뛰고 훅만 건다.
+    if args.post_merge_hook and not args.apply:
+        _install_post_merge_hook(project, True)
+        return 0
     if not args.apply:
-        print("\n(dry-run — 적용하려면 --apply)")
+        print("\n(dry-run — 적용하려면 --apply. post-merge 훅만 설치하려면 --post-merge-hook)")
         return 0
     if not _ensure_mcp(py):
         return 1

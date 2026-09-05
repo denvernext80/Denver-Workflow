@@ -20,6 +20,10 @@ post-merge 훅도 "graphify 를 이 레포에 세팅한다"의 일부라 같은 
 
 - **옵트인 플래그** `--post-merge-hook` — `--graphifyignore` 와 같은 결. `--apply` 만 하면 설치하지
   않고 제안만 출력한다(자동 켜지지 않는다).
+- **훅 단독 설치 경로**: `--post-merge-hook` 를 `--apply` **없이** 쓰면 `.mcp.json` 등록을 건너뛰고
+  훅만 건다. 워크스페이스-레벨 graphify(단일 `.mcp.json` + `project_path` 라우팅)를 쓰는 레포는
+  per-repo MCP 등록이 중복이라 훅만 필요하다 — 이 토폴로지를 지원하려고 `--apply` 안에 갇혀 있던
+  훅 설치를 단독으로도 꺼냈다.
 - **비차단**: 훅은 백그라운드(detached)로 `graphify update` 를 돌리고 즉시 반환 — `git pull`/`merge`
   를 막지 않는다. 항상 exit 0 이라 갱신이 실패해도 머지를 깨지 않는다. AST 전용(LLM 없음·비용 0).
 - **lock + stale 회수**: 연속 pull 시 중복 실행을 막되, 60분 넘은 lock 은 회수해 크래시 후 영구잠금을
