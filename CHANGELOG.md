@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.22.1 — 2026-09-05
+
+**`--post-merge-hook` 후속: 로컬 그래프가 없어 vault 로 폴백하면 설치한 훅이 조용히 no-op 이던 문제에 경고 추가.**
+`detect()` 는 레포에 로컬 `graphify-out/graph.json` 이 없으면 vault 그래프로 폴백한다. 그 상태로
+`--post-merge-hook` 를 쓰면 설치기는 「훅 설치」 green 을 찍지만, 설치된 훅의 `[ -f graph.json ]`
+가드가 **로컬 그래프가 생길 때까지 훅을 no-op** 으로 막는다 — 「설치 green」을 「동작함」으로 오독하는
+커버리지-0 형태(2.22.0 PR 에 known follow-up 으로 기재했던 것). 이제 로컬 그래프가 없으면 설치 직후
+**「가드로 no-op — `graphify update <repo>` 로 로컬 그래프를 먼저 빌드해야 동작한다」** 경고를 출력한다.
+
 ## 2.22.0 — 2026-09-05
 
 **graphify 그래프는 온디맨드 갱신이라 방치하면 묵는다 — `dw-graphify-register.py --post-merge-hook`
