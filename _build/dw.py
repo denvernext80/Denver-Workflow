@@ -151,6 +151,16 @@ def cmd_ratify(args) -> int:
     return _run([py, BUILD / "dw-install-registered.py", "--vault", vault, *projects])
 
 
+def cmd_wire_ci_runners(args) -> int:
+    """dw-ci 러너들에 job-completed prune 훅 배선(멱등). `/dw-install` 과 별도 — 단일호스트 외부의존."""
+    argv = [sys.executable, BUILD / "dw-wire-ci-runners.py"]
+    if getattr(args, "dry_run", False):
+        argv.append("--dry-run")
+    if getattr(args, "restart_idle", False):
+        argv.append("--restart-idle")
+    return _run(argv)
+
+
 def cmd_review(args) -> int:
     """OBEY draft 큐(자동 비준 대상/hold) + 헬스체크.
 
@@ -317,6 +327,7 @@ SUBCOMMANDS = {
     "dry-run": (cmd_dry_run, ()),
     "install-project": (cmd_install_project, ("project", "scopes")),
     "ratify": (cmd_ratify, ("projects",)),
+    "wire-ci-runners": (cmd_wire_ci_runners, ("ci-runner-flags",)),
     "review": (cmd_review, ()),
     "doctor": (cmd_doctor, ()),
     # Makefile 타깃과 1:1 이 아닌 유일한 예외 — 타깃이 아니라 **Makefile 의 변수**가 쓴다
@@ -346,6 +357,11 @@ def build_parser() -> argparse.ArgumentParser:
                            help="대상 프로젝트(반복 가능). 생략 = vault 레지스트리 전체")
         if "scopes" in opts:
             p.add_argument("--scopes", metavar="a,b", help="설치할 scope 묶음(생략 = 전체 union)")
+        if "ci-runner-flags" in opts:
+            p.add_argument("--dry-run", action="store_true",
+                           help="쓰기 없이 dw-ci 러너 .env 현재 상태만 조회")
+            p.add_argument("--restart-idle", action="store_true",
+                           help="활성 잡 없는 러너만 재시작해 즉시 활성화(활성 잡 있는 러너는 건드리지 않음)")
         if "metrics" in opts:
             p.add_argument("--phases", metavar="d1,d2", default="",
                            help="쉼표구분 페이즈(phase) 경계일 — 예: 2026-07-05,2026-08-11 (생략 = 비교 없음)")

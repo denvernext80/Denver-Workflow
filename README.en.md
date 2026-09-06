@@ -187,6 +187,15 @@ The core design principle is **Evidence first, interpretation second**. Determin
 * **FACT / INFERENCE / UNKNOWN principle:** Interpretation distinguishes recomputable values (FACT), rule-based estimates (INFERENCE), and things unverifiable from history alone (UNKNOWN). It **does not present correlation as causation** and does not assert CI/deploy failures as production defects/incidents, or reverts as outright outages (hotfixes are classified as corrective changes). Whether a production incident, user impact, or an actual outage occurred cannot be verified from Git/GitHub history alone, so it is not estimated.
 * **Limitations:** The GitHub Actions run count is a live value that increases depending on when it runs. In the keyword search for concept-occurrence tracking (`raw/evolution.txt`), because `git --grep` defaults to BRE, `|` alternation does not apply (only a single token matches — the behavior of the verified tool is preserved as-is). For example output, see `docs/dw-metrics-example.md`.
 
+### 4. Self-hosted CI runner docker-volume reclaim hook (`make wire-ci-runners`)
+
+Stops the **anonymous docker-volume leak** left by CI `services:` containers (postgres, redis, …) on self-hosted GitHub Actions runners, via a per-job cleanup hook. A runner only `docker rm`s the container (WITHOUT `-v`) at job end, so it leaves the anonymous volume behind and the leak accumulates every job.
+
+* **Hook:** `ci-runner/job-completed-prune.sh` — set as the runner's `ACTIONS_RUNNER_HOOK_JOB_COMPLETED`, it runs `docker volume prune -f` after each job (dangling anonymous volumes only; a concurrent job's active service volume is attached to a live container and is safe). `timeout`-guarded against a hung daemon; always `exit 0` (non-blocking — no effect on the job result). Dangling-image reclaim is opt-in via `DW_PRUNE_IMAGES=1`.
+* **Wiring:** `make wire-ci-runners` (= `dw.py wire-ci-runners`). Copies the hook to a fixed path on the runner host (755) and **idempotently** upserts `ACTIONS_RUNNER_HOOK_JOB_COMPLETED` into each runner's `.env`. Supports `DRY=1` (inspect only) and `RESTART=1` (restart only runners with no active job).
+* **Why separate from `/dw-install`:** runner-host access is a single-host external dependency; folding it into per-project install would fail silently on machines without it. It is an **explicit separate target** like `plugin-scope-*` and `verifier-scope`, and aborts loudly when the host is unreachable.
+* **When it arms:** a runner reads `.env` only at service start, so setting `.env` takes effect on the **next runner restart**; `RESTART=1` arms idle runners immediately (never kills a running job). The proof of effect is the hook output in a subsequent job's "Complete job" log.
+
 ---
 
 ## 🔒 Governance Harness

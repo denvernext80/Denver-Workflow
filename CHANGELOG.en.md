@@ -2,6 +2,30 @@
 
 # Changelog (English)
 
+## 2.23.0 — 2026-09-06
+
+**Stop the docker anonymous-volume leak on self-hosted CI runners with a job-completed hook — integrated into the plugin as a versioned, re-runnable wiring.**
+GitHub Actions `services:` containers (postgres, redis, …) declare VOLUMEs, and a self-hosted runner
+only `docker rm`s the container (WITHOUT `-v`) at job end, leaving the anonymous volume behind — a leak
+per job. Measured (2026-09): 4,652 unused anonymous volumes = 362.7GB piled up in the dw-ci VM's
+docker-in-docker, ballooning the OrbStack disk image from 394G to 46G after cleanup.
+
+- **`ci-runner/job-completed-prune.sh`**: the `ACTIONS_RUNNER_HOOK_JOB_COMPLETED` hook. Runs
+  `docker volume prune -f` after each job (dangling anonymous volumes only — a concurrent job's active
+  service volume is attached to a live container and is not touched). `timeout`-guarded against a hung
+  daemon; always `exit 0` (non-blocking) whether docker is absent or prune fails. Dangling-image
+  reclaim is opt-in via `DW_PRUNE_IMAGES=1`.
+- **`_build/dw-wire-ci-runners.py` + `make wire-ci-runners` / `dw.py wire-ci-runners`**: copies the hook
+  to a fixed path in the dw-ci VM (755) and idempotently upserts `ACTIONS_RUNNER_HOOK_JOB_COMPLETED`
+  into each runner's `.env` (same value → no-op, different → replace, absent → append with a guaranteed
+  trailing newline). Supports `--dry-run` and `--restart-idle` (restarts only runners with no active job).
+- **Why separate from `/dw-install`**: this wiring depends on `orbctl … dw-ci`, a single-host external
+  dependency; folding it into per-project `install-project` would fail silently on machines without the
+  VM. It follows the existing "sensitive/host-specific = explicit separate target" convention of
+  `plugin-scope-*` and `verifier-scope`, and aborts loudly (exit 2) when orbctl/dw-ci is unavailable.
+- **When it arms**: a runner reads `.env` only at service start, so setting `.env` takes effect on the
+  next runner restart (`--restart-idle` arms idle runners immediately — it never kills a running job).
+
 ## 2.22.1 — 2026-09-05
 
 **`--post-merge-hook` follow-up: warn when a missing local graph makes the installed hook a silent no-op.**
