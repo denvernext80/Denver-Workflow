@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.23.0 — 2026-09-06
+
+**self-hosted CI 러너의 docker 익명 볼륨 누수를 job-completed 훅으로 재발 방지 — 플러그인에 버전관리·재설치 가능한 형태로 통합.**
+GitHub Actions `services:` 컨테이너(예: postgres·redis)는 VOLUME 을 선언하고, self-hosted 러너는
+잡 종료 시 컨테이너를 `docker rm`(WITHOUT `-v`)만 해 익명 볼륨을 남긴다 → 매 잡마다 누수.
+실측(2026-09): 한 러너 VM 의 docker-in-docker 에 미사용 익명 볼륨 4,652개 = 362.7GB 누적,
+디스크 이미지가 394G→46G 로 폭증했다.
+
+- **`ci-runner/job-completed-prune.sh`**: 러너 `ACTIONS_RUNNER_HOOK_JOB_COMPLETED` 훅. 잡 종료마다
+  `docker volume prune -f`(익명·dangling 볼륨만 — 활성 서비스 볼륨은 살아있는 컨테이너에 붙어 있어
+  안전). `timeout` 으로 행 방지, docker 부재·실패 어느 경우든 `exit 0`(비차단). dangling 이미지
+  회수는 `DW_PRUNE_IMAGES=1` 옵트인.
+- **`_build/dw-wire-ci-runners.py` + `make wire-ci-runners M=<VM>` / `dw.py wire-ci-runners --machine`**:
+  VM 안 systemd 유닛(`actions.runner.*.service`)의 `WorkingDirectory=` 를 읽어 러너를 **자동 탐지**
+  (특정 프로젝트/서비스 이름 하드코딩 없음)하고, 훅을 `$HOME/.dw-runner-hooks/` 로 복사(755)한 뒤
+  러너별 `.env` 에 `ACTIONS_RUNNER_HOOK_JOB_COMPLETED` 를 멱등 upsert(같으면 no-op·다르면 교체·
+  없으면 append, 파일 끝 개행 보장). `--dry-run`·`--restart-idle`(활성 잡 없는 러너만 즉시 재시작) 지원.
+- **왜 `/dw-install` 과 분리**: 이 배선은 `orbctl … <VM>` 이라는 단일호스트 외부 의존이라, 아무 머신
+  에서나 프로젝트별로 도는 `install-project` 에 넣으면 없는 머신에서 조용히 실패한다. `plugin-scope-*`·
+  `verifier-scope` 처럼 민감·머신특정 작업은 명시적 별도 타깃이라는 관례를 따랐다. orbctl/VM
+  부재 시 시끄럽게 중단(exit 2).
+- **활성화 시점**: 러너는 `.env` 를 서비스 시작 시에만 읽으므로 `.env` 설정은 다음 러너 재시작 때
+  활성화된다(`--restart-idle` 로 유휴 러너만 즉시 활성화 가능 — 실행 중 잡은 절대 죽이지 않는다).
+
 ## 2.22.1 — 2026-09-05
 
 **`--post-merge-hook` 후속: 로컬 그래프가 없어 vault 로 폴백하면 설치한 훅이 조용히 no-op 이던 문제에 경고 추가.**
