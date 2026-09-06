@@ -97,11 +97,12 @@ install-project:             ## 한 프로젝트에 설치: make install-project
 	@test -n "$(P)" || { echo "사용법: make install-project P=/절대경로 [SCOPES=scope1,scope2]  (SCOPES 생략 = 전체 union)"; exit 1; }
 	$(DW) install-project --project "$(P)" $(if $(SCOPES),--scopes $(SCOPES),)
 
-# dw-ci(OrbStack) 러너 배선은 단일호스트 외부의존(orbctl)이라 install 과 분리 — 명시적 실행.
-# 사용: make wire-ci-runners [DRY=1] [RESTART=1]  (RESTART=활성 잡 없는 러너만 즉시 재시작)
+# OrbStack VM 러너 배선은 단일호스트 외부의존(orbctl)이라 install 과 분리 — 명시적 실행.
+# 사용: make wire-ci-runners M=<VM 이름> [DRY=1] [RESTART=1]  (RESTART=활성 잡 없는 러너만 즉시 재시작)
 .PHONY: wire-ci-runners
-wire-ci-runners:             ## dw-ci 러너들에 job-completed prune 훅 배선(멱등). [DRY=1] [RESTART=1]
-	$(DW) wire-ci-runners $(if $(DRY),--dry-run,) $(if $(RESTART),--restart-idle,)
+wire-ci-runners:             ## VM 러너들에 job-completed prune 훅 배선(멱등). M=<VM> [DRY=1] [RESTART=1]
+	@test -n "$(M)" || { echo "사용법: make wire-ci-runners M=<VM 이름> [DRY=1] [RESTART=1]"; exit 1; }
+	$(DW) wire-ci-runners --machine "$(M)" $(if $(DRY),--dry-run,) $(if $(RESTART),--restart-idle,)
 
 .PHONY: plugin-update
 plugin-update:               ## 플러그인 한 방 업데이트(클론 pull + 버전기반 update). ⚠️ plugin.json version 을 먼저 올려야 갱신됨.

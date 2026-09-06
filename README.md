@@ -187,10 +187,10 @@ Pull Request가 생성되거나 업데이트되면, GitHub Actions가 자동으�
 
 ### 4. self-hosted CI 러너 docker 볼륨 회수 훅 (`make wire-ci-runners`)
 
-self-hosted GitHub Actions 러너에서 CI 의 `services:` 컨테이너(postgres·redis 등)가 남기는 **익명 docker 볼륨 누수**를 잡별 정리 훅으로 재발 방지합니다. 러너는 잡 종료 시 컨테이너를 `docker rm`(WITHOUT `-v`)만 해 익명 볼륨을 남기므로 매 잡마다 누수가 쌓입니다.
+self-hosted GitHub Actions 러너에서 CI 의 `services:` 컨테이너(예: postgres·redis)가 남기는 **익명 docker 볼륨 누수**를 잡별 정리 훅으로 재발 방지합니다. 러너는 잡 종료 시 컨테이너를 `docker rm`(WITHOUT `-v`)만 해 익명 볼륨을 남기므로 매 잡마다 누수가 쌓입니다.
 
 * **훅:** `ci-runner/job-completed-prune.sh` — 러너 `ACTIONS_RUNNER_HOOK_JOB_COMPLETED` 로 지정되며, 잡 종료마다 `docker volume prune -f`(익명·dangling 볼륨만; 동시 실행 잡의 활성 서비스 볼륨은 살아있는 컨테이너에 붙어 있어 안전)를 실행합니다. `timeout` 으로 행을 막고, docker 부재·실패 어느 경우든 `exit 0`(비차단 — 잡 결과에 영향 없음). dangling 이미지 회수는 `DW_PRUNE_IMAGES=1` 옵트인.
-* **배선:** `make wire-ci-runners`(= `dw.py wire-ci-runners`). 훅을 러너 호스트의 고정 경로로 복사(755)하고 각 러너 `.env` 에 `ACTIONS_RUNNER_HOOK_JOB_COMPLETED` 를 **멱등** upsert 합니다. `DRY=1`(조회만)·`RESTART=1`(활성 잡 없는 러너만 즉시 재시작) 지원.
+* **배선:** `make wire-ci-runners M=<VM 이름>`(= `dw.py wire-ci-runners --machine`). VM 안 systemd 유닛(`actions.runner.*.service`)을 읽어 러너를 **자동 탐지**(특정 프로젝트/서비스 이름 하드코딩 없음)하고, 훅을 `$HOME/.dw-runner-hooks/` 로 복사(755)한 뒤 각 러너 `.env` 에 `ACTIONS_RUNNER_HOOK_JOB_COMPLETED` 를 **멱등** upsert 합니다. `DRY=1`(조회만)·`RESTART=1`(활성 잡 없는 러너만 즉시 재시작) 지원.
 * **`/dw-install` 과 분리한 이유:** 러너 호스트 접근은 단일호스트 외부 의존이라 아무 머신에서나 도는 프로젝트 설치에 넣으면 없는 머신에서 조용히 실패합니다. `plugin-scope-*`·`verifier-scope` 처럼 **명시적 별도 타깃**으로 두었고, 호스트 접근 불가 시 시끄럽게 중단합니다.
 * **활성화 시점:** 러너는 `.env` 를 서비스 시작 시에만 읽습니다. 따라서 `.env` 설정은 **다음 러너 재시작 때** 활성화되며, `RESTART=1` 을 주면 유휴 러너만 즉시 활성화합니다(실행 중 잡은 절대 죽이지 않음). 실효 증거는 이후 잡의 "Complete job" 로그에 찍히는 훅 출력입니다.
 

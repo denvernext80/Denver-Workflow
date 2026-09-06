@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # GitHub Actions self-hosted 러너의 job-completed 훅 — 잡 종료마다 누수된 익명 docker 볼륨을 회수한다.
 #
-# 왜: balipick·balipick-chat CI 의 `services:` 컨테이너(postgres:15-alpine·redis:7-alpine)는
-#     VOLUME 을 선언한다. self-hosted 러너는 잡 종료 시 컨테이너를 `docker rm`(WITHOUT -v)만 하고
-#     익명 볼륨은 남긴다 → 매 잡마다 누수. 실측(2026-09): dw-ci VM 의 docker-in-docker 에
-#     미사용 익명 볼륨 4,652개 = 362.7GB 누적, OrbStack 디스크 이미지 394G→46G 로 폭증했다.
+# 왜: CI 의 `services:` 컨테이너(예: postgres·redis)는 VOLUME 을 선언한다. self-hosted 러너는
+#     잡 종료 시 컨테이너를 `docker rm`(WITHOUT -v)만 하고 익명 볼륨은 남긴다 → 매 잡마다 누수.
+#     실측(2026-09): 한 self-hosted 러너 VM 의 docker-in-docker 에 미사용 익명 볼륨 4,652개 =
+#     362.7GB 누적, 그 결과 디스크 이미지가 394G→46G 로 폭증했다.
 #
 # 배선: 러너 `.env` 의 `ACTIONS_RUNNER_HOOK_JOB_COMPLETED=<이 스크립트 절대경로>` 로 지정된다.
 #       러너는 각 잡이 끝난 뒤 이 스크립트를 실행하고, 다음 잡을 받기 전에 완료를 기다린다.
@@ -13,7 +13,7 @@
 # 안전성(비타협):
 #   - `docker volume prune -f` 는 **어느 컨테이너에도 붙어있지 않은** 익명 볼륨만 지운다.
 #     동시 실행 중인 다른 잡의 활성 서비스 볼륨은 살아있는 컨테이너에 붙어 있으므로 건드리지 않는다.
-#     (docker server 29.1.3 실측 — v23+ 에서 `volume prune` 은 dangling 익명 볼륨만 대상.
+#     (docker server 29.x 실측 — v23+ 에서 `volume prune` 은 dangling 익명 볼륨만 대상.
 #      🔴 구버전(<23) daemon 은 미사용 «네이밍» 볼륨까지 지우니, daemon 강등 시 재검토하라.)
 #   - `--volumes`/`-a` 전삭제는 **절대 하지 않는다**. 볼륨만, dangling 만.
 #   - **비차단**: 잡 결과에 영향 주지 않는다. docker 부재·prune 실패·행(hang) 어느 경우든 `exit 0`.
@@ -23,7 +23,7 @@ set -u
 
 log() { printf '[dw-prune-hook] %s\n' "$*"; }
 
-# docker 없으면 조용히(성공) 종료 — 이 러너는 docker 를 안 쓰는 것이다(예: balipick-app).
+# docker 없으면 조용히(성공) 종료 — 이 러너는 docker 를 안 쓰는 것이다(예: 모바일 빌드 러너).
 if ! command -v docker >/dev/null 2>&1; then
   log "docker 없음 — 정리 건너뜀"
   exit 0

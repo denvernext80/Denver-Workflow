@@ -152,8 +152,8 @@ def cmd_ratify(args) -> int:
 
 
 def cmd_wire_ci_runners(args) -> int:
-    """dw-ci 러너들에 job-completed prune 훅 배선(멱등). `/dw-install` 과 별도 — 단일호스트 외부의존."""
-    argv = [sys.executable, BUILD / "dw-wire-ci-runners.py"]
+    """VM 러너들에 job-completed prune 훅 배선(멱등). `/dw-install` 과 별도 — 단일호스트 외부의존."""
+    argv = [sys.executable, BUILD / "dw-wire-ci-runners.py", "--machine", args.machine]
     if getattr(args, "dry_run", False):
         argv.append("--dry-run")
     if getattr(args, "restart_idle", False):
@@ -358,8 +358,10 @@ def build_parser() -> argparse.ArgumentParser:
         if "scopes" in opts:
             p.add_argument("--scopes", metavar="a,b", help="설치할 scope 묶음(생략 = 전체 union)")
         if "ci-runner-flags" in opts:
+            p.add_argument("--machine", "-m", required=True,
+                           help="러너가 사는 OrbStack VM 이름")
             p.add_argument("--dry-run", action="store_true",
-                           help="쓰기 없이 dw-ci 러너 .env 현재 상태만 조회")
+                           help="쓰기 없이 러너 .env 현재 상태만 조회")
             p.add_argument("--restart-idle", action="store_true",
                            help="활성 잡 없는 러너만 재시작해 즉시 활성화(활성 잡 있는 러너는 건드리지 않음)")
         if "metrics" in opts:
