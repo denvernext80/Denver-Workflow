@@ -2,6 +2,46 @@
 
 # Changelog (English)
 
+## 2.24.0 — 2026-09-09
+
+**Real token metering — a Stop/SubagentStop hook that incrementally parses the transcript to count *actual* tokens.**
+The existing telemetry (`dw-telemetry.py` → access.jsonl) is PostToolUse-based and missed three things:
+advisor/grep were counted only by *frequency* (0 tokens), do-er subagent (Task) internal calls are
+invisible from the parent session, and there were no *real* tokens at all (the PostToolUse payload
+carries no usage). This meter closes that gap.
+
+- **`_build/dw-token-meter.py` (new)**: Stop/SubagentStop hook. Parses the payload's `transcript_path`
+  *incrementally* — a `{path: byte_offset}` map in `.dw-state/token_offsets.json`, reading only *new
+  lines* each call to avoid double-counting and large-transcript cost. It aggregates each assistant
+  turn's `message.usage` (real tokens) plus tool_use/server_tool_use blocks (advisor and grep
+  included) and appends one delta line per source (`main` | `subagent:<do-er type>`) to
+  `.dw-state/tokens.jsonl`. Always exits 0, swallows exceptions, writes only under `.dw-state/`.
+- **Schema confirmed empirically (2026-09-09)** — the numbers are wrong without these three:
+  ① one assistant response is written as multiple `assistant` lines (one per content block), each
+     carrying an *identical copy* of usage ⇒ usage is counted *once per `message.id`* (summing per
+     line overcounts ~2.5×). ② advisor is a `server_tool_use` block, not `tool_use` ⇒ both block types
+     must be counted or advisor stays 0 (the whole reason this hook exists). ③ subagent transcripts
+     live in a *separate file* (`<session>/subagents/agent-*.jsonl`) with `isSidechain:true` and
+     `attributionAgent` (the do-er type) ⇒ per-line classification covers both the separate-file and
+     inline-sidechain storage models, and offset-by-path is safe either way.
+- **Concurrency**: the critical section is serialized with `fcntl.flock` for near-simultaneous
+  parallel-subagent stops, the offset file is swapped atomically via tmp + `os.replace`, and a
+  truncated transcript resets the offset.
+- **`dw-workflow-report.py` §D**: reads tokens.jsonl for real-token sums by source (main vs each do-er
+  type) plus the full tool distribution (advisor/grep included); `real_tokens` added to `--json`. The
+  existing §A–C (access.jsonl discipline/frequency) are left as-is — a *different* observation goal.
+- **Hardening (payload-independent)**: on SubagentStop, do-er coverage must not hinge on the payload's
+  transcript_path *value* (a parent path would leave subagent tokens at 0). The hook now *derives* the
+  subagents directory from that path (`subagents_dir_for`) and processes every
+  `<session>/subagents/*.jsonl` — the same set whether the payload gives the parent or a subagent file.
+  Each file still runs through per-path incremental offsets (no double count), and parent main lines
+  stay `main` via explicit `isSidechain:false` (the fallback no longer swallows them). Main `Stop`
+  keeps processing only the payload path.
+- **selftest**: `TokenMeterTest` (14 cases) — usage dedup by message.id, server_tool_use(advisor) +
+  tool_use(grep) counting, isSidechain subagent typing, blank/broken-line defense, incremental offset
+  (no double count across two calls), truncation reset, non-blocking (exit 0 on bad stdin), **plus
+  SubagentStop parent-path→subagents glob, sibling sweep, Stop does-not-glob, and the derivation rule**.
+
 ## 2.23.0 — 2026-09-06
 
 **Stop the docker anonymous-volume leak on self-hosted CI runners with a job-completed hook — integrated into the plugin as a versioned, re-runnable wiring.**

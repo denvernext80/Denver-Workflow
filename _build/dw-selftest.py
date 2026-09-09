@@ -2468,5 +2468,252 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(sum(b["prs"] for b in buckets.values()), 6)
 
 
+TOKEN_METER = BUILD / "dw-token-meter.py"
+
+
+def _load_token_meter():
+    """dw-token-meter.py 를 새 모듈로 로드(하이픈 모듈명 — importlib 로만 가능)."""
+    spec = importlib.util.spec_from_file_location(f"dw_token_meter_{next(_counter)}", TOKEN_METER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TokenMeterTest(unittest.TestCase):
+    """실토큰 미터(Stop/SubagentStop 훅) — 트랜스크립트 증분 파서.
+
+    잠그는 것:
+      - usage 는 message.id 당 «한 번만»(블록-줄 복제 과대집계 방지) — 실측 스키마의 핵심.
+      - advisor(server_tool_use)·grep(tool_use) «둘 다» 집계(이 훅의 존재 이유).
+      - isSidechain+attributionAgent → source=subagent:<type> 판별.
+      - 빈 줄·깨진 JSON 방어.
+      - 증분 offset: 같은 파일 2회 호출 시 중복집계 0.
+      - 트렁케이션 시 offset 리셋.
+      - 훅은 무엇이 와도 턴을 막지 않는다(exit 0).
+    """
+
+    # --- 픽스처 JSONL 줄 빌더 -----------------------------------------------
+    @staticmethod
+    def _assistant(mid, usage, blocks=None, sidechain=False, attr=None):
+        content = list(blocks or [])
+        o = {"type": "assistant", "isSidechain": sidechain,
+             "message": {"id": mid, "role": "assistant", "content": content, "usage": usage}}
+        if attr is not None:
+            o["attributionAgent"] = attr
+        return json.dumps(o, ensure_ascii=False)
+
+    @staticmethod
+    def _usage(inp=0, out=0, cr=0, cc=0):
+        return {"input_tokens": inp, "output_tokens": out,
+                "cache_read_input_tokens": cr, "cache_creation_input_tokens": cc}
+
+    def setUp(self):
+        self.mod = _load_token_meter()
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-tokens-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.state = self.tmp / ".dw-state"
+        self.state.mkdir(parents=True, exist_ok=True)
+
+    def _write_transcript(self, lines) -> Path:
+        p = self.tmp / "transcript.jsonl"
+        p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return p
+
+    # --- 순수 파서 단위 테스트 ------------------------------------------------
+    def test_module_exposes_parser_api(self):
+        for fn in ("parse_lines", "process", "classify_source"):
+            self.assertTrue(hasattr(self.mod, fn), f"파서 API 없음: {fn}")
+
+    def test_usage_deduped_by_message_id(self):
+        """같은 응답의 여러 블록-줄은 usage 를 복제한다 → message.id 당 1회만 센다."""
+        u = self._usage(inp=10, out=100, cr=5, cc=7)
+        lines = [
+            self._assistant("msg-1", u, blocks=[{"type": "text", "text": "a"}]),
+            self._assistant("msg-1", u, blocks=[{"type": "tool_use", "name": "Bash"}]),
+        ]
+        b = self.mod.parse_lines(lines, "Stop")
+        main = b["main"]
+        self.assertEqual(main["output"], 100, "message.id 중복 집계(줄마다 더함)")
+        self.assertEqual(main["input"], 10)
+        self.assertEqual(main["cache_read"], 5)
+        self.assertEqual(main["cache_creation"], 7)
+        self.assertEqual(main["tools"]["Bash"], 1)
+
+    def test_advisor_and_grep_both_counted(self):
+        """advisor 는 server_tool_use, grep 은 tool_use — 둘 다 잡아야 한다(핵심 요구)."""
+        lines = [self._assistant("m", self._usage(out=1), blocks=[
+            {"type": "server_tool_use", "name": "advisor"},
+            {"type": "tool_use", "name": "Grep"},
+            {"type": "tool_use", "name": "Grep"},
+        ])]
+        tools = self.mod.parse_lines(lines, "Stop")["main"]["tools"]
+        self.assertEqual(tools["advisor"], 1, "server_tool_use(advisor) 누락 — advisor 영영 0")
+        self.assertEqual(tools["Grep"], 2)
+
+    def test_sidechain_is_subagent_typed(self):
+        line = self._assistant("m", self._usage(out=9), sidechain=True, attr="code-review")
+        b = self.mod.parse_lines([line], "SubagentStop")
+        self.assertIn("subagent:code-review", b)
+        self.assertEqual(b["subagent:code-review"]["output"], 9)
+
+    def test_subagent_fallback_by_hook_event(self):
+        """isSidechain 부재여도 hook_event=SubagentStop 이면 서브에이전트로 착지(폴백)."""
+        o = {"type": "assistant", "message": {"id": "m", "content": [], "usage": self._usage(out=3)}}
+        b = self.mod.parse_lines([json.dumps(o)], "SubagentStop")
+        self.assertTrue(any(k.startswith("subagent:") for k in b), b.keys())
+
+    def test_blank_and_broken_lines_survive(self):
+        lines = [
+            "",
+            "{ this is not json",
+            self._assistant("ok", self._usage(out=42), blocks=[{"type": "tool_use", "name": "Read"}]),
+            "   ",
+        ]
+        b = self.mod.parse_lines(lines, "Stop")
+        self.assertEqual(b["main"]["output"], 42)
+
+    # --- 훅 왕복(증분 offset) --------------------------------------------------
+    def _run_hook(self, transcript: Path, event="Stop"):
+        return subprocess.run(
+            [sys.executable, str(TOKEN_METER)],
+            input=json.dumps({"hook_event_name": event, "session_id": "S1",
+                              "transcript_path": str(transcript), "cwd": str(self.tmp)}),
+            capture_output=True, text=True,
+            env=os.environ | {"CLAUDE_PROJECT_DIR": str(self.tmp),
+                              "DW_VAULT_DIR": str(self.tmp)})
+
+    def _tokens(self):
+        f = self.state / "tokens.jsonl"
+        if not f.is_file():
+            return []
+        return [json.loads(x) for x in f.read_text(encoding="utf-8").splitlines() if x.strip()]
+
+    def test_hook_writes_delta_then_no_double_count(self):
+        """같은 트랜스크립트로 2회 호출 → 2번째는 새 줄이 없어 아무것도 안 쓴다(증분 offset)."""
+        t = self._write_transcript([
+            self._assistant("a", self._usage(inp=1, out=50), blocks=[
+                {"type": "server_tool_use", "name": "advisor"}]),
+            self._assistant("a", self._usage(inp=1, out=50), blocks=[
+                {"type": "tool_use", "name": "Grep"}]),  # 같은 id — usage 중복 아님
+        ])
+        r1 = self._run_hook(t)
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        recs = self._tokens()
+        self.assertEqual(len(recs), 1, f"델타 레코드가 1개여야: {recs}")
+        self.assertEqual(recs[0]["output"], 50, "usage 중복 집계")
+        self.assertEqual(recs[0]["tool_uses"].get("advisor"), 1)
+        self.assertEqual(recs[0]["tool_uses"].get("Grep"), 1)
+
+        r2 = self._run_hook(t)  # 재호출 — 새 줄 없음
+        self.assertEqual(r2.returncode, 0)
+        self.assertEqual(len(self._tokens()), 1, "재호출이 같은 줄을 다시 집계했다(offset 실패)")
+
+    def test_hook_picks_up_appended_lines(self):
+        """증분: 파일에 줄이 «추가»되면 그 델타만 잡는다."""
+        t = self._write_transcript([self._assistant("a", self._usage(out=10))])
+        self._run_hook(t)
+        with open(t, "a", encoding="utf-8") as f:
+            f.write(self._assistant("b", self._usage(out=20)) + "\n")
+        self._run_hook(t)
+        recs = self._tokens()
+        self.assertEqual([r["output"] for r in recs], [10, 20])
+
+    def test_hook_never_blocks_on_bad_input(self):
+        for stdin in ["", "not json", json.dumps({"hook_event_name": "Stop"})]:  # transcript_path 없음
+            r = subprocess.run([sys.executable, str(TOKEN_METER)], input=stdin,
+                               capture_output=True, text=True,
+                               env=os.environ | {"DW_VAULT_DIR": str(self.tmp)})
+            self.assertEqual(r.returncode, 0, f"훅이 턴을 막았다(stdin={stdin!r}): {r.stderr}")
+
+    def test_truncation_resets_offset(self):
+        t = self._write_transcript([self._assistant("a", self._usage(out=10)),
+                                    self._assistant("b", self._usage(out=20))])
+        self._run_hook(t)
+        # 파일을 «더 짧게» 다시 씀(로테이션/트렁케이트 모사)
+        t.write_text(self._assistant("c", self._usage(out=5)) + "\n", encoding="utf-8")
+        self._run_hook(t)
+        outs = [r["output"] for r in self._tokens()]
+        self.assertIn(5, outs, "트렁케이션 후 새 내용을 놓쳤다(offset 리셋 실패)")
+
+    # --- 견고화: SubagentStop 이 부모 경로를 줘도 서브에이전트 디렉토리를 도출해 글롭 -----------
+    def _session_layout(self):
+        """실기 레이아웃 모사: `<tmp>/proj/<sess>.jsonl`(부모) + `<tmp>/proj/<sess>/subagents/`."""
+        proj = self.tmp / "proj"
+        (proj / "sess" / "subagents").mkdir(parents=True, exist_ok=True)
+        parent = proj / "sess.jsonl"
+        subdir = proj / "sess" / "subagents"
+        return parent, subdir
+
+    def _run_hook_path(self, transcript_path, event):
+        return subprocess.run(
+            [sys.executable, str(TOKEN_METER)],
+            input=json.dumps({"hook_event_name": event, "session_id": "S1",
+                              "transcript_path": str(transcript_path), "cwd": str(self.tmp)}),
+            capture_output=True, text=True,
+            env=os.environ | {"CLAUDE_PROJECT_DIR": str(self.tmp),
+                              "DW_VAULT_DIR": str(self.tmp)})
+
+    def test_subagentstop_globs_subagent_dir_from_parent_path(self):
+        """SubagentStop 이 «부모» transcript_path 를 줘도, 도출한 subagents/*.jsonl 이 집계된다.
+
+        (코드리뷰 지적: payload 가 부모를 주면 서브 토큰이 영영 0 이던 문제의 회귀 가드.)
+        동시에 부모의 main 줄은 여전히 main 으로 착지(폴백이 삼키지 않음)해야 한다.
+        """
+        parent, subdir = self._session_layout()
+        parent.write_text(self._assistant("p", self._usage(out=7)) + "\n", encoding="utf-8")  # main
+        (subdir / "agent-a.jsonl").write_text(
+            self._assistant("s", self._usage(out=500), blocks=[
+                {"type": "server_tool_use", "name": "advisor"}],
+                sidechain=True, attr="senior-rust-engineer") + "\n", encoding="utf-8")
+
+        r = self._run_hook_path(parent, "SubagentStop")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        recs = self._tokens()
+        by = {x["source"]: x for x in recs}
+        self.assertIn("subagent:senior-rust-engineer", by,
+                      f"서브에이전트 파일이 글롭되지 않았다(payload 의존): {recs}")
+        self.assertEqual(by["subagent:senior-rust-engineer"]["output"], 500)
+        self.assertEqual(by["subagent:senior-rust-engineer"]["tool_uses"].get("advisor"), 1)
+        self.assertIn("main", by, "부모 main 줄이 SubagentStop 폴백에 삼켜졌다")
+        self.assertEqual(by["main"]["output"], 7)
+
+        # 2회 호출 중복 0(경로별 offset)
+        self.assertEqual(self._run_hook_path(parent, "SubagentStop").returncode, 0)
+        self.assertEqual(len(self._tokens()), len(recs), "재호출이 같은 줄을 다시 집계(offset 실패)")
+
+    def test_subagentstop_globs_siblings_when_given_subagent_path(self):
+        """payload 가 «서브 전용» 경로를 줘도 같은 디렉토리의 형제 파일을 다 훑는다."""
+        _, subdir = self._session_layout()
+        (subdir / "agent-a.jsonl").write_text(
+            self._assistant("a", self._usage(out=11), sidechain=True, attr="Explore") + "\n",
+            encoding="utf-8")
+        (subdir / "agent-b.jsonl").write_text(
+            self._assistant("b", self._usage(out=22), sidechain=True, attr="code-review") + "\n",
+            encoding="utf-8")
+        r = self._run_hook_path(subdir / "agent-a.jsonl", "SubagentStop")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        srcs = {x["source"] for x in self._tokens()}
+        self.assertEqual(srcs, {"subagent:Explore", "subagent:code-review"}, srcs)
+
+    def test_stop_does_not_glob_subagents(self):
+        """메인 Stop 은 종전대로 payload 경로만 — subagents 를 훑지 않는다(지시: Stop 불변)."""
+        parent, subdir = self._session_layout()
+        parent.write_text(self._assistant("p", self._usage(out=7)) + "\n", encoding="utf-8")
+        (subdir / "agent-a.jsonl").write_text(
+            self._assistant("s", self._usage(out=999), sidechain=True, attr="Explore") + "\n",
+            encoding="utf-8")
+        self.assertEqual(self._run_hook_path(parent, "Stop").returncode, 0)
+        srcs = {x["source"] for x in self._tokens()}
+        self.assertEqual(srcs, {"main"}, f"Stop 이 subagents 를 훑었다: {srcs}")
+
+    def test_subagents_dir_derivation(self):
+        """도출 규칙 단위 — 부모 경로·서브 경로 둘 다 같은 subagents 디렉토리를 낸다."""
+        d = self.mod.subagents_dir_for("/x/projects/slug/S.jsonl")
+        self.assertEqual(d, "/x/projects/slug/S/subagents")
+        d2 = self.mod.subagents_dir_for("/x/projects/slug/S/subagents/agent-z.jsonl")
+        self.assertEqual(d2, "/x/projects/slug/S/subagents")
+        self.assertIsNone(self.mod.subagents_dir_for(""))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

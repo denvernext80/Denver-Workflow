@@ -39,6 +39,51 @@ def load_log(vault: Path) -> list[dict]:
     return out
 
 
+def load_tokens(vault: Path) -> list[dict]:
+    """실토큰 미터 싱크(`dw-token-meter.py` 가 Stop/SubagentStop 에서 append)."""
+    p = vault / ".dw-state" / "tokens.jsonl"
+    out: list[dict] = []
+    if p.is_file():
+        for line in p.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    out.append(json.loads(line))
+                except Exception:
+                    pass
+    return out
+
+
+def aggregate_tokens(trecs: list[dict]) -> dict:
+    """source(main | subagent:<type>) 별 실토큰 합 + 도구 분포(advisor·grep 포함 전부)."""
+    by_source: dict[str, dict] = {}
+    tools_all: dict[str, int] = defaultdict(int)
+    totals = defaultdict(int)
+    for r in trecs:
+        src = r.get("source") or "?"
+        b = by_source.setdefault(src, {"input": 0, "output": 0, "cache_read": 0,
+                                       "cache_creation": 0, "tool_uses": defaultdict(int)})
+        for k in ("input", "output", "cache_read", "cache_creation"):
+            v = r.get(k) or 0
+            if isinstance(v, int):
+                b[k] += v
+                totals[k] += v
+        for tool, n in (r.get("tool_uses") or {}).items():
+            if isinstance(n, int):
+                b["tool_uses"][tool] += n
+                tools_all[tool] += n
+    # defaultdict → dict(정렬)
+    for b in by_source.values():
+        b["tool_uses"] = dict(sorted(b["tool_uses"].items(), key=lambda kv: -kv[1]))
+    return {
+        "records": len(trecs),
+        "totals": dict(totals),
+        "by_source": dict(sorted(by_source.items(),
+                                 key=lambda kv: -(kv[1]["input"] + kv[1]["output"]))),
+        "tools": dict(sorted(tools_all.items(), key=lambda kv: -kv[1])),
+    }
+
+
 def note_index(vault: Path):
     """tracked 노트: stem→relpath, relpath 집합."""
     by_stem: dict[str, str] = {}
@@ -84,6 +129,7 @@ def main() -> None:
     a = ap.parse_args()
     vault = Path(a.vault).resolve()
     recs = load_log(vault)
+    trecs = load_tokens(vault)
     by_stem, rels, files = note_index(vault)
 
     now = datetime.datetime.now().astimezone()
@@ -171,6 +217,9 @@ def main() -> None:
         },
         "reuse": buckets,
         "archive_candidates": cands,
+        # §D 실토큰 — access.jsonl(§A~C, 빈도) 과 «관측 목적이 다르다»: 여기 숫자는 트랜스크립트
+        # message.usage 실측이라 advisor(server_tool_use)·grep·do-er 서브에이전트를 다 포함한다.
+        "real_tokens": aggregate_tokens(trecs),
     }
     if a.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -213,6 +262,26 @@ def main() -> None:
     print("  ⚠️ 이 숫자는 **빈도일 뿐**이다. '그 호출이 결정을 바꿨나'(advisor)·'그 검증자가 볼 파일이")
     print("     정말 있었나'(relevance-gate 준수)는 로그로 알 수 없다 — 판단이 필요하고, 정책을 바꾸려면")
     print("     사람이 표본을 직접 봐야 한다. 빈도만 보고 호출을 줄이면 값싼 호출이 아니라 비싼 호출이 잘린다.")
+
+    rt = report["real_tokens"]
+    print("\n## D. 실제 토큰 (트랜스크립트 message.usage 실측 — Stop/SubagentStop 훅)")
+    if rt["records"] == 0:
+        print("  (기록 없음 — 이 미터는 2.24.0 부터 Stop/SubagentStop 훅으로 기록한다. 아직 관측 전일 수 있다.)")
+    else:
+        t = rt["totals"]
+        print(f"  총 {rt['records']}개 델타 | input {t.get('input',0):,} · output {t.get('output',0):,}"
+              f" · cache_read {t.get('cache_read',0):,} · cache_creation {t.get('cache_creation',0):,}")
+        print("  source 별 (메인 vs do-er 유형별):")
+        for src, b in rt["by_source"].items():
+            print(f"    {src:28} in {b['input']:>10,} · out {b['output']:>9,}"
+                  f" · cache_r {b['cache_read']:>11,} · cache_c {b['cache_creation']:>10,}")
+        tools = rt["tools"]
+        if tools:
+            adv = tools.get("advisor", 0)
+            grep = tools.get("Grep", 0)
+            top = " · ".join(f"{k} {v}" for k, v in list(tools.items())[:10])
+            print(f"  도구 분포(전부 — advisor {adv} · grep {grep} 포함): {top}")
+    print("  ℹ️ §A~C(access.jsonl)는 «규율·빈도», §D 는 «실토큰»이다 — 관측 목적이 다르니 둘 다 본다.")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.24.0 — 2026-09-09
+
+**진짜 토큰 미터링 — Stop/SubagentStop 훅에서 트랜스크립트를 증분 파싱해 «실토큰»을 센다.**
+기존 텔레메트리(`dw-telemetry.py` → access.jsonl)는 PostToolUse 기반이라 세 가지를 못 잡았다:
+advisor·grep 은 «횟수»만(토큰 0), do-er 서브에이전트(Task) 내부 호출은 부모 세션에서 안 보임,
+그리고 애초에 «실토큰»이 없다(PostToolUse payload 엔 usage 부재). 이 미터가 그 빈자리를 닫는다.
+
+- **`_build/dw-token-meter.py`(신규)**: Stop/SubagentStop 훅. payload 의 `transcript_path` 를
+  «증분» 파싱 — `.dw-state/token_offsets.json` 에 `{path: byte_offset}` 를 두고 매 호출 시 «새 줄만»
+  읽어 대형 트랜스크립트 성능·중복집계를 막는다. 어시스턴트 턴의 `message.usage`(실토큰) +
+  tool_use/server_tool_use 블록(advisor·grep 포함 전부)을 집계해 `.dw-state/tokens.jsonl` 에
+  source(`main` | `subagent:<do-er 유형>`) 별 델타 1줄씩 append. 항상 exit 0·예외 삼킴·`.dw-state/`
+  에만 기록(비차단·비파괴).
+- **실측으로 확정한 스키마(2026-09-09)** — 이 셋이 없으면 숫자가 틀린다:
+  ① 어시스턴트 응답 1개가 블록 수만큼 여러 `assistant` 줄로 쪼개져 «같은 usage 사본»을 복제한다
+     ⇒ usage 는 `message.id` 당 «한 번만» 집계(줄마다 더하면 ~2.5배 과대). ② advisor 는
+     `tool_use` 가 아니라 `server_tool_use` 블록이다 ⇒ 두 블록 타입을 «둘 다» 세야 advisor 가 0 이
+     아니다(이 훅의 존재 이유). ③ 서브에이전트 트랜스크립트는 부모와 별 파일
+     (`<session>/subagents/agent-*.jsonl`)에 살고 `isSidechain:true` + `attributionAgent`(=do-er
+     유형)를 든다 ⇒ 줄 단위 판별로 별파일·인라인 두 저장모델을 다 커버, offset-by-path 로 어느
+     쪽이든 안전.
+- **동시성**: 병렬 서브에이전트 동시 종료 대비 임계구역을 `fcntl.flock` 으로 직렬화, offset 은
+  tmp+`os.replace` 원자 교체, 트렁케이션 시 리셋.
+- **`dw-workflow-report.py` §D 추가**: tokens.jsonl 을 읽어 source 별(메인 vs do-er 유형별) 실토큰 합
+  + advisor/grep 포함 도구 분포. `--json` 에 `real_tokens` 반영. 기존 §A~C(access.jsonl 규율·빈도)는
+  «관측 목적이 다르므로» 그대로 둔다.
+- **견고화(payload 비의존)**: SubagentStop 처리 시 payload 의 transcript_path «값»에 do-er 커버리지가
+  걸리지 않도록, 그 경로에서 서브에이전트 디렉토리를 «직접 도출»(`subagents_dir_for`)해
+  `<session>/subagents/*.jsonl` 을 전부 대상에 넣는다(부모를 주든 서브를 주든 같은 집합). 각 파일은
+  여전히 경로별 offset 증분(중복 0), 부모 main 줄은 명시적 `isSidechain:false` 로 main 유지(폴백이
+  삼키지 않음). 메인 `Stop` 은 종전대로 payload 경로만.
+- **selftest**: `TokenMeterTest` 14건 — usage message.id dedup·server_tool_use(advisor)+tool_use(grep)
+  집계·isSidechain 서브에이전트 판별·빈/깨진 줄 방어·증분 offset(2회 호출 중복 0)·트렁케이션 리셋·
+  비차단(잘못된 stdin exit 0)·**SubagentStop 부모경로→subagents 글롭·형제 파일 훑기·Stop 은 글롭 안
+  함·도출 규칙**.
+
 ## 2.23.0 — 2026-09-06
 
 **self-hosted CI 러너의 docker 익명 볼륨 누수를 job-completed 훅으로 재발 방지 — 플러그인에 버전관리·재설치 가능한 형태로 통합.**
