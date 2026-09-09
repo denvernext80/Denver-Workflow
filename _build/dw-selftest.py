@@ -2635,6 +2635,85 @@ class TokenMeterTest(unittest.TestCase):
         outs = [r["output"] for r in self._tokens()]
         self.assertIn(5, outs, "트렁케이션 후 새 내용을 놓쳤다(offset 리셋 실패)")
 
+    # --- 견고화: SubagentStop 이 부모 경로를 줘도 서브에이전트 디렉토리를 도출해 글롭 -----------
+    def _session_layout(self):
+        """실기 레이아웃 모사: `<tmp>/proj/<sess>.jsonl`(부모) + `<tmp>/proj/<sess>/subagents/`."""
+        proj = self.tmp / "proj"
+        (proj / "sess" / "subagents").mkdir(parents=True, exist_ok=True)
+        parent = proj / "sess.jsonl"
+        subdir = proj / "sess" / "subagents"
+        return parent, subdir
+
+    def _run_hook_path(self, transcript_path, event):
+        return subprocess.run(
+            [sys.executable, str(TOKEN_METER)],
+            input=json.dumps({"hook_event_name": event, "session_id": "S1",
+                              "transcript_path": str(transcript_path), "cwd": str(self.tmp)}),
+            capture_output=True, text=True,
+            env=os.environ | {"CLAUDE_PROJECT_DIR": str(self.tmp),
+                              "DW_VAULT_DIR": str(self.tmp)})
+
+    def test_subagentstop_globs_subagent_dir_from_parent_path(self):
+        """SubagentStop 이 «부모» transcript_path 를 줘도, 도출한 subagents/*.jsonl 이 집계된다.
+
+        (코드리뷰 지적: payload 가 부모를 주면 서브 토큰이 영영 0 이던 문제의 회귀 가드.)
+        동시에 부모의 main 줄은 여전히 main 으로 착지(폴백이 삼키지 않음)해야 한다.
+        """
+        parent, subdir = self._session_layout()
+        parent.write_text(self._assistant("p", self._usage(out=7)) + "\n", encoding="utf-8")  # main
+        (subdir / "agent-a.jsonl").write_text(
+            self._assistant("s", self._usage(out=500), blocks=[
+                {"type": "server_tool_use", "name": "advisor"}],
+                sidechain=True, attr="senior-rust-engineer") + "\n", encoding="utf-8")
+
+        r = self._run_hook_path(parent, "SubagentStop")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        recs = self._tokens()
+        by = {x["source"]: x for x in recs}
+        self.assertIn("subagent:senior-rust-engineer", by,
+                      f"서브에이전트 파일이 글롭되지 않았다(payload 의존): {recs}")
+        self.assertEqual(by["subagent:senior-rust-engineer"]["output"], 500)
+        self.assertEqual(by["subagent:senior-rust-engineer"]["tool_uses"].get("advisor"), 1)
+        self.assertIn("main", by, "부모 main 줄이 SubagentStop 폴백에 삼켜졌다")
+        self.assertEqual(by["main"]["output"], 7)
+
+        # 2회 호출 중복 0(경로별 offset)
+        self.assertEqual(self._run_hook_path(parent, "SubagentStop").returncode, 0)
+        self.assertEqual(len(self._tokens()), len(recs), "재호출이 같은 줄을 다시 집계(offset 실패)")
+
+    def test_subagentstop_globs_siblings_when_given_subagent_path(self):
+        """payload 가 «서브 전용» 경로를 줘도 같은 디렉토리의 형제 파일을 다 훑는다."""
+        _, subdir = self._session_layout()
+        (subdir / "agent-a.jsonl").write_text(
+            self._assistant("a", self._usage(out=11), sidechain=True, attr="Explore") + "\n",
+            encoding="utf-8")
+        (subdir / "agent-b.jsonl").write_text(
+            self._assistant("b", self._usage(out=22), sidechain=True, attr="code-review") + "\n",
+            encoding="utf-8")
+        r = self._run_hook_path(subdir / "agent-a.jsonl", "SubagentStop")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        srcs = {x["source"] for x in self._tokens()}
+        self.assertEqual(srcs, {"subagent:Explore", "subagent:code-review"}, srcs)
+
+    def test_stop_does_not_glob_subagents(self):
+        """메인 Stop 은 종전대로 payload 경로만 — subagents 를 훑지 않는다(지시: Stop 불변)."""
+        parent, subdir = self._session_layout()
+        parent.write_text(self._assistant("p", self._usage(out=7)) + "\n", encoding="utf-8")
+        (subdir / "agent-a.jsonl").write_text(
+            self._assistant("s", self._usage(out=999), sidechain=True, attr="Explore") + "\n",
+            encoding="utf-8")
+        self.assertEqual(self._run_hook_path(parent, "Stop").returncode, 0)
+        srcs = {x["source"] for x in self._tokens()}
+        self.assertEqual(srcs, {"main"}, f"Stop 이 subagents 를 훑었다: {srcs}")
+
+    def test_subagents_dir_derivation(self):
+        """도출 규칙 단위 — 부모 경로·서브 경로 둘 다 같은 subagents 디렉토리를 낸다."""
+        d = self.mod.subagents_dir_for("/x/projects/slug/S.jsonl")
+        self.assertEqual(d, "/x/projects/slug/S/subagents")
+        d2 = self.mod.subagents_dir_for("/x/projects/slug/S/subagents/agent-z.jsonl")
+        self.assertEqual(d2, "/x/projects/slug/S/subagents")
+        self.assertIsNone(self.mod.subagents_dir_for(""))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

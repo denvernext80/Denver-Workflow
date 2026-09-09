@@ -26,9 +26,15 @@ advisor·grep 은 «횟수»만(토큰 0), do-er 서브에이전트(Task) 내부
 - **`dw-workflow-report.py` §D 추가**: tokens.jsonl 을 읽어 source 별(메인 vs do-er 유형별) 실토큰 합
   + advisor/grep 포함 도구 분포. `--json` 에 `real_tokens` 반영. 기존 §A~C(access.jsonl 규율·빈도)는
   «관측 목적이 다르므로» 그대로 둔다.
-- **selftest**: `TokenMeterTest` 10건 — usage message.id dedup·server_tool_use(advisor)+tool_use(grep)
+- **견고화(payload 비의존)**: SubagentStop 처리 시 payload 의 transcript_path «값»에 do-er 커버리지가
+  걸리지 않도록, 그 경로에서 서브에이전트 디렉토리를 «직접 도출»(`subagents_dir_for`)해
+  `<session>/subagents/*.jsonl` 을 전부 대상에 넣는다(부모를 주든 서브를 주든 같은 집합). 각 파일은
+  여전히 경로별 offset 증분(중복 0), 부모 main 줄은 명시적 `isSidechain:false` 로 main 유지(폴백이
+  삼키지 않음). 메인 `Stop` 은 종전대로 payload 경로만.
+- **selftest**: `TokenMeterTest` 14건 — usage message.id dedup·server_tool_use(advisor)+tool_use(grep)
   집계·isSidechain 서브에이전트 판별·빈/깨진 줄 방어·증분 offset(2회 호출 중복 0)·트렁케이션 리셋·
-  비차단(잘못된 stdin exit 0).
+  비차단(잘못된 stdin exit 0)·**SubagentStop 부모경로→subagents 글롭·형제 파일 훑기·Stop 은 글롭 안
+  함·도출 규칙**.
 
 ## 2.23.0 — 2026-09-06
 

@@ -30,9 +30,17 @@ carries no usage). This meter closes that gap.
 - **`dw-workflow-report.py` §D**: reads tokens.jsonl for real-token sums by source (main vs each do-er
   type) plus the full tool distribution (advisor/grep included); `real_tokens` added to `--json`. The
   existing §A–C (access.jsonl discipline/frequency) are left as-is — a *different* observation goal.
-- **selftest**: `TokenMeterTest` (10 cases) — usage dedup by message.id, server_tool_use(advisor) +
+- **Hardening (payload-independent)**: on SubagentStop, do-er coverage must not hinge on the payload's
+  transcript_path *value* (a parent path would leave subagent tokens at 0). The hook now *derives* the
+  subagents directory from that path (`subagents_dir_for`) and processes every
+  `<session>/subagents/*.jsonl` — the same set whether the payload gives the parent or a subagent file.
+  Each file still runs through per-path incremental offsets (no double count), and parent main lines
+  stay `main` via explicit `isSidechain:false` (the fallback no longer swallows them). Main `Stop`
+  keeps processing only the payload path.
+- **selftest**: `TokenMeterTest` (14 cases) — usage dedup by message.id, server_tool_use(advisor) +
   tool_use(grep) counting, isSidechain subagent typing, blank/broken-line defense, incremental offset
-  (no double count across two calls), truncation reset, non-blocking (exit 0 on bad stdin).
+  (no double count across two calls), truncation reset, non-blocking (exit 0 on bad stdin), **plus
+  SubagentStop parent-path→subagents glob, sibling sweep, Stop does-not-glob, and the derivation rule**.
 
 ## 2.23.0 — 2026-09-06
 

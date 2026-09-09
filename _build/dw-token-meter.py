@@ -25,6 +25,12 @@
      별파일(FleetView)·인라인 sidechain 두 저장모델을 «둘 다» 커버한다. hook_event_name 은 폴백.
   4. offset 을 transcript_path 로 키잉하므로 SubagentStop 이 부모 것을 주든 서브 전용을 주든
      안전하다(어느 쪽이든 «그 경로의» 새 줄만 소비·중복집계 0).
+  5. 🔴 견고화(payload 비의존): SubagentStop 때 payload 의 transcript_path «값»에 do-er 커버리지가
+     걸리면 안 된다(부모 경로를 주면 서브 토큰이 영영 0). 그래서 그 경로에서 서브에이전트 디렉토리를
+     «직접 도출»(`subagents_dir_for`) 해 `<session>/subagents/*.jsonl` 을 전부 대상에 넣는다 —
+     payload 가 부모를 주든 서브를 주든 같은 집합을 훑는다. 각 파일은 여전히 경로별 offset 증분이라
+     중복집계 0, 실행 중인 다른 서브의 부분 파일도 완결줄만 소비돼 안전. glob 은 offset 덕에 대개
+     0 새바이트라 값싸다.
 
 설계 원칙(telemetry 와 동일): 훅은 결코 턴을 막지 않는다(항상 exit 0, 모든 예외 삼킴).
 vault CONTENT_DIRS 밖(.dw-state/)에만 기록. 표준 라이브러리만.
@@ -37,6 +43,7 @@ offset 보다 작아짐) 시 offset 을 0 으로 리셋.
 from __future__ import annotations
 
 import datetime
+import glob
 import json
 import os
 import sys
@@ -61,11 +68,16 @@ def classify_source(obj: dict, hook_event_name: str) -> str:
     """어시스턴트 줄의 source 를 판별. main | subagent:<type>.
 
     1순위: 줄 자체의 `isSidechain`(별파일·인라인 두 저장모델 공통) + `attributionAgent`(do-er 유형).
-    폴백: payload 의 hook_event_name 이 SubagentStop 이면 서브에이전트로 본다(isSidechain 부재 대비).
+    True→subagent, False→main(«명시적» — 견고화로 SubagentStop 때 부모 트랜스크립트도 함께 처리하니
+    부모의 main 줄을 폴백이 삼키면 안 된다). isSidechain «부재»(None)일 때만 hook_event_name 폴백.
     """
-    if obj.get("isSidechain") is True:
+    sc = obj.get("isSidechain")
+    if sc is True:
         t = str(obj.get("attributionAgent") or "unknown").strip() or "unknown"
         return "subagent:" + t
+    if sc is False:
+        return "main"
+    # isSidechain 부재 → 폴백: SubagentStop 이면 서브에이전트로 본다
     if hook_event_name == "SubagentStop":
         t = str(obj.get("attributionAgent") or "unknown").strip() or "unknown"
         return "subagent:" + t
@@ -174,39 +186,86 @@ def _save_offsets(state_dir: Path, offsets: dict) -> None:
     os.replace(tmp, p)  # 원자적 교체
 
 
-def process(transcript_path: str, hook_event_name: str, session: str, state_dir: Path) -> list:
-    """임계구역: offset 로드 → 증분 파싱 → tokens.jsonl append → offset 저장. 델타 레코드 목록 반환.
+def subagents_dir_for(transcript_path: str):
+    """transcript_path 에서 서브에이전트 디렉토리를 «도출»한다(payload 값에 의존하지 않기 위해).
 
-    반환은 테스트·관측용(파일에 쓴 것과 동일). 데이터 없는 source 는 레코드로 남기지 않는다.
+    이 머신 실측 레이아웃(2026-09-09): 부모 `…/projects/<slug>/<session>.jsonl` 옆에
+    `…/projects/<slug>/<session>/subagents/agent-*.jsonl` 가 산다. 두 입력 형태를 모두 도출:
+      - 부모 경로 `<session>.jsonl` → `.jsonl` 을 떼면 session 디렉토리 → `<sess>/subagents`.
+      - 서브 파일 경로 `…/<session>/subagents/agent-x.jsonl` → `/subagents/` 앞까지가 session
+        디렉토리 → `<sess>/subagents`.
+    도출 불가면 None.
     """
-    offsets = _load_offsets(state_dir)
-    stored = int(offsets.get(transcript_path, 0) or 0)
-    lines, new_offset = _read_new_bytes(transcript_path, stored)
-    buckets = parse_lines(lines, hook_event_name)
+    if not transcript_path:
+        return None
+    if "/subagents/" in transcript_path:
+        return transcript_path.split("/subagents/")[0] + "/subagents"
+    if transcript_path.endswith(".jsonl"):
+        return transcript_path[: -len(".jsonl")] + "/subagents"
+    return None
 
+
+def collect_targets(transcript_path: str, hook_event_name: str) -> list[str]:
+    """이번 호출에서 «증분 파싱할» 트랜스크립트 파일 목록(중복 제거·순서 보존).
+
+    - 메인 `Stop`: payload 의 transcript_path 만(종전과 동일).
+    - `SubagentStop`: payload 의 transcript_path 가 부모든 서브 전용이든 상관없이, 거기서
+      «서브에이전트 디렉토리를 직접 도출해» `<sess>/subagents/*.jsonl` 을 «전부» 대상에 넣는다.
+      ⇒ do-er 토큰 커버리지가 payload 의 transcript_path 실측값에 걸리지 않는다(견고화).
+      여전히 실행 중인 다른 서브에이전트의 부분 파일도 offset+완결줄 로직으로 안전.
+    """
+    targets: list[str] = []
+    if transcript_path and os.path.isfile(transcript_path):
+        targets.append(transcript_path)
+    if hook_event_name == "SubagentStop":
+        sd = subagents_dir_for(transcript_path)
+        if sd and os.path.isdir(sd):
+            targets.extend(sorted(glob.glob(os.path.join(sd, "*.jsonl"))))
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in targets:
+        if p not in seen and os.path.isfile(p):
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def process(paths, hook_event_name: str, session: str, state_dir: Path) -> list:
+    """임계구역: offset 로드 → 대상 파일들 증분 파싱 → tokens.jsonl append → offset 저장.
+
+    `paths` 는 처리할 트랜스크립트 경로 목록. 각 경로는 «경로별 offset» 으로 독립 증분(중복집계 0).
+    offset 로드·저장·append 는 목록 전체에 대해 «한 번만»(하나의 flock 안에서 원자적으로). 반환은
+    테스트·관측용 델타 레코드 목록. 데이터 없는 (경로,source) 는 레코드로 남기지 않는다.
+    """
+    if isinstance(paths, str):  # 하위호환 — 단일 경로도 허용
+        paths = [paths]
+    offsets = _load_offsets(state_dir)
     ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     records = []
-    for src, b in buckets.items():
-        tools = dict(b["tools"])
-        if not (b["input"] or b["output"] or b["cache_read"] or b["cache_creation"] or tools):
-            continue
-        records.append({
-            "ts": ts,
-            "session": session,
-            "source": src,
-            "input": b["input"],
-            "output": b["output"],
-            "cache_read": b["cache_read"],
-            "cache_creation": b["cache_creation"],
-            "tool_uses": tools,
-        })
+    for transcript_path in paths:
+        stored = int(offsets.get(transcript_path, 0) or 0)
+        lines, new_offset = _read_new_bytes(transcript_path, stored)
+        buckets = parse_lines(lines, hook_event_name)
+        for src, b in buckets.items():
+            tools = dict(b["tools"])
+            if not (b["input"] or b["output"] or b["cache_read"] or b["cache_creation"] or tools):
+                continue
+            records.append({
+                "ts": ts,
+                "session": session,
+                "source": src,
+                "input": b["input"],
+                "output": b["output"],
+                "cache_read": b["cache_read"],
+                "cache_creation": b["cache_creation"],
+                "tool_uses": tools,
+            })
+        offsets[transcript_path] = new_offset
 
     if records:
         with open(state_dir / "tokens.jsonl", "a", encoding="utf-8") as f:
             for rec in records:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
-    offsets[transcript_path] = new_offset
     _save_offsets(state_dir, offsets)
     return records
 
@@ -218,10 +277,12 @@ def main() -> int:
         return 0
     try:
         transcript_path = payload.get("transcript_path") or ""
-        if not transcript_path or not os.path.isfile(transcript_path):
-            return 0
         hook_event_name = payload.get("hook_event_name") or ""
         session = payload.get("session_id") or ""
+
+        targets = collect_targets(transcript_path, hook_event_name)
+        if not targets:
+            return 0  # 처리할 파일 없음(경로 없음/디렉토리 부재) — 조용히 스킵
 
         project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd())
         vault = _vault_root(project)
@@ -235,11 +296,11 @@ def main() -> int:
             with open(lock_path, "w") as lk:
                 fcntl.flock(lk, fcntl.LOCK_EX)
                 try:
-                    process(transcript_path, hook_event_name, session, state_dir)
+                    process(targets, hook_event_name, session, state_dir)
                 finally:
                     fcntl.flock(lk, fcntl.LOCK_UN)
         else:  # pragma: no cover - 비POSIX 폴백(락 없이)
-            process(transcript_path, hook_event_name, session, state_dir)
+            process(targets, hook_event_name, session, state_dir)
     except Exception:
         pass
     return 0
