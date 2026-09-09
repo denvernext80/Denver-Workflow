@@ -2,6 +2,32 @@
 
 # Changelog (English)
 
+## 2.25.0 — 2026-09-09
+
+**Capture subagent vault-note reads — fixes the confounded never-read reuse metric.**
+`access.jsonl` (dw-telemetry.py, PostToolUse) cannot see a do-er subagent's *internal* reads, so an
+operational playbook a subagent actually consumed via dw_read was mislabeled never-read in
+`dw-workflow-report.py` §B. The transcript parser (dw-token-meter) *reaches* subagents, so it extracts
+vault-note reads there and appends them to access.jsonl, making never-read trustworthy.
+
+- **Extended `_build/dw-token-meter.py` parse pass**: in the same incremental pass, only
+  `isSidechain:true` (subagent) lines are scanned; when a read tool (`Read` file_path, or
+  `dw_read`/MCP `…dw-vault__dw_read` name/query) resolves to a tracked note
+  (`governance/procedures`, `project/memory`), one line is emitted to `.dw-state/access.jsonl`. The
+  schema matches dw-telemetry — vault: `{kind:"vault",tool:"dw_read",target:rel}`, file:
+  `{kind:"file",tool:"Read",target:rel,resolved:rel}` — so `dw-workflow-report.py`'s reads tally picks
+  them up *unchanged* and never-read drops.
+- **Consumer parity enforced**: the note-resolution rules (TRACKED, note_index, resolve) are a copy of
+  the consumer `dw-workflow-report.py`'s rules, and a selftest runs both implementations on one fixture
+  to force *identical* decisions (drift → RED).
+- **No double-count**: 🔴 emit only on `isSidechain:true` lines — main-session reads are already logged
+  to access.jsonl by the PostToolUse dw-telemetry. **Privacy**: only the vault-relative path is
+  recorded (never full tool args, note bodies, or non-vault paths). Token metering (tokens.jsonl) is
+  *unchanged* — this is an additional output only.
+- **selftest**: `TokenMeterReadCaptureTest` (3 cases) — tracked reads recorded, non-vault ignored,
+  main (isSidechain false) emits 0, incremental no-double-count, consumer tally proof, and resolution
+  parity. `make test` 160 green, dry-run green.
+
 ## 2.24.0 — 2026-09-09
 
 **Real token metering — a Stop/SubagentStop hook that incrementally parses the transcript to count *actual* tokens.**

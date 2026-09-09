@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.25.0 — 2026-09-09
+
+**서브에이전트 vault-노트 read 캡처 — never-read 재사용 지표의 교란을 해소.**
+`access.jsonl`(dw-telemetry.py, PostToolUse)은 do-er 서브에이전트의 «내부» read 를 못 본다 →
+서브에이전트가 dw_read 로 실제 참조한 운영 플레이북이 `dw-workflow-report.py` §B 에서 never-read 로
+오판됐다. 트랜스크립트 파서(dw-token-meter)는 서브에이전트에 «도달»하므로, 거기서 vault-노트 read 를
+뽑아 access.jsonl 에 넣어 never-read 를 신뢰 가능하게 만든다.
+
+- **`_build/dw-token-meter.py` 파싱 패스 확장**: 같은 증분 패스에서 `isSidechain:true`(서브에이전트)
+  줄만 훑어, 읽기 도구(`Read` file_path · `dw_read`/MCP `…dw-vault__dw_read` 의 name/query)의 target 이
+  tracked 노트(`governance/procedures`·`project/memory`)로 해석되면 `.dw-state/access.jsonl` 에 1줄 emit.
+  스키마는 dw-telemetry 와 «동일» — vault: `{kind:"vault",tool:"dw_read",target:rel}`, file:
+  `{kind:"file",tool:"Read",target:rel,resolved:rel}` — 그래서 `dw-workflow-report.py` 의 reads 집계가
+  «무변경»으로 이 줄들을 주워 never-read 가 줄어든다.
+- **소비자 정합 강제**: 노트 판정(TRACKED·note_index·resolve)은 소비자 `dw-workflow-report.py` 규칙의
+  사본이며, selftest 가 두 구현을 같은 픽스처로 돌려 «동일 판정»을 강제한다(드리프트 시 RED).
+- **이중집계 방지**: 🔴 `isSidechain:true` 줄만 emit — 메인 세션 read 는 PostToolUse dw-telemetry 가
+  이미 access.jsonl 에 넣으므로. **프라이버시**: vault 상대경로만 기록(도구 인자 전체·본문·비-vault
+  경로 기록 금지). 토큰 집계(tokens.jsonl)는 «그대로» — 추가 산출일 뿐 기존 동작 불변.
+- **selftest**: `TokenMeterReadCaptureTest` 3건 — ①tracked read 기록·②비-vault 무시·③메인(isSidechain
+  false) emit 0·④증분 2회 중복 0 · 소비자 집계 실증 · 판정 정합(parity). `make test` 160 green·dry-run green.
+
 ## 2.24.0 — 2026-09-09
 
 **진짜 토큰 미터링 — Stop/SubagentStop 훅에서 트랜스크립트를 증분 파싱해 «실토큰»을 센다.**

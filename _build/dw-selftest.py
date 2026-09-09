@@ -2715,5 +2715,148 @@ class TokenMeterTest(unittest.TestCase):
         self.assertIsNone(self.mod.subagents_dir_for(""))
 
 
+REPORT = BUILD / "dw-workflow-report.py"
+
+
+def _load_report():
+    """소비자 `dw-workflow-report.py` 를 모듈로 로드(정합성 검증용)."""
+    spec = importlib.util.spec_from_file_location(f"dw_report_{next(_counter)}", REPORT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TokenMeterReadCaptureTest(unittest.TestCase):
+    """서브에이전트 vault-노트 read 캡처 → access.jsonl(never-read 지표 교란 해소).
+
+    잠그는 것:
+      ① isSidechain 서브에이전트 줄의 dw_read/Read 가 tracked 노트면 access.jsonl 에 기록.
+      ② 비-vault read 는 무시.
+      ③ isSidechain=false(메인) 줄은 emit 0 — PostToolUse dw-telemetry 와 이중집계 방지.
+      ④ 증분 2회 호출 중복 0.
+      ⑤ 판정 규칙이 소비자(dw-workflow-report)의 note_index/resolve_target 와 «정합».
+      + emit 스키마가 소비자 reads 집계에 실제로 주워지는지(never-read 감소).
+    """
+
+    def setUp(self):
+        self.mod = _load_token_meter()
+        self.tmp = Path(tempfile.mkdtemp(prefix="dw-selftest-subread-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.vault = self.tmp  # DW_VAULT_DIR = tmp
+        self.state = self.vault / ".dw-state"
+        self.state.mkdir(parents=True, exist_ok=True)
+        # tracked 노트 픽스처
+        (self.vault / "governance" / "procedures").mkdir(parents=True, exist_ok=True)
+        (self.vault / "project" / "memory").mkdir(parents=True, exist_ok=True)
+        self.playbook = self.vault / "governance" / "procedures" / "playbook.md"
+        self.lesson = self.vault / "project" / "memory" / "lesson.md"
+        self.playbook.write_text("# playbook\n", encoding="utf-8")
+        self.lesson.write_text("# lesson\n", encoding="utf-8")
+
+    @staticmethod
+    def _line(blocks, sidechain, attr=None, mid="m"):
+        o = {"type": "assistant", "isSidechain": sidechain,
+             "message": {"id": mid, "role": "assistant", "content": blocks,
+                         "usage": {"output_tokens": 1}}}
+        if attr is not None:
+            o["attributionAgent"] = attr
+        return json.dumps(o, ensure_ascii=False)
+
+    def _layout(self):
+        proj = self.tmp / "proj"
+        (proj / "sess" / "subagents").mkdir(parents=True, exist_ok=True)
+        return proj / "sess.jsonl", proj / "sess" / "subagents"
+
+    def _run(self, transcript_path, event="SubagentStop"):
+        return subprocess.run(
+            [sys.executable, str(TOKEN_METER)],
+            input=json.dumps({"hook_event_name": event, "session_id": "S1",
+                              "transcript_path": str(transcript_path), "cwd": str(self.tmp)}),
+            capture_output=True, text=True,
+            env=os.environ | {"CLAUDE_PROJECT_DIR": str(self.tmp),
+                              "DW_VAULT_DIR": str(self.tmp)})
+
+    def _access(self):
+        f = self.state / "access.jsonl"
+        if not f.is_file():
+            return []
+        return [json.loads(x) for x in f.read_text(encoding="utf-8").splitlines() if x.strip()]
+
+    def test_subagent_vault_reads_captured_main_and_nonvault_excluded(self):
+        parent, subdir = self._layout()
+        # 메인 세션 read(isSidechain=false) — emit 되면 안 된다(이중집계 방지)
+        parent.write_text(self._line(
+            [{"type": "tool_use", "name": "mcp__plugin_denver-workflow_dw-vault__dw_read",
+              "input": {"name": "project/memory/lesson.md"}}],
+            sidechain=False, mid="p") + "\n", encoding="utf-8")
+        # 서브에이전트 read 3건: dw_read(tracked) + Read(vault tracked) + Read(비-vault, 무시)
+        (subdir / "agent-a.jsonl").write_text("\n".join([
+            self._line([{"type": "tool_use",
+                         "name": "mcp__plugin_denver-workflow_dw-vault__dw_read",
+                         "input": {"name": "project/memory/lesson.md"}}],
+                       sidechain=True, attr="Explore", mid="s1"),
+            self._line([{"type": "tool_use", "name": "Read",
+                         "input": {"file_path": str(self.playbook)}}],
+                       sidechain=True, attr="Explore", mid="s2"),
+            self._line([{"type": "tool_use", "name": "Read",
+                         "input": {"file_path": "/tmp/not-a-vault/code.py"}}],
+                       sidechain=True, attr="Explore", mid="s3"),
+        ]) + "\n", encoding="utf-8")
+
+        r = self._run(parent, "SubagentStop")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        recs = self._access()
+        # ① tracked 2건만
+        self.assertEqual(len(recs), 2, f"tracked read 2건이어야(메인·비-vault 제외): {recs}")
+        targets = {x["target"] for x in recs}
+        self.assertEqual(targets, {"project/memory/lesson.md", "governance/procedures/playbook.md"})
+        # 스키마 정합
+        byt = {x["target"]: x for x in recs}
+        self.assertEqual(byt["project/memory/lesson.md"]["kind"], "vault")
+        self.assertEqual(byt["project/memory/lesson.md"]["tool"], "dw_read")
+        self.assertEqual(byt["governance/procedures/playbook.md"]["kind"], "file")
+        self.assertEqual(byt["governance/procedures/playbook.md"]["resolved"],
+                         "governance/procedures/playbook.md")
+        # ②③ 절대경로/비-vault target 이 없어야(프라이버시 + 메인·비-vault 제외 실증)
+        for x in recs:
+            self.assertFalse(x["target"].startswith("/"), f"절대경로 기록됨(프라이버시): {x}")
+
+        # ④ 증분 2회 호출 중복 0
+        self.assertEqual(self._run(parent, "SubagentStop").returncode, 0)
+        self.assertEqual(len(self._access()), 2, "재호출이 read 를 다시 기록(offset 실패)")
+
+    def test_emitted_records_are_counted_by_report_consumer(self):
+        """emit 한 access 줄을 소비자 dw-workflow-report 가 실제로 reads 로 주워 never-read 가 준다."""
+        parent, subdir = self._layout()
+        parent.write_text("", encoding="utf-8")
+        (subdir / "agent-a.jsonl").write_text(
+            self._line([{"type": "tool_use",
+                         "name": "mcp__plugin_denver-workflow_dw-vault__dw_read",
+                         "input": {"name": "project/memory/lesson.md"}}],
+                       sidechain=True, attr="Explore", mid="s1") + "\n", encoding="utf-8")
+        self.assertEqual(self._run(parent, "SubagentStop").returncode, 0)
+
+        report = _load_report()
+        recs = report.load_log(self.vault)
+        by_stem, rels, _files = report.note_index(self.vault)
+        counted = [report.resolve_target(r.get("target", ""), r.get("resolved", ""), by_stem, rels)
+                   for r in recs]
+        self.assertIn("project/memory/lesson.md", counted,
+                      "소비자가 emit 된 read 를 tracked 노트로 집계하지 못함(정합 실패)")
+
+    def test_note_resolution_parity_with_report(self):
+        """판정 규칙(note_index·resolve)이 소비자 구현과 «동일 판정»(드리프트 가드)."""
+        report = _load_report()
+        m_by, m_rels = self.mod.note_index(self.vault)
+        r_by, r_rels, _ = report.note_index(self.vault)
+        self.assertEqual(m_rels, r_rels, "rels 집합 불일치 — 소비자와 판정 드리프트")
+        self.assertEqual(m_by, r_by, "stem→rel 매핑 불일치 — 소비자와 판정 드리프트")
+        for t in ("project/memory/lesson.md", "lesson", "playbook",
+                  "governance/procedures/playbook.md", "project/specs/other.md", ""):
+            self.assertEqual(self.mod.resolve_note(t, m_by, m_rels),
+                             report.resolve_target(t, "", r_by, r_rels),
+                             f"target={t!r} 판정 불일치")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

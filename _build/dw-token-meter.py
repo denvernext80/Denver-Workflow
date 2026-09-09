@@ -10,6 +10,13 @@
 종료) 에서 payload 의 `transcript_path` 를 열어, 지난번 이후 «새 줄만» 읽어 어시스턴트 턴의
 `message.usage`(실토큰) + tool_use/server_tool_use 블록(advisor·grep 포함 전부)을 집계한다.
 
+■ 부가 산출(2.25.0) — 서브에이전트 vault-노트 read 캡처
+  같은 파싱 패스에서 isSidechain:true 줄의 «읽기 도구» target 이 tracked 노트(procedures·memory)로
+  해석되면 access.jsonl 에 dw-telemetry 와 «동일 스키마»로 emit 한다. access.jsonl(PostToolUse)은
+  서브에이전트 내부 read 를 못 봐서 do-er 가 읽은 플레이북이 never-read 로 오판되던 것을 고친다.
+  토큰 집계(tokens.jsonl)는 «그대로» — 추가 산출일 뿐 기존 동작 불변. 판정·이중집계·프라이버시
+  규율은 아래 read-capture 헬퍼 블록 주석 참조.
+
 ■ 실측으로 확정한 스키마 (2026-09-09, `~/.claude/projects/*/*.jsonl`)
   1. 어시스턴트 응답 1개가 «블록 수만큼» 여러 `type:assistant` 줄로 쪼개져 기록된다. 각 줄이
      같은 `message.id` + «동일한» usage 사본을 든다(실측: 1663줄 / 650 id, 같은 id 안에서
@@ -146,6 +153,136 @@ def parse_lines(lines, hook_event_name: str) -> dict:
     return buckets
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 서브에이전트 vault-노트 read 캡처 (never-read 재사용 지표 교란 해소)
+#
+# access.jsonl(dw-telemetry.py, PostToolUse)은 서브에이전트 내부 read 를 못 본다 →
+# do-er 가 dw_read 로 실제로 읽은 운영 플레이북이 `dw-workflow-report.py` 에서 never-read 로
+# 오판된다. 이 파서는 서브에이전트에 «도달»하므로, isSidechain:true 줄의 read 도구 중 target 이
+# tracked 노트(governance/procedures·project/memory)로 해석되는 것만 access.jsonl 에 emit 해
+# never-read 를 신뢰 가능하게 만든다.
+#
+# 🔴 소비자 정합: 판정 규칙(TRACKED·note_index·resolve)은 `dw-workflow-report.py` 의
+#    note_index/resolve_target 와 «같아야» 한다(그게 소비자다). 아래는 그 규칙의 사본이며,
+#    셀프테스트(TokenMeterReadCaptureTest.test_note_resolution_parity_with_report)가 두 구현을
+#    같은 픽스처로 돌려 «동일 판정»을 강제한다 — 드리프트 시 RED.
+# 🔴 이중집계 방지: isSidechain:true 줄만 emit(메인 read 는 PostToolUse dw-telemetry 가 이미 기록).
+# 🔴 프라이버시: vault 상대경로만 기록. 도구 인자 전체·본문·비-vault 경로는 기록 금지.
+# ─────────────────────────────────────────────────────────────────────────────
+
+READ_TRACKED = ("governance/procedures", "project/memory")
+
+
+def note_index(vault: Path):
+    """tracked 노트: (stem→relpath, relpath 집합). `dw-workflow-report.note_index` 규칙의 사본."""
+    by_stem: dict[str, str] = {}
+    rels: set[str] = set()
+    for sub in READ_TRACKED:
+        base = vault / sub
+        if not base.is_dir():
+            continue
+        for p in base.rglob("*.md"):
+            if "/archive/" in str(p).replace("\\", "/"):
+                continue
+            rel = str(p.relative_to(vault))
+            rels.add(rel)
+            by_stem[p.stem] = rel
+    return by_stem, rels
+
+
+def resolve_note(target: str, by_stem, rels):
+    """접근 target 을 tracked 노트 relpath 로 정규화(아니면 None). `resolve_target` 규칙의 사본."""
+    if not target:
+        return None
+    if target in rels:
+        return target
+    stem = Path(target).stem if target.endswith(".md") else target
+    return by_stem.get(stem)
+
+
+def _read_candidate(block):
+    """content 블록이 «읽기 도구»면 (kind, tool, raw_target) 반환, 아니면 None.
+
+    Read → ("file","Read",file_path) · dw_read(MCP 또는 bare) → ("vault","dw_read",name/query/…).
+    dw-telemetry.py 의 target 추출과 정합(name > query > title > note_type).
+    """
+    if not isinstance(block, dict) or block.get("type") not in ("tool_use", "server_tool_use"):
+        return None
+    name = str(block.get("name") or "")
+    inp = block.get("input") or {}
+    if not isinstance(inp, dict):
+        return None
+    if name == "Read":
+        fp = inp.get("file_path")
+        return ("file", "Read", str(fp)) if fp else None
+    if name.endswith("dw_read") or "dw-vault__dw_read" in name:
+        raw = inp.get("name") or inp.get("query") or inp.get("title") or inp.get("note_type")
+        return ("vault", "dw_read", str(raw)) if raw else None
+    return None
+
+
+def sidechain_read_targets(lines):
+    """새 줄들에서 «isSidechain:true(서브에이전트)» 줄의 읽기 도구 후보만 뽑는다.
+
+    🔴 sidechain 줄만 — 메인 세션 read 는 PostToolUse dw-telemetry 가 이미 access.jsonl 에 넣으니
+    여기서 또 넣으면 이중집계. isSidechain 이 명시적 true 가 아니면 무시한다.
+    """
+    out = []
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "assistant":
+            continue
+        if obj.get("isSidechain") is not True:
+            continue
+        msg = obj.get("message") or {}
+        if not isinstance(msg, dict):
+            continue
+        for blk in (msg.get("content") or []):
+            c = _read_candidate(blk)
+            if c:
+                out.append(c)
+    return out
+
+
+def resolve_read_records(candidates, vault: Path, session: str, ts: str):
+    """읽기 후보 → tracked 노트로 해석되는 것만 access.jsonl 레코드로. 상대경로만 기록(프라이버시).
+
+    스키마는 dw-telemetry.py 와 정합 — vault: {kind:"vault",tool:"dw_read",target:rel},
+    file: {kind:"file",tool:"Read",target:rel,resolved:rel}. 소비자(dw-workflow-report)의 reads
+    집계가 «무변경»으로 이 줄들을 주워 never-read 가 줄어든다.
+    """
+    if not candidates:
+        return []
+    vroot = vault.resolve()
+    by_stem, rels = note_index(vroot)
+    if not rels:
+        return []
+    recs = []
+    for kind, tool, raw in candidates:
+        if kind == "file":
+            try:
+                rel = str(Path(raw).resolve().relative_to(vroot))
+            except Exception:
+                rel = None
+            if rel not in rels:
+                continue
+        else:  # vault dw_read
+            rel = resolve_note(raw, by_stem, rels)
+            if rel is None:
+                continue
+        rec = {"ts": ts, "session": session, "kind": kind, "tool": tool, "target": rel}
+        if kind == "file":
+            rec["resolved"] = rel
+        recs.append(rec)
+    return recs
+
+
 def _read_new_bytes(path: str, stored_offset: int):
     """(new_lines, new_offset) 반환. 완결된 줄(마지막 개행까지)만 소비 — 부분 줄 재읽기 방지.
 
@@ -230,22 +367,29 @@ def collect_targets(transcript_path: str, hook_event_name: str) -> list[str]:
     return out
 
 
-def process(paths, hook_event_name: str, session: str, state_dir: Path) -> list:
-    """임계구역: offset 로드 → 대상 파일들 증분 파싱 → tokens.jsonl append → offset 저장.
+def process(paths, hook_event_name: str, session: str, state_dir: Path, vault: Path | None = None) -> list:
+    """임계구역: offset 로드 → 대상 파일들 증분 파싱 → tokens.jsonl + access.jsonl append → offset 저장.
 
     `paths` 는 처리할 트랜스크립트 경로 목록. 각 경로는 «경로별 offset» 으로 독립 증분(중복집계 0).
     offset 로드·저장·append 는 목록 전체에 대해 «한 번만»(하나의 flock 안에서 원자적으로). 반환은
     테스트·관측용 델타 레코드 목록. 데이터 없는 (경로,source) 는 레코드로 남기지 않는다.
+
+    부가 산출(기존 토큰 집계 불변): 같은 파싱 패스에서 isSidechain 줄의 vault-노트 read 를 뽑아
+    access.jsonl 에 emit(never-read 지표 교란 해소). vault 미지정 시 `state_dir.parent`(=vault).
     """
     if isinstance(paths, str):  # 하위호환 — 단일 경로도 허용
         paths = [paths]
+    if vault is None:
+        vault = state_dir.parent
     offsets = _load_offsets(state_dir)
     ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     records = []
+    read_cands = []
     for transcript_path in paths:
         stored = int(offsets.get(transcript_path, 0) or 0)
         lines, new_offset = _read_new_bytes(transcript_path, stored)
         buckets = parse_lines(lines, hook_event_name)
+        read_cands.extend(sidechain_read_targets(lines))  # sidechain 줄만(내부 필터)
         for src, b in buckets.items():
             tools = dict(b["tools"])
             if not (b["input"] or b["output"] or b["cache_read"] or b["cache_creation"] or tools):
@@ -266,6 +410,14 @@ def process(paths, hook_event_name: str, session: str, state_dir: Path) -> list:
         with open(state_dir / "tokens.jsonl", "a", encoding="utf-8") as f:
             for rec in records:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    # 부가 산출: 서브에이전트 vault-노트 read → access.jsonl(소비자 스키마 정합)
+    areads = resolve_read_records(read_cands, vault, session, ts)
+    if areads:
+        with open(state_dir / "access.jsonl", "a", encoding="utf-8") as f:
+            for rec in areads:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
     _save_offsets(state_dir, offsets)
     return records
 
@@ -296,11 +448,11 @@ def main() -> int:
             with open(lock_path, "w") as lk:
                 fcntl.flock(lk, fcntl.LOCK_EX)
                 try:
-                    process(targets, hook_event_name, session, state_dir)
+                    process(targets, hook_event_name, session, state_dir, vault.resolve())
                 finally:
                     fcntl.flock(lk, fcntl.LOCK_UN)
         else:  # pragma: no cover - 비POSIX 폴백(락 없이)
-            process(targets, hook_event_name, session, state_dir)
+            process(targets, hook_event_name, session, state_dir, vault.resolve())
     except Exception:
         pass
     return 0
