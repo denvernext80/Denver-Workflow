@@ -49,6 +49,20 @@
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-telemetry.py\"", "timeout": 10 }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-token-meter.py\"", "timeout": 15 }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/_build/dw-token-meter.py\"", "timeout": 15 }
+        ]
+      }
     ]
   }
 }
