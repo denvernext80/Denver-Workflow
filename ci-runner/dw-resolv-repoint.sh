@@ -17,25 +17,31 @@
 set -u
 
 RESOLV=/etc/resolv.conf
-# search/options 는 종전 OrbStack 값 보존(실측: `options edns0`, `search .`).
-read -r -d '' TARGET <<'EOF'
+
+# 목표 내용을 함수로 두 곳(비교·쓰기)에서 동일 소스로 방출한다 — search/options 는 종전
+# OrbStack 값 보존(실측: `options edns0`, `search .`). 함수+`$()` 로 «쓰기와 비교가 같은
+# 텍스트»를 보장(하드코딩 문자열/heredoc 이중관리로 인한 스퓨리어스 미스매치 방지).
+emit_target() {
+  cat <<'EOF'
 # Managed by denver-workflow wire-ci-runners (serve-stale resolver re-arm). Do not edit.
 nameserver 127.0.0.1
 nameserver 0.250.250.200
 options edns0
 search .
 EOF
+}
 
 log() { printf '[dw-resolv-repoint] %s\n' "$*"; }
 
-# 이미 정확하고 심링크가 아니면 아무 것도 안 한다.
-if [ ! -L "$RESOLV" ] && [ -f "$RESOLV" ] && [ "$(cat "$RESOLV" 2>/dev/null)" = "$TARGET" ]; then
+# 이미 정확하고 심링크가 아니면 아무 것도 안 한다. `$()` 는 양쪽 후행개행을 대칭 제거하므로
+# 멱등 비교가 성립한다(쓰기는 아래에서 emit_target 그대로 → 다음 실행에서 SKIP).
+if [ ! -L "$RESOLV" ] && [ -f "$RESOLV" ] && [ "$(cat "$RESOLV" 2>/dev/null)" = "$(emit_target)" ]; then
   log "SKIP — 이미 127.0.0.1 로 지정됨"
   exit 0
 fi
 
 tmp="$(mktemp /etc/.resolv.dw.XXXXXX)" || { log "mktemp 실패"; exit 1; }
-printf '%s\n' "$TARGET" > "$tmp"
+emit_target > "$tmp"
 chmod 644 "$tmp"
 # 심링크 제거 후 원자적 교체(같은 /etc fs 이므로 mv 는 rename = atomic).
 rm -f "$RESOLV"
