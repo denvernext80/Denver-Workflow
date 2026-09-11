@@ -71,6 +71,28 @@ REPOINT_UNIT_NAME = "dw-resolv-repoint.service"
 UNBOUND_HELPER = "/usr/libexec/unbound-helper"   # root.key 시드(패키지 unbound.service ExecStartPre 와 동일 경로)
 APT_TIMEOUT = 300                                # apt-get install 은 기본 120s 를 넘을 수 있다
 
+# 127.0.0.1(unbound)에 «직접» 질의하는 판별검사 — getent 는 폴백 nameserver 로 성공해 unbound 가
+# 답했는지 증명 못 하므로 raw UDP 로 로컬 리졸버를 직접 때린다(unbound 사망 시 ECONNREFUSED → 예외).
+# 표준 라이브러리만. stdin 으로 파이프해 실행한다.
+_DIRECT_QUERY_PY = r'''
+import socket, struct
+def q(server, name, timeout=3.0):
+    hdr = struct.pack(">HHHHHH", 0x1234, 0x0100, 1, 0, 0, 0)
+    qd = b"".join(bytes([len(p)]) + p.encode() for p in name.split(".")) + b"\x00" + struct.pack(">HH", 1, 1)
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(timeout)
+    try:
+        s.sendto(hdr + qd, (server, 53)); data, _ = s.recvfrom(4096)
+        return (data[3] & 0x0f), struct.unpack(">H", data[6:8])[0]
+    finally:
+        s.close()
+try:
+    rc, an = q("127.0.0.1", "github.com")
+    print("rc=%d an=%d" % (rc, an))
+    print("DIRECT_OK" if rc == 0 and an >= 1 else "DIRECT_FAIL")
+except Exception as e:
+    print("DIRECT_FAIL %s: %s" % (type(e).__name__, e))
+'''
+
 
 class VM:
     """orbctl 로 접근하는 OrbStack VM 핸들. 명령은 VM 사용자(로그인 셸)로 돈다."""
@@ -306,17 +328,25 @@ def wire_resolver(vm: VM, dry_run: bool) -> tuple[bool, list[str]]:
     #    이게 없으면 root-auto-trust-anchor-file.conf 때문에 checkconf 가 FATAL 난다.
     vm.sh(f'sudo -n {UNBOUND_HELPER} root_trust_anchor_update >/dev/null 2>&1 || true')
 
-    # ③ 드롭인 설치.
+    # ③ 드롭인 설치. checkconf 실패 대비 기존 파일을 백업(없으면 «부재»로 기록)해 롤백 가능케 한다.
+    bak = f"{RESOLVER_CONF_DST}.dw-bak"
+    vm.sh(f'if [ -f "{RESOLVER_CONF_DST}" ]; then sudo -n cp -p "{RESOLVER_CONF_DST}" "{bak}"; '
+          f'else sudo -n rm -f "{bak}"; fi')
     ok, st = _install_sudo_file(vm, RESOLVER_CONF_SRC, RESOLVER_CONF_DST, "0644")
     if not ok:
         return False, [st]
     conf_changed = (st == "CHANGED")
     msgs.append(f"드롭인 {RESOLVER_CONF_DST}: {st}")
 
-    # ④ checkconf — 실패 시 resolv.conf 는 «절대» 건드리지 않고 중단(안전).
+    # ④ checkconf — 실패 시 방금 설치한 드롭인을 «롤백»(백업 복원 or 제거)하고 중단. 깨진 드롭인을
+    #    디스크에 남기면 resolv.conf 는 이미 127.0.0.1 인데 다음 unbound 재시작(재부팅·패키지 업글)에서
+    #    기동 실패 → serve-stale 이 조용히 사라진다. 롤백으로 그 시한폭탄을 없앤다.
     cc = vm.sh('sudo -n unbound-checkconf 2>&1')
     if cc.returncode != 0:
-        return False, [f"unbound-checkconf 실패 — resolv.conf 미변경(안전): {(cc.stdout or cc.stderr).strip()[:300]}"]
+        vm.sh(f'if [ -f "{bak}" ]; then sudo -n mv "{bak}" "{RESOLVER_CONF_DST}"; '
+              f'else sudo -n rm -f "{RESOLVER_CONF_DST}"; fi')
+        return False, [f"unbound-checkconf 실패 — 드롭인 롤백·resolv.conf 미변경(안전): {(cc.stdout or cc.stderr).strip()[:300]}"]
+    vm.sh(f'sudo -n rm -f "{bak}"')   # 통과 — 백업 제거.
     msgs.append("unbound-checkconf: OK")
 
     # ⑤ 재무장 스크립트 + systemd 유닛 설치.
@@ -353,12 +383,15 @@ def wire_resolver(vm: VM, dry_run: bool) -> tuple[bool, list[str]]:
         return False, [f"resolv.conf 재지정 실패 — {(rp.stderr or rp.stdout).strip()[:200]}"]
     msgs.append(f"resolv.conf 재지정: {(rp.stdout or '').strip().splitlines()[-1] if rp.stdout.strip() else 'done'}")
 
-    # ⑨ 최종 검증: 새 resolv.conf 경로로 퍼블릭 이름 해석(127.0.0.1 → unbound → 퍼블릭).
-    vf = vm.sh('getent hosts github.com >/dev/null 2>&1 && echo RESOLVED || echo FAIL')
-    if "RESOLVED" not in (vf.stdout or ""):
-        return False, ["최종 해석 검증 실패 — getent hosts github.com. "
-                       "폴백 nameserver(0.250.250.200)로 DNS 는 유지되나 리졸버 경로 재점검 필요."]
-    msgs.append("최종 검증: getent hosts github.com RESOLVED")
+    # ⑨ 최종 검증: 127.0.0.1(unbound)에 «직접» 질의. getent 는 폴백(0.250.250.200)으로도 성공해
+    #    unbound 가 실제로 답했는지 증명 못 하므로 raw UDP 로 로컬 리졸버를 직접 때린다.
+    vf = vm.sh('python3 -', stdin=_DIRECT_QUERY_PY)
+    if "DIRECT_OK" not in (vf.stdout or ""):
+        return False, [f"최종 직접검증 실패 — 127.0.0.1 이 github.com 을 답하지 못함: "
+                       f"{(vf.stdout or vf.stderr).strip().splitlines()[-1] if (vf.stdout or vf.stderr).strip() else '(무응답)'}. "
+                       "폴백 nameserver 로 VM DNS 는 유지되나 리졸버 경로 재점검 필요."]
+    detail = [ln for ln in (vf.stdout or "").splitlines() if ln.startswith("rc=")]
+    msgs.append(f"최종 검증: 127.0.0.1 직접질의 DIRECT_OK ({detail[0] if detail else ''})")
     return True, msgs
 
 

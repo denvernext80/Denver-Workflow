@@ -43,8 +43,13 @@ fi
 tmp="$(mktemp /etc/.resolv.dw.XXXXXX)" || { log "mktemp 실패"; exit 1; }
 emit_target > "$tmp"
 chmod 644 "$tmp"
-# 심링크 제거 후 원자적 교체(같은 /etc fs 이므로 mv 는 rename = atomic).
-rm -f "$RESOLV"
-mv "$tmp" "$RESOLV"
+# mv 단독이 rename(2) 로 심링크를 정규파일로 «원자» 교체한다(심링크 타겟은 안 건드림).
+# 선행 `rm` 를 두지 않는 이유: rm+mv 사이 resolv.conf 부재 창을 없애 VM DNS 무설정 구간을
+# 만들지 않기 위함. mv 실패 시 비-0 종료로 «성공 오보»를 막는다(set -e 부재 보완).
+if ! mv "$tmp" "$RESOLV"; then
+  rm -f "$tmp"
+  log "mv 실패 — resolv.conf 미변경(기존 상태 유지)"
+  exit 1
+fi
 log "재지정 완료 — nameserver 127.0.0.1 (폴백 0.250.250.200)"
 exit 0

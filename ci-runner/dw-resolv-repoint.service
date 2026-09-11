@@ -1,9 +1,15 @@
 [Unit]
 Description=dw-ci: re-point /etc/resolv.conf at local serve-stale resolver (unbound)
 Documentation=https://github.com/denvernext80/Denver-Workflow
-# OrbStack 는 부팅마다 resolv.conf 심링크를 재생성하므로, 게스트 초기화 이후·러너 이전에
-# 재지정한다. unbound 가 떠야 127.0.0.1 이 살아있으므로 그 뒤로 순서를 잡는다.
-After=unbound.service network-online.target
+# unbound 가 떠야 127.0.0.1 이 살아있으므로 그 뒤로 순서를 잡는다(파일 재작성엔 네트워크
+# 불요 → network-online.target 은 걸지 않는다).
+#
+# 🔴 알려진 한계(배포 후 재부팅으로 실검증 필요): OrbStack 게스트가 이 oneshot «이후» resolv.conf
+#   심링크를 다시 쓰면 재무장이 무효화된다. 이 유닛엔 OrbStack 게스트 유닛에 대한 After= 가 없다
+#   (그 유닛명을 실측 못 했다). 최악의 결과는 폴백 nameserver(0.250.250.200)로 «프록시 직결»
+#   (=R2 이전 동작)로 degrade 될 뿐 DNS 전면 중단은 아니다. 판별검사: `orbctl restart dw-ci`
+#   후 `cat /etc/resolv.conf` 첫 줄이 127.0.0.1 이고 심링크가 아닌지 확인.
+After=unbound.service
 Wants=unbound.service
 
 [Service]
