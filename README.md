@@ -198,7 +198,7 @@ Pull Request가 생성되거나 업데이트되면, GitHub Actions가 자동으�
 
 * **드롭인:** `ci-runner/serve-stale-resolver.conf` → `/etc/unbound/unbound.conf.d/zz-dw-ci-resolver.conf`. `serve-expired: yes`(RFC 8767) + 부정캐시 차단 + `module-config: "iterator"`. `orb.local` 만 OrbStack 프록시로, **그 외 `.` 는 프록시를 우회해 퍼블릭 리졸버(1.1.1.1·8.8.8.8)로 직접** 나갑니다.
 * 🔴 **왜 프록시 우회인가:** serve-expired 는 상류 «실패»(타임아웃/SERVFAIL)에만 발동하고 **NXDOMAIN 은 정상응답이라 그대로 통과**합니다(로컬 unbound 1.19 시뮬 실측). 블립을 프록시로 보내면 NXDOMAIN 이 돌아와 serve-stale 이 안 먹고, 퍼블릭 리졸버로 직접 보내면 블립 때 정직하게 타임아웃 → serve-expired 발동 → 마지막 양호 A 서빙 → checkout 생존.
-* **재무장:** OrbStack 는 VM 부팅마다 read-only resolv.conf 심링크를 재생성하므로, systemd oneshot(`ci-runner/dw-resolv-repoint.service`, `After=unbound.service`)이 부팅 시 `/etc/resolv.conf` 를 127.0.0.1 로 재지정합니다. 폴백 nameserver 로 0.250.250.200 을 남겨 unbound 가 죽어도 DNS 는 프록시로 degrade 될 뿐입니다.
+* **재무장:** 만일 OrbStack 가 VM 부팅 시 read-only resolv.conf 심링크를 다시 쓰면 대비해, systemd oneshot(`ci-runner/dw-resolv-repoint.service`, `After=unbound.service`)이 부팅 시 `/etc/resolv.conf` 를 127.0.0.1 로 재지정합니다. 🔴 실측(dw-ci): 심링크 mtime 이 부팅을 넘어 불변 → 부팅 재생성은 확인되지 않았습니다(정규파일 교체가 지속될 가능성 높음) — belt-and-suspenders 이며 배포 후 재부팅으로 확정합니다. 폴백 nameserver 로 0.250.250.200 을 남겨 unbound 가 죽어도 DNS 는 프록시로 degrade 될 뿐입니다.
 * **안전 순서:** 드롭인 설치 → **`unbound-checkconf` 통과 시에만** 진행 → **unbound 헬스체크(active + :53 listen) 통과 시에만** resolv.conf 재지정. dry-run 은 완전 읽기전용입니다.
 * **검증 한계:** serve-stale 은 «상류 블립 시»에만 발동하므로 배선 시점(상류 건강)엔 라이브 재현 불가 — 실효는 배포 후 다음 블립에서 확인됩니다.
 

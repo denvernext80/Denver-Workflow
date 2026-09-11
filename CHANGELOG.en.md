@@ -19,11 +19,13 @@ can't help — the action download precedes the steps).
   Sending a blip to the proxy returns NXDOMAIN, so serve-stale never fires. Sending it straight to a
   public resolver fails honestly (SYN drop → timeout) → serve-expired fires → last-good A served →
   checkout survives.
-- **`ci-runner/dw-resolv-repoint.sh` + `dw-resolv-repoint.service` (new)**: OrbStack regenerates the
-  read-only resolv.conf symlink on every VM boot, so a systemd oneshot (`After=unbound.service`,
-  `WantedBy=multi-user.target`) **re-arms** `/etc/resolv.conf` to 127.0.0.1 at boot. Safety: it keeps
-  0.250.250.200 as a fallback nameserver, so if unbound dies DNS degrades to the proxy rather than
-  breaking entirely.
+- **`ci-runner/dw-resolv-repoint.sh` + `dw-resolv-repoint.service` (new)**: should OrbStack ever
+  rewrite the read-only resolv.conf symlink at VM boot, a systemd oneshot (`After=unbound.service`,
+  `WantedBy=multi-user.target`) **re-arms** `/etc/resolv.conf` to 127.0.0.1 at boot. 🔴 Measured
+  (dw-ci): the symlink mtime is unchanged across a boot → boot regeneration is **not confirmed** (a
+  plain-file replacement likely persists) — this re-arm is belt-and-suspenders, to be confirmed by a
+  post-deploy reboot check. Safety: it keeps 0.250.250.200 as a fallback nameserver, so if unbound
+  dies DNS degrades to the proxy rather than breaking entirely.
 - **`_build/dw-wire-ci-runners.py` (extended)**: the resolver axis reuses the *same idiom* as the
   prune-hook wiring (idempotent SKIP/CHANGED, orbctl stdin copy, atomic sudo install). Install unbound
   (guarded) → seed root.key (`unbound-helper`, prerequisite for checkconf) → install drop-in →

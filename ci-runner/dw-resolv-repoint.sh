@@ -2,10 +2,11 @@
 # /etc/resolv.conf 를 로컬 unbound(127.0.0.1)로 재지정 — OrbStack 재생성에 대한 «재무장».
 #
 # 왜: OrbStack 게스트는 /etc/resolv.conf 를 읽기전용 심링크
-#     (→ /opt/orbstack-guest/etc/resolv.conf, `nameserver 0.250.250.200`)로 관리하고 **VM 부팅마다
-#     재생성**한다. serve-stale 리졸버(unbound)를 배선해도 부팅 후 심링크가 프록시로 되돌아가면
-#     CI 가 다시 프록시 직결이 된다. 이 스크립트가 부팅 시(systemd oneshot) + 배선 시(wire 스크립트)
-#     멱등 재지정한다.
+#     (→ /opt/orbstack-guest/etc/resolv.conf, `nameserver 0.250.250.200`)로 «초기» 설정한다. serve-stale
+#     리졸버(unbound)를 배선해도, 만일 OrbStack 가 심링크를 다시 써버리면 CI 가 프록시 직결로
+#     되돌아간다. 이 스크립트가 부팅 시(systemd oneshot) + 배선 시(wire 스크립트) 멱등 재지정한다.
+#     🔴 실측(dw-ci): 심링크 mtime 이 부팅을 넘어 불변 → 부팅 재생성은 «확인되지 않았다».
+#        따라서 이 재무장은 「만일 재생성」 대비 belt-and-suspenders 다(배포 후 재부팅으로 확정).
 #
 # 안전(비타협): 127.0.0.1 뒤에 **0.250.250.200 을 폴백 nameserver 로 남긴다**. unbound 가 죽어
 #     127.0.0.1:53 이 ECONNREFUSED 면 glibc resolver 가 다음 서버(프록시)로 폴백한다 — 최악의

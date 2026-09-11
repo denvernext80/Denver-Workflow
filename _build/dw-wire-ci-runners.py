@@ -15,9 +15,10 @@
 ③ `ci-runner/serve-stale-resolver.conf` 를 `/etc/unbound/unbound.conf.d/zz-dw-ci-resolver.conf`
 로 설치(`zz-` = include-toplevel 병합 마지막 → 패키지 기본값 덮음) ④ `unbound-checkconf` 로
 검증(실패 시 드롭인 롤백 + resolv.conf 미변경 — 안전) ⑤ 재무장 스크립트/유닛
-(`dw-resolv-repoint.sh`·`.service`)을 설치·enable(VM 부팅마다 OrbStack 이 resolv.conf 심링크를
-재생성하므로 부팅 시 127.0.0.1 로 재지정) ⑥ unbound 헬스체크(active + :53 listen) 통과 시에만
-resolv.conf 를 즉시 재지정. 리졸버는 「러너 재시작」이 아니라 「VM 부팅」에 재무장된다(별 축).
+(`dw-resolv-repoint.sh`·`.service`)을 설치·enable(만일 OrbStack 가 부팅 시 resolv.conf 심링크를
+다시 쓰면 대비해 부팅마다 127.0.0.1 로 재지정 — 실측상 부팅 재생성은 미확인, belt-and-suspenders)
+⑥ unbound 헬스체크(active + :53 listen) 통과 시에만 resolv.conf 를 즉시 재지정. 리졸버는
+「러너 재시작」이 아니라 「VM 부팅」에 재무장된다(별 축).
 
 🔴 설계 근거(로컬 unbound 1.19 시뮬 실측): serve-expired 는 상류 «실패»(타임아웃/SERVFAIL)에만
 발동하고 NXDOMAIN 은 정상응답이라 그대로 통과한다. OrbStack 프록시는 블립을 NXDOMAIN 으로
@@ -334,6 +335,7 @@ def wire_resolver(vm: VM, dry_run: bool) -> tuple[bool, list[str]]:
           f'else sudo -n rm -f "{bak}"; fi')
     ok, st = _install_sudo_file(vm, RESOLVER_CONF_SRC, RESOLVER_CONF_DST, "0644")
     if not ok:
+        vm.sh(f'sudo -n rm -f "{bak}"')   # 설치 실패 경로에서도 백업 잔재 남기지 않는다.
         return False, [st]
     conf_changed = (st == "CHANGED")
     msgs.append(f"드롭인 {RESOLVER_CONF_DST}: {st}")
@@ -457,7 +459,8 @@ def main() -> int:
     if not good:
         failed.extend(rmsgs)
     elif not args.dry_run:
-        print("[wire-ci] 리졸버 재무장 유닛 enable — VM 부팅마다 resolv.conf 를 127.0.0.1 로 재지정한다.")
+        print("[wire-ci] 리졸버 재무장 유닛 enable — 부팅 시 resolv.conf 를 127.0.0.1 로 재지정(만일 "
+              "OrbStack 가 심링크를 다시 쓰면 대비; 실측상 부팅 재생성 미확인).")
 
     if failed:
         print(f"[wire-ci] 실패 {len(failed)}건 — 위 참조", file=sys.stderr)

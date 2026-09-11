@@ -16,9 +16,11 @@
   (타임아웃/SERVFAIL)에만 발동하고 **NXDOMAIN 은 정상응답이라 그대로 통과**한다. 블립을 프록시로
   보내면 NXDOMAIN 이 돌아와 serve-stale 이 안 먹는다. 퍼블릭 리졸버로 직접 보내면 블립 때
   정직하게 타임아웃(SYN 드롭) → serve-expired 발동 → 마지막 양호 A 서빙 → checkout 생존.
-- **`ci-runner/dw-resolv-repoint.sh` + `dw-resolv-repoint.service`(신규)**: OrbStack 는 VM 부팅마다
-  read-only resolv.conf 심링크를 재생성하므로, systemd oneshot(`After=unbound.service`,
-  `WantedBy=multi-user.target`)이 부팅 시 `/etc/resolv.conf` 를 127.0.0.1 로 **재무장**한다. 안전:
+- **`ci-runner/dw-resolv-repoint.sh` + `dw-resolv-repoint.service`(신규)**: 만일 OrbStack 가 VM 부팅
+  시 read-only resolv.conf 심링크를 다시 쓰면 대비해, systemd oneshot(`After=unbound.service`,
+  `WantedBy=multi-user.target`)이 부팅 시 `/etc/resolv.conf` 를 127.0.0.1 로 **재무장**한다. 🔴 실측
+  (dw-ci): 심링크 mtime 이 부팅을 넘어 불변 → 부팅 재생성은 «확인되지 않았다»(정규파일 교체가
+  지속될 가능성 높음) — 이 재무장은 belt-and-suspenders, 확정은 배포 후 재부팅 판별검사. 안전:
   폴백 nameserver 로 0.250.250.200 을 남겨 unbound 가 죽어도 DNS 는 프록시로 degrade 될 뿐 전면
   중단되지 않는다.
 - **`_build/dw-wire-ci-runners.py`(확장)**: 기존 prune-훅 배선과 «같은 관용구»로 리졸버 축을 추가
