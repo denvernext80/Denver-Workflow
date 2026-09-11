@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.25.0 — 2026-09-11
+
+**CI VM egress 트랜션트 완화 — `wire-ci-runners` 에 serve-stale 포워딩 리졸버(unbound) 축 추가.**
+호스트 Mac 의 Wi-Fi uplink 블립이 CI checkout 을 무너뜨리는 실패모드를 잡는다: OrbStack DNS
+프록시(0.250.250.200)는 상류 도달실패를 **NXDOMAIN(EAI_NONAME)** 으로 번역하고, checkout 의
+"Set up job / Download action" 단계가 codeload 를 못 찾아 실패한다(워크플로 retry 로 못 막음 —
+액션 다운로드는 스텝 이전).
+
+- **`ci-runner/serve-stale-resolver.conf`(신규)**: unbound 드롭인. `serve-expired: yes`(RFC 8767) +
+  부정캐시 차단(`cache-max-negative-ttl: 0`) + `module-config: "iterator"`(포워더 전용). `orb.local`
+  만 OrbStack 프록시로, **그 외 `.` 는 프록시를 우회해 퍼블릭 리졸버(1.1.1.1·8.8.8.8)로 직접**
+  나간다.
+- 🔴 **왜 프록시 우회인가(로컬 unbound 1.19 시뮬 실측)**: serve-expired 는 상류 «실패»
+  (타임아웃/SERVFAIL)에만 발동하고 **NXDOMAIN 은 정상응답이라 그대로 통과**한다. 블립을 프록시로
+  보내면 NXDOMAIN 이 돌아와 serve-stale 이 안 먹는다. 퍼블릭 리졸버로 직접 보내면 블립 때
+  정직하게 타임아웃(SYN 드롭) → serve-expired 발동 → 마지막 양호 A 서빙 → checkout 생존.
+- **`ci-runner/dw-resolv-repoint.sh` + `dw-resolv-repoint.service`(신규)**: 만일 OrbStack 가 VM 부팅
+  시 read-only resolv.conf 심링크를 다시 쓰면 대비해, systemd oneshot(`After=unbound.service`,
+  `WantedBy=multi-user.target`)이 부팅 시 `/etc/resolv.conf` 를 127.0.0.1 로 **재무장**한다. 🔴 실측
+  (dw-ci): 심링크 mtime 이 부팅을 넘어 불변 → 부팅 재생성은 «확인되지 않았다»(정규파일 교체가
+  지속될 가능성 높음) — 이 재무장은 belt-and-suspenders, 확정은 배포 후 재부팅 판별검사. 안전:
+  폴백 nameserver 로 0.250.250.200 을 남겨 unbound 가 죽어도 DNS 는 프록시로 degrade 될 뿐 전면
+  중단되지 않는다.
+- **`_build/dw-wire-ci-runners.py`(확장)**: 기존 prune-훅 배선과 «같은 관용구»로 리졸버 축을 추가
+  (멱등 SKIP/CHANGED, orbctl stdin 복사, sudo 원자적 install). unbound 설치(guard) → root.key 시드
+  (`unbound-helper`, checkconf 전제) → 드롭인 설치 → **`unbound-checkconf` 통과 시에만** 진행
+  (실패 시 드롭인 롤백) → 재무장 유닛 enable → **unbound 헬스체크(active + :53 listen) 통과
+  시에만** resolv.conf 재지정 → **127.0.0.1 직접 UDP 질의**로 최종검증(getent 는 폴백으로 성공해
+  판별력 없음). dry-run 은 완전 읽기전용(apt·/etc·systemctl write 없음).
+  🔴 **dw-ci·dw-deploy 둘 다** 배선해야 한다(`M=dw-ci` 1회론 부족): `make wire-ci-runners M=dw-ci` +
+  `make wire-ci-runners M=dw-deploy`.
+- **검증 한계(정직 고지)**: serve-stale 은 «상류 블립 시»에만 발동하는데 배선 시점은 상류 건강이라
+  **라이브 재현 불가**. 검증은 로컬 unbound 1.19 시뮬(DROP·SERVFAIL·NXDOMAIN 3모드)로 발동 조건을
+  확정 + Ubuntu 패키지 레이아웃에서 `unbound-checkconf` 통과 + 양 VM 읽기전용 실측. 실효는
+  **배포 후 다음 블립**에서 확인된다.
+
 ## 2.24.0 — 2026-09-09
 
 **진짜 토큰 미터링 — Stop/SubagentStop 훅에서 트랜스크립트를 증분 파싱해 «실토큰»을 센다.**
