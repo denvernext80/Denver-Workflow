@@ -2,6 +2,41 @@
 
 # Changelog (English)
 
+## 2.25.0 — 2026-09-11
+
+**CI VM egress transient mitigation — a serve-stale forwarding resolver (unbound) axis added to `wire-ci-runners`.**
+Targets the failure mode where a host-Mac Wi-Fi uplink blip breaks CI checkout: the OrbStack DNS
+proxy (0.250.250.200) translates upstream unreachability into **NXDOMAIN (EAI_NONAME)**, and
+checkout's "Set up job / Download action" step fails to find codeload (a workflow-level retry
+can't help — the action download precedes the steps).
+
+- **`ci-runner/serve-stale-resolver.conf` (new)**: unbound drop-in. `serve-expired: yes` (RFC 8767)
+  + negative-cache off (`cache-max-negative-ttl: 0`) + `module-config: "iterator"` (forwarder-only).
+  Only `orb.local` goes to the OrbStack proxy; **everything else (`.`) bypasses the proxy and goes
+  straight to public resolvers (1.1.1.1 / 8.8.8.8)**.
+- 🔴 **Why bypass the proxy (proven by a local unbound 1.19 sim)**: serve-expired engages only on
+  upstream *failure* (timeout/SERVFAIL); **NXDOMAIN is a valid answer and passes straight through**.
+  Sending a blip to the proxy returns NXDOMAIN, so serve-stale never fires. Sending it straight to a
+  public resolver fails honestly (SYN drop → timeout) → serve-expired fires → last-good A served →
+  checkout survives.
+- **`ci-runner/dw-resolv-repoint.sh` + `dw-resolv-repoint.service` (new)**: OrbStack regenerates the
+  read-only resolv.conf symlink on every VM boot, so a systemd oneshot (`After=unbound.service`,
+  `WantedBy=multi-user.target`) **re-arms** `/etc/resolv.conf` to 127.0.0.1 at boot. Safety: it keeps
+  0.250.250.200 as a fallback nameserver, so if unbound dies DNS degrades to the proxy rather than
+  breaking entirely.
+- **`_build/dw-wire-ci-runners.py` (extended)**: the resolver axis reuses the *same idiom* as the
+  prune-hook wiring (idempotent SKIP/CHANGED, orbctl stdin copy, atomic sudo install). Install unbound
+  (guarded) → seed root.key (`unbound-helper`, prerequisite for checkconf) → install drop-in →
+  proceed **only if `unbound-checkconf` passes** → enable re-arm unit → repoint resolv.conf **only if
+  the unbound health check passes** (active + :53 listen) → `getent` final verify. dry-run is fully
+  read-only (no apt / /etc / systemctl writes). 🔴 **Wire BOTH dw-ci and dw-deploy** (one `M=dw-ci`
+  is not enough).
+- **Verification limit (honest)**: serve-stale only engages *during* an upstream blip, and at wiring
+  time the upstream is healthy, so it **can't be reproduced live**. Verification = local unbound 1.19
+  sim (DROP/SERVFAIL/NXDOMAIN) fixing the engage condition + `unbound-checkconf` passing on the Ubuntu
+  package layout + read-only fact-finding on both VMs. Real efficacy is confirmed **on the next blip
+  after deploy**.
+
 ## 2.24.0 — 2026-09-09
 
 **Real token metering — a Stop/SubagentStop hook that incrementally parses the transcript to count *actual* tokens.**

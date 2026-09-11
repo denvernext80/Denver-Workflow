@@ -1,10 +1,28 @@
 #!/usr/bin/env python3
-"""OrbStack VM 안 GitHub Actions self-hosted 러너들에 job-completed prune 훅을 멱등 배선.
+"""OrbStack VM 안 GitHub Actions self-hosted 러너들에 CI 유지보수를 멱등 배선.
 
-**무엇을**: ① 플러그인의 `ci-runner/job-completed-prune.sh` 를 VM 의 `$HOME/.dw-runner-hooks/`
+**두 축을 배선한다**(둘 다 멱등·재무장, VM 마다 1회):
+  (A) job-completed prune 훅 — CI `services:` 컨테이너의 익명 docker 볼륨 누수 회수.
+  (B) serve-stale 포워딩 리졸버(unbound) — 호스트 Wi-Fi uplink 블립 시 checkout 이
+      codeload 를 못 찾아 실패하는 egress 트랜션트를 완화(R2, 2026-09-11).
+
+**(A) 무엇을**: ① 플러그인의 `ci-runner/job-completed-prune.sh` 를 VM 의 `$HOME/.dw-runner-hooks/`
 로 복사(755) ② VM 안 systemd 유닛(`actions.runner.*.service`)을 자동 탐지해 각 러너 디렉토리의
 `.env` 에 `ACTIONS_RUNNER_HOOK_JOB_COMPLETED=<그 경로>` 를 멱등 upsert(같으면 no-op·다르면 교체·
 없으면 append).
+
+**(B) 무엇을**: ① unbound 설치(guard: 이미 있으면 SKIP) ② root.key 시드(unbound-helper, 멱등)
+③ `ci-runner/serve-stale-resolver.conf` 를 `/etc/unbound/unbound.conf.d/zz-dw-ci-resolver.conf`
+로 설치(`zz-` = include-toplevel 병합 마지막 → 패키지 기본값 덮음) ④ `unbound-checkconf` 로
+검증(실패 시 resolv.conf 는 «건드리지 않고» 중단 — 안전) ⑤ 재무장 스크립트/유닛
+(`dw-resolv-repoint.sh`·`.service`)을 설치·enable(VM 부팅마다 OrbStack 이 resolv.conf 심링크를
+재생성하므로 부팅 시 127.0.0.1 로 재지정) ⑥ unbound 헬스체크(active + :53 listen) 통과 시에만
+resolv.conf 를 즉시 재지정. 리졸버는 「러너 재시작」이 아니라 「VM 부팅」에 재무장된다(별 축).
+
+🔴 설계 근거(로컬 unbound 1.19 시뮬 실측): serve-expired 는 상류 «실패»(타임아웃/SERVFAIL)에만
+발동하고 NXDOMAIN 은 정상응답이라 그대로 통과한다. OrbStack 프록시는 블립을 NXDOMAIN 으로
+번역하므로, `.` 존은 프록시를 «우회»해 퍼블릭 리졸버로 보낸다(블립 때 정직하게 타임아웃 →
+serve-expired 발동). `orb.local` 만 프록시 유지. 상세는 serve-stale-resolver.conf 헤더 참조.
 
 **왜 `/dw-install` 과 분리**: `install-project` 는 아무 머신에서나 프로젝트별로 돈다. 이 배선은
 `orbctl … <VM>` 이라는 **단일 호스트 외부 의존**이라, 없는 머신에서 install 이 조용히 실패하거나
@@ -24,7 +42,7 @@
 실패면 exit 1. 부분 실패를 성공으로 넘기지 않는다.
 
 usage: dw-wire-ci-runners.py --machine <VM 이름> [--dry-run] [--restart-idle]
-표준 라이브러리만 사용.
+표준 라이브러리만 사용. dw-ci·dw-deploy **둘 다** 배선해야 한다(VM 마다 1회).
 """
 from __future__ import annotations
 
@@ -42,6 +60,17 @@ HOOK_SUBDIR = ".dw-runner-hooks"               # VM 홈 아래 훅 설치 디렉
 HOOK_NAME = "job-completed-prune.sh"
 ENV_KEY = "ACTIONS_RUNNER_HOOK_JOB_COMPLETED"
 
+# ── (B) serve-stale 포워딩 리졸버 payload/경로 (R2: egress 트랜션트 완화) ─────────────
+RESOLVER_CONF_SRC = ROOT / "ci-runner" / "serve-stale-resolver.conf"
+RESOLVER_CONF_DST = "/etc/unbound/unbound.conf.d/zz-dw-ci-resolver.conf"
+REPOINT_SRC = ROOT / "ci-runner" / "dw-resolv-repoint.sh"
+REPOINT_DST = "/usr/local/sbin/dw-resolv-repoint"
+REPOINT_UNIT_SRC = ROOT / "ci-runner" / "dw-resolv-repoint.service"
+REPOINT_UNIT_DST = "/etc/systemd/system/dw-resolv-repoint.service"
+REPOINT_UNIT_NAME = "dw-resolv-repoint.service"
+UNBOUND_HELPER = "/usr/libexec/unbound-helper"   # root.key 시드(패키지 unbound.service ExecStartPre 와 동일 경로)
+APT_TIMEOUT = 300                                # apt-get install 은 기본 120s 를 넘을 수 있다
+
 
 class VM:
     """orbctl 로 접근하는 OrbStack VM 핸들. 명령은 VM 사용자(로그인 셸)로 돈다."""
@@ -49,10 +78,11 @@ class VM:
     def __init__(self, machine: str) -> None:
         self.machine = machine
 
-    def sh(self, script: str, stdin: str | None = None) -> subprocess.CompletedProcess:
+    def sh(self, script: str, stdin: str | None = None,
+           timeout: int = 120) -> subprocess.CompletedProcess:
         _flush()
         return subprocess.run(["orbctl", "run", "-m", self.machine, "bash", "-lc", script],
-                              input=stdin, capture_output=True, text=True, timeout=120)
+                              input=stdin, capture_output=True, text=True, timeout=timeout)
 
 
 def _flush() -> None:
@@ -61,9 +91,10 @@ def _flush() -> None:
 
 
 def preflight(vm: VM) -> str | None:
-    """orbctl·VM·훅 소스 가용성 확인. 문제 있으면 사람이 읽을 사유 문자열 반환."""
-    if not HOOK_SRC.is_file():
-        return f"훅 소스 없음: {HOOK_SRC}"
+    """orbctl·VM·모든 payload 소스 가용성 확인. 문제 있으면 사람이 읽을 사유 문자열 반환."""
+    for src in (HOOK_SRC, RESOLVER_CONF_SRC, REPOINT_SRC, REPOINT_UNIT_SRC):
+        if not src.is_file():
+            return f"payload 소스 없음: {src}"
     if which("orbctl") is None:
         return "orbctl 없음 — 이 배선은 OrbStack VM 이 있는 머신에서만 동작한다"
     try:
@@ -199,6 +230,138 @@ def restart_idle(vm: VM, runner_dir: str, service: str) -> tuple[bool, str]:
     return False, f"{service}: 재시작 실패 — {(r.stderr or r.stdout).strip()[:200]}"
 
 
+# ── (B) serve-stale 포워딩 리졸버 배선 ────────────────────────────────────────────────
+
+def _install_sudo_file(vm: VM, src: Path, dst: str, mode: str) -> tuple[bool, str]:
+    """payload 를 VM 의 sudo 경로(/etc·/usr/local)로 설치. 내용비교로 SKIP/CHANGED 판정.
+
+    소스를 stdin 으로 파이프(공유 FS 비의존) → 사용자 쓰기가능 tmp 로 받고 → 같으면 no-op,
+    다르면 `sudo -n install -m<mode>` 로 원자적 반영. `install` 은 존재하지 않는 상위 dir 을
+    만들지 않으므로(드롭인 dir 은 unbound 패키지가 만든다) 실패는 시끄럽게 보고한다.
+    반환 상태 문자열은 "SKIP"(무변경) | "CHANGED"(반영).
+    """
+    text = src.read_text(encoding="utf-8")
+    tmp = f"/tmp/dw-wire.{Path(dst).name}.$$"
+    script = (
+        f'cat > "{tmp}" && '
+        f'if [ -f "{dst}" ] && cmp -s "{tmp}" "{dst}"; then rm -f "{tmp}"; echo SKIP; '
+        f'else sudo -n install -m {mode} "{tmp}" "{dst}" && rm -f "{tmp}" && echo CHANGED '
+        f'|| {{ rm -f "{tmp}"; echo INSTALL_FAIL; }}; fi'
+    )
+    r = vm.sh(script, stdin=text)
+    state = (r.stdout or "").strip().splitlines()[-1] if r.stdout.strip() else ""
+    if r.returncode != 0 or state not in ("SKIP", "CHANGED"):
+        return False, f"{dst}: 설치 실패 — {(r.stderr or r.stdout).strip()[:200]}"
+    return True, state
+
+
+def _unbound_healthy(vm: VM) -> bool:
+    """unbound 가 active 이고 127.0.0.1:53 에서 listen 중인지 — resolv.conf 재지정 전 안전 게이트.
+
+    resolv.conf 를 죽은 리졸버로 가리키면 VM 전체 DNS 가 끊긴다. 그래서 «살아있음»을 확인한
+    뒤에만 재지정한다(그리고 재지정 후에도 폴백 nameserver 로 프록시를 남긴다).
+    """
+    r = vm.sh('a=$(systemctl is-active unbound 2>/dev/null); '
+              'l=$(ss -H -lun 2>/dev/null | grep -c "127.0.0.1:53"); '
+              'echo "$a $l"')
+    parts = (r.stdout or "").strip().split()
+    return len(parts) == 2 and parts[0] == "active" and parts[1] != "0"
+
+
+def wire_resolver(vm: VM, dry_run: bool) -> tuple[bool, list[str]]:
+    """serve-stale 포워딩 리졸버(unbound)를 멱등 배선 + 부팅 재무장 + 즉시 재지정.
+
+    반환 `(ok, msgs)`. 실패해도 prune-훅 축과 독립 — main 의 failed 리스트에 합류한다.
+    dry-run 은 **읽기전용**(apt·/etc·systemctl write 없음).
+    """
+    if dry_run:
+        # 읽기전용 상태 조회. 따옴표 지옥을 피하려 각 줄을 독립 명령으로 둔다.
+        script = "\n".join([
+            'printf "unbound: "; dpkg -s unbound >/dev/null 2>&1 && echo INSTALLED || echo ABSENT',
+            'printf "resolv symlink -> "; readlink -f /etc/resolv.conf 2>/dev/null || echo "(none)"',
+            'printf "resolv nameservers: "; grep -E "^nameserver" /etc/resolv.conf 2>/dev/null | tr "\\n" " "; echo',
+            f'printf "dropin: "; test -f {RESOLVER_CONF_DST} && echo present || echo absent',
+            f'printf "repoint unit: "; systemctl is-enabled {REPOINT_UNIT_NAME} 2>/dev/null; true',
+            'printf "unbound active: "; systemctl is-active unbound 2>/dev/null; true',
+        ])
+        r = vm.sh(script)
+        body = (r.stdout or "").strip().replace("\n", "\n      ")
+        return True, ["(dry-run) 리졸버 현재 상태:\n      " + body]
+
+    msgs: list[str] = []
+
+    # ① unbound 설치 (guard). apt 는 긴 timeout.
+    chk = vm.sh('dpkg -s unbound >/dev/null 2>&1 && echo INSTALLED || echo ABSENT')
+    if "INSTALLED" not in (chk.stdout or ""):
+        inst = vm.sh('sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -qq && '
+                     'sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq unbound',
+                     timeout=APT_TIMEOUT)
+        if inst.returncode != 0:
+            return False, [f"unbound 설치 실패: {(inst.stderr or inst.stdout).strip()[:200]}"]
+        msgs.append("unbound 설치")
+    else:
+        msgs.append("unbound 이미 설치됨(SKIP)")
+
+    # ② root.key 시드 (패키지 unbound.service ExecStartPre 와 동일; 멱등, 실패 무시).
+    #    이게 없으면 root-auto-trust-anchor-file.conf 때문에 checkconf 가 FATAL 난다.
+    vm.sh(f'sudo -n {UNBOUND_HELPER} root_trust_anchor_update >/dev/null 2>&1 || true')
+
+    # ③ 드롭인 설치.
+    ok, st = _install_sudo_file(vm, RESOLVER_CONF_SRC, RESOLVER_CONF_DST, "0644")
+    if not ok:
+        return False, [st]
+    conf_changed = (st == "CHANGED")
+    msgs.append(f"드롭인 {RESOLVER_CONF_DST}: {st}")
+
+    # ④ checkconf — 실패 시 resolv.conf 는 «절대» 건드리지 않고 중단(안전).
+    cc = vm.sh('sudo -n unbound-checkconf 2>&1')
+    if cc.returncode != 0:
+        return False, [f"unbound-checkconf 실패 — resolv.conf 미변경(안전): {(cc.stdout or cc.stderr).strip()[:300]}"]
+    msgs.append("unbound-checkconf: OK")
+
+    # ⑤ 재무장 스크립트 + systemd 유닛 설치.
+    ok, st1 = _install_sudo_file(vm, REPOINT_SRC, REPOINT_DST, "0755")
+    if not ok:
+        return False, [st1]
+    ok, st2 = _install_sudo_file(vm, REPOINT_UNIT_SRC, REPOINT_UNIT_DST, "0644")
+    if not ok:
+        return False, [st2]
+    unit_changed = (st2 == "CHANGED")
+    msgs.append(f"재무장 스크립트 {REPOINT_DST}: {st1} · 유닛 {REPOINT_UNIT_NAME}: {st2}")
+
+    # ⑥ daemon-reload(유닛 변경 시) · 유닛 enable · unbound enable+(변경 시)restart.
+    if unit_changed:
+        vm.sh('sudo -n systemctl daemon-reload')
+    en = vm.sh(f'sudo -n systemctl enable {REPOINT_UNIT_NAME} >/dev/null 2>&1 && echo OK || echo FAIL')
+    if "OK" not in (en.stdout or ""):
+        return False, [f"{REPOINT_UNIT_NAME} enable 실패 — {(en.stderr or en.stdout).strip()[:200]}"]
+    ube = vm.sh('sudo -n systemctl enable unbound >/dev/null 2>&1; '
+                + ('sudo -n systemctl restart unbound 2>&1; ' if conf_changed else
+                   'sudo -n systemctl start unbound 2>&1; ')
+                + 'sleep 1; systemctl is-active unbound 2>/dev/null')
+    msgs.append(f"unbound {'restart' if conf_changed else 'start'}·enable · repoint 유닛 enable")
+
+    # ⑦ 헬스체크 — 살아있을 때만 재지정.
+    if not _unbound_healthy(vm):
+        return False, ["unbound 헬스체크 실패(active/:53 listen) — resolv.conf 재지정 생략(안전). "
+                       f"is-active 출력: {(ube.stdout or '').strip()[:120]}"]
+    msgs.append("unbound 헬스체크: active + 127.0.0.1:53 listen")
+
+    # ⑧ 즉시 재지정(부팅 재무장은 유닛이, 지금 즉시분은 이 호출이).
+    rp = vm.sh(f'sudo -n {REPOINT_DST} 2>&1')
+    if rp.returncode != 0:
+        return False, [f"resolv.conf 재지정 실패 — {(rp.stderr or rp.stdout).strip()[:200]}"]
+    msgs.append(f"resolv.conf 재지정: {(rp.stdout or '').strip().splitlines()[-1] if rp.stdout.strip() else 'done'}")
+
+    # ⑨ 최종 검증: 새 resolv.conf 경로로 퍼블릭 이름 해석(127.0.0.1 → unbound → 퍼블릭).
+    vf = vm.sh('getent hosts github.com >/dev/null 2>&1 && echo RESOLVED || echo FAIL')
+    if "RESOLVED" not in (vf.stdout or ""):
+        return False, ["최종 해석 검증 실패 — getent hosts github.com. "
+                       "폴백 nameserver(0.250.250.200)로 DNS 는 유지되나 리졸버 경로 재점검 필요."]
+    msgs.append("최종 검증: getent hosts github.com RESOLVED")
+    return True, msgs
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", "-m", required=True,
@@ -252,6 +415,16 @@ def main() -> int:
     if not args.dry_run and not args.restart_idle:
         print("[wire-ci] .env 설정됨 — 각 러너의 **다음 자연 재시작** 때 활성화된다"
               " (즉시 활성화: --restart-idle, 단 활성 잡 없는 러너만).")
+
+    # ── (B) serve-stale 포워딩 리졸버 (러너 무관 · VM 레벨 1회) ─────────────────────
+    print(f"[wire-ci] serve-stale 포워딩 리졸버 배선{' (dry-run)' if args.dry_run else ''}:")
+    good, rmsgs = wire_resolver(vm, args.dry_run)
+    for m in rmsgs:
+        print(f"  {'✓' if good else '✗'} {m}")
+    if not good:
+        failed.extend(rmsgs)
+    elif not args.dry_run:
+        print("[wire-ci] 리졸버 재무장 유닛 enable — VM 부팅마다 resolv.conf 를 127.0.0.1 로 재지정한다.")
 
     if failed:
         print(f"[wire-ci] 실패 {len(failed)}건 — 위 참조", file=sys.stderr)

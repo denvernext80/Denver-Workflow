@@ -185,14 +185,24 @@ Pull Request가 생성되거나 업데이트되면, GitHub Actions가 자동으�
 * **FACT / INFERENCE / UNKNOWN 원칙:** 해석은 재계산 가능한 값(FACT), 규칙 기반 추정(INFERENCE), 이력만으로 확인 불가한 것(UNKNOWN)을 구분합니다. **상관을 인과로 표현하지 않고**, CI/배포 실패를 production defect·incident 로, revert 를 곧바로 outage 로 단정하지 않습니다(hotfix 는 corrective change 로 분류). production incident·사용자 영향·실제 장애 여부는 Git/GitHub 이력만으로 확인 불가하므로 추정하지 않습니다.
 * **한계:** GitHub Actions run count 는 실행 시점에 따라 증가하는 live 값입니다. 개념 발생 추적(`raw/evolution.txt`)의 키워드 검색은 `git --grep` 기본(BRE) 동작이라 `|` alternation 이 적용되지 않습니다(단일 토큰만 매칭 — 검증된 도구의 동작을 그대로 보존). 예시 출력은 `docs/dw-metrics-example.md` 참조.
 
-### 4. self-hosted CI 러너 docker 볼륨 회수 훅 (`make wire-ci-runners`)
+### 4. self-hosted CI 러너 유지보수 배선 (`make wire-ci-runners`)
 
-self-hosted GitHub Actions 러너에서 CI 의 `services:` 컨테이너(예: postgres·redis)가 남기는 **익명 docker 볼륨 누수**를 잡별 정리 훅으로 재발 방지합니다. 러너는 잡 종료 시 컨테이너를 `docker rm`(WITHOUT `-v`)만 해 익명 볼륨을 남기므로 매 잡마다 누수가 쌓입니다.
+`make wire-ci-runners M=<VM 이름>` 은 VM 마다 **두 축**을 멱등 배선합니다. VM 안 systemd 유닛(`actions.runner.*.service`)을 읽어 러너를 **자동 탐지**(특정 프로젝트/서비스 이름 하드코딩 없음)합니다. `DRY=1`(읽기전용 조회만)·`RESTART=1`(활성 잡 없는 러너만 즉시 재시작) 지원. 🔴 **dw-ci·dw-deploy 둘 다** 배선하세요(`M=dw-ci` 1회론 부족).
 
-* **훅:** `ci-runner/job-completed-prune.sh` — 러너 `ACTIONS_RUNNER_HOOK_JOB_COMPLETED` 로 지정되며, 잡 종료마다 `docker volume prune -f`(익명·dangling 볼륨만; 동시 실행 잡의 활성 서비스 볼륨은 살아있는 컨테이너에 붙어 있어 안전)를 실행합니다. `timeout` 으로 행을 막고, docker 부재·실패 어느 경우든 `exit 0`(비차단 — 잡 결과에 영향 없음). dangling 이미지 회수는 `DW_PRUNE_IMAGES=1` 옵트인.
-* **배선:** `make wire-ci-runners M=<VM 이름>`(= `dw.py wire-ci-runners --machine`). VM 안 systemd 유닛(`actions.runner.*.service`)을 읽어 러너를 **자동 탐지**(특정 프로젝트/서비스 이름 하드코딩 없음)하고, 훅을 `$HOME/.dw-runner-hooks/` 로 복사(755)한 뒤 각 러너 `.env` 에 `ACTIONS_RUNNER_HOOK_JOB_COMPLETED` 를 **멱등** upsert 합니다. `DRY=1`(조회만)·`RESTART=1`(활성 잡 없는 러너만 즉시 재시작) 지원.
-* **`/dw-install` 과 분리한 이유:** 러너 호스트 접근은 단일호스트 외부 의존이라 아무 머신에서나 도는 프로젝트 설치에 넣으면 없는 머신에서 조용히 실패합니다. `plugin-scope-*`·`verifier-scope` 처럼 **명시적 별도 타깃**으로 두었고, 호스트 접근 불가 시 시끄럽게 중단합니다.
-* **활성화 시점:** 러너는 `.env` 를 서비스 시작 시에만 읽습니다. 따라서 `.env` 설정은 **다음 러너 재시작 때** 활성화되며, `RESTART=1` 을 주면 유휴 러너만 즉시 활성화합니다(실행 중 잡은 절대 죽이지 않음). 실효 증거는 이후 잡의 "Complete job" 로그에 찍히는 훅 출력입니다.
+**(A) job-completed docker 볼륨 회수 훅** — CI 의 `services:` 컨테이너(예: postgres·redis)가 남기는 **익명 docker 볼륨 누수**를 잡별 정리 훅으로 재발 방지합니다(러너는 잡 종료 시 `docker rm` WITHOUT `-v` 만 해 익명 볼륨을 남깁니다).
+
+* **훅:** `ci-runner/job-completed-prune.sh` — 러너 `ACTIONS_RUNNER_HOOK_JOB_COMPLETED` 로 지정되며, 잡 종료마다 `docker volume prune -f`(익명·dangling 볼륨만; 동시 실행 잡의 활성 서비스 볼륨은 살아있는 컨테이너에 붙어 있어 안전)를 실행합니다. `timeout` 으로 행을 막고, docker 부재·실패 어느 경우든 `exit 0`(비차단). dangling 이미지 회수는 `DW_PRUNE_IMAGES=1` 옵트인.
+* **활성화 시점:** 러너는 `.env` 를 서비스 시작 시에만 읽으므로 **다음 러너 재시작 때** 활성화되며, `RESTART=1` 로 유휴 러너만 즉시 활성화합니다(실행 중 잡은 절대 죽이지 않음).
+
+**(B) serve-stale 포워딩 리졸버(unbound)** — 호스트 Mac 의 Wi-Fi uplink 블립이 CI checkout 을 무너뜨리는 egress 트랜션트를 완화합니다. OrbStack DNS 프록시(0.250.250.200)는 상류 도달실패를 **NXDOMAIN(EAI_NONAME)** 으로 번역해, checkout 의 "Set up job / Download action" 이 codeload 를 못 찾아 실패합니다(워크플로 retry 로 못 막음).
+
+* **드롭인:** `ci-runner/serve-stale-resolver.conf` → `/etc/unbound/unbound.conf.d/zz-dw-ci-resolver.conf`. `serve-expired: yes`(RFC 8767) + 부정캐시 차단 + `module-config: "iterator"`. `orb.local` 만 OrbStack 프록시로, **그 외 `.` 는 프록시를 우회해 퍼블릭 리졸버(1.1.1.1·8.8.8.8)로 직접** 나갑니다.
+* 🔴 **왜 프록시 우회인가:** serve-expired 는 상류 «실패»(타임아웃/SERVFAIL)에만 발동하고 **NXDOMAIN 은 정상응답이라 그대로 통과**합니다(로컬 unbound 1.19 시뮬 실측). 블립을 프록시로 보내면 NXDOMAIN 이 돌아와 serve-stale 이 안 먹고, 퍼블릭 리졸버로 직접 보내면 블립 때 정직하게 타임아웃 → serve-expired 발동 → 마지막 양호 A 서빙 → checkout 생존.
+* **재무장:** OrbStack 는 VM 부팅마다 read-only resolv.conf 심링크를 재생성하므로, systemd oneshot(`ci-runner/dw-resolv-repoint.service`, `After=unbound.service`)이 부팅 시 `/etc/resolv.conf` 를 127.0.0.1 로 재지정합니다. 폴백 nameserver 로 0.250.250.200 을 남겨 unbound 가 죽어도 DNS 는 프록시로 degrade 될 뿐입니다.
+* **안전 순서:** 드롭인 설치 → **`unbound-checkconf` 통과 시에만** 진행 → **unbound 헬스체크(active + :53 listen) 통과 시에만** resolv.conf 재지정. dry-run 은 완전 읽기전용입니다.
+* **검증 한계:** serve-stale 은 «상류 블립 시»에만 발동하므로 배선 시점(상류 건강)엔 라이브 재현 불가 — 실효는 배포 후 다음 블립에서 확인됩니다.
+
+**`/dw-install` 과 분리한 이유:** 러너 호스트 접근은 단일호스트 외부 의존이라 아무 머신에서나 도는 프로젝트 설치에 넣으면 없는 머신에서 조용히 실패합니다. `plugin-scope-*`·`verifier-scope` 처럼 **명시적 별도 타깃**으로 두었고, 호스트 접근 불가 시 시끄럽게 중단합니다.
 
 ---
 

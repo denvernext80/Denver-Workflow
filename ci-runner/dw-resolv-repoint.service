@@ -1,0 +1,16 @@
+[Unit]
+Description=dw-ci: re-point /etc/resolv.conf at local serve-stale resolver (unbound)
+Documentation=https://github.com/denvernext80/Denver-Workflow
+# OrbStack 는 부팅마다 resolv.conf 심링크를 재생성하므로, 게스트 초기화 이후·러너 이전에
+# 재지정한다. unbound 가 떠야 127.0.0.1 이 살아있으므로 그 뒤로 순서를 잡는다.
+After=unbound.service network-online.target
+Wants=unbound.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# 설치 경로는 wire-ci-runners 가 여기로 떨군다(payload: ci-runner/dw-resolv-repoint.sh).
+ExecStart=/usr/local/sbin/dw-resolv-repoint
+
+[Install]
+WantedBy=multi-user.target
