@@ -23,9 +23,10 @@
   중단되지 않는다.
 - **`_build/dw-wire-ci-runners.py`(확장)**: 기존 prune-훅 배선과 «같은 관용구»로 리졸버 축을 추가
   (멱등 SKIP/CHANGED, orbctl stdin 복사, sudo 원자적 install). unbound 설치(guard) → root.key 시드
-  (`unbound-helper`, checkconf 전제) → 드롭인 설치 → **`unbound-checkconf` 통과 시에만** 진행 →
-  재무장 유닛 enable → **unbound 헬스체크(active + :53 listen) 통과 시에만** resolv.conf 재지정
-  → `getent` 최종검증. dry-run 은 완전 읽기전용(apt·/etc·systemctl write 없음).
+  (`unbound-helper`, checkconf 전제) → 드롭인 설치 → **`unbound-checkconf` 통과 시에만** 진행
+  (실패 시 드롭인 롤백) → 재무장 유닛 enable → **unbound 헬스체크(active + :53 listen) 통과
+  시에만** resolv.conf 재지정 → **127.0.0.1 직접 UDP 질의**로 최종검증(getent 는 폴백으로 성공해
+  판별력 없음). dry-run 은 완전 읽기전용(apt·/etc·systemctl write 없음).
   🔴 **dw-ci·dw-deploy 둘 다** 배선해야 한다(`M=dw-ci` 1회론 부족): `make wire-ci-runners M=dw-ci` +
   `make wire-ci-runners M=dw-deploy`.
 - **검증 한계(정직 고지)**: serve-stale 은 «상류 블립 시»에만 발동하는데 배선 시점은 상류 건강이라

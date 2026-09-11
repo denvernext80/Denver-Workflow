@@ -14,7 +14,7 @@
 **(B) 무엇을**: ① unbound 설치(guard: 이미 있으면 SKIP) ② root.key 시드(unbound-helper, 멱등)
 ③ `ci-runner/serve-stale-resolver.conf` 를 `/etc/unbound/unbound.conf.d/zz-dw-ci-resolver.conf`
 로 설치(`zz-` = include-toplevel 병합 마지막 → 패키지 기본값 덮음) ④ `unbound-checkconf` 로
-검증(실패 시 resolv.conf 는 «건드리지 않고» 중단 — 안전) ⑤ 재무장 스크립트/유닛
+검증(실패 시 드롭인 롤백 + resolv.conf 미변경 — 안전) ⑤ 재무장 스크립트/유닛
 (`dw-resolv-repoint.sh`·`.service`)을 설치·enable(VM 부팅마다 OrbStack 이 resolv.conf 심링크를
 재생성하므로 부팅 시 127.0.0.1 로 재지정) ⑥ unbound 헬스체크(active + :53 listen) 통과 시에만
 resolv.conf 를 즉시 재지정. 리졸버는 「러너 재시작」이 아니라 「VM 부팅」에 재무장된다(별 축).

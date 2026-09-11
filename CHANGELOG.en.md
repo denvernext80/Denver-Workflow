@@ -27,9 +27,10 @@ can't help — the action download precedes the steps).
 - **`_build/dw-wire-ci-runners.py` (extended)**: the resolver axis reuses the *same idiom* as the
   prune-hook wiring (idempotent SKIP/CHANGED, orbctl stdin copy, atomic sudo install). Install unbound
   (guarded) → seed root.key (`unbound-helper`, prerequisite for checkconf) → install drop-in →
-  proceed **only if `unbound-checkconf` passes** → enable re-arm unit → repoint resolv.conf **only if
-  the unbound health check passes** (active + :53 listen) → `getent` final verify. dry-run is fully
-  read-only (no apt / /etc / systemctl writes). 🔴 **Wire BOTH dw-ci and dw-deploy** (one `M=dw-ci`
+  proceed **only if `unbound-checkconf` passes** (rolling the drop-in back on failure) → enable re-arm
+  unit → repoint resolv.conf **only if the unbound health check passes** (active + :53 listen) → a
+  **direct 127.0.0.1 UDP query** as the final verify (getent would succeed via the fallback and prove
+  nothing). dry-run is fully read-only (no apt / /etc / systemctl writes). 🔴 **Wire BOTH dw-ci and dw-deploy** (one `M=dw-ci`
   is not enough).
 - **Verification limit (honest)**: serve-stale only engages *during* an upstream blip, and at wiring
   time the upstream is healthy, so it **can't be reproduced live**. Verification = local unbound 1.19
