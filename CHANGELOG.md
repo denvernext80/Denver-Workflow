@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.25.1 — 2026-10-01
+
+**`dw-pr-review.yml` 템플릿: 리뷰어 판정 코멘트 게시 형식을 `gh pr comment <PR> --body-file - <<'EOF' … EOF` 하나로 고정.**
+판정 코멘트 본문엔 `## ` 제목 줄이 있어 리뷰어가 `--body "..."` 인라인으로 올리면 권한 검사가
+"Newline followed by # inside a quoted argument" 로 거부하고, 우회로 고른 파일 쓰기(`/tmp/*.md`)도
+허용 도구 밖이라 막힌다. 어떤 형식을 고르느냐가 run 마다 달라서, 게시에 실패한 run 은 이번 commit 의
+`review-sha` 코멘트가 없어 verdict 게이트가 **비결정적으로 FAIL** 했다(코드와 무관한 적색).
+
+- **`assets/gh-workflows/dw-pr-review.yml`**: 프롬프트 판정 규칙 아래에 「게시 방법 — 정확히 이 한 가지」
+  블록 추가 — stdin heredoc(`--body-file -`) 형식만 쓰고, `--body` 인라인·파일 쓰기·파이프라인
+  (`printf … | gh …`)·명령 치환(`$(...)`)은 금지, 이유(권한 검사 거부 → 코멘트 부재 → 게이트 FAIL)를
+  함께 적는다. allowedTools(`Bash(gh pr comment:*)`)·verdict 파서는 변경 없음.
+- **기존 설치 레포**: 템플릿은 `/dw-ci-review` 설치 시점에 복사되므로 이미 설치된 레포엔 자동 반영되지
+  않는다 — 같은 블록을 각 레포의 `.github/workflows/dw-pr-review.yml` 프롬프트에 직접 넣는다.
+- 버전: `marketplace.json` 이 2.24.0 에 머물러 있던 것을 `plugin.json` 과 함께 2.25.1 로 맞췄다.
+
 ## 2.25.0 — 2026-09-11
 
 **CI VM egress 트랜션트 완화 — `wire-ci-runners` 에 serve-stale 포워딩 리졸버(unbound) 축 추가.**
