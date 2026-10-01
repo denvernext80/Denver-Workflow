@@ -2,6 +2,24 @@
 
 # Changelog (English)
 
+## 2.25.1 — 2026-10-01
+
+**`dw-pr-review.yml` template: pin the reviewer's verdict-comment posting to a single form, `gh pr comment <PR> --body-file - <<'EOF' … EOF`.**
+The verdict body contains `## ` heading lines, so when the reviewer posted it inline with `--body "..."`
+the permission check rejected it ("Newline followed by # inside a quoted argument"), and the fallback it
+picked — writing a file (`/tmp/*.md`) — is outside the allowed tools too. Which form got picked varied
+per run, and a run that failed to post left no `review-sha` comment for the commit, so the verdict gate
+**failed nondeterministically** (red unrelated to the code).
+
+- **`assets/gh-workflows/dw-pr-review.yml`**: added a "Posting — exactly this one way" block under the
+  verdict rules — use only the stdin heredoc form (`--body-file -`); inline `--body`, file writes,
+  pipelines (`printf … | gh …`) and command substitution (`$(...)`) are forbidden, with the reason
+  (permission rejection → no comment → gate FAIL). allowedTools (`Bash(gh pr comment:*)`) and the
+  verdict parser are unchanged.
+- **Already-installed repos**: the template is copied at `/dw-ci-review` install time, so existing repos
+  don't pick this up automatically — add the same block to each repo's `.github/workflows/dw-pr-review.yml` prompt.
+- Version: `marketplace.json` had been left at 2.24.0; it is now aligned with `plugin.json` at 2.25.1.
+
 ## 2.25.0 — 2026-09-11
 
 **CI VM egress transient mitigation — a serve-stale forwarding resolver (unbound) axis added to `wire-ci-runners`.**
