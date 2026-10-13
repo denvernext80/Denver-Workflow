@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.25.2 — 2026-10-13
+
+**`dw-compile`: 규칙 없는 skill-manifest 를 더는 경고하지 않는다.** 매니페스트는 그 scope 의
+memory·spec 이 orphan 으로 `engineering` 세션 digest 에 새는 것을 막는 울타리로도 세운다. 그런데
+stable 규칙이 아직 없는 scope 를 경고하면 `--strict`(`dry-run`·`/dw-build`)가 빌드를 막아, 울타리를
+지워야만(=digest 누수를 감수해야만) 빌드되는 역설이 됐다.
+
+- **`_build/dw-compile.py`**: `validate()` 의 「skill-manifest 는 있으나 컴파일될 stable 규칙이 없음」
+  경고 제거. `emit_skills` 는 원래 규칙 없는 scope 의 skill 디렉토리를 만들지 않으므로 산출물은 불변.
+  규칙의 scope 오타는 기존 「skill-manifest 가 없음(고아 노트)」 에러가 계속 잡는다.
+
 ## 2.25.1 — 2026-10-01
 
 **`dw-pr-review.yml` 템플릿: 리뷰어 판정 코멘트 게시 형식을 `gh pr comment <PR> --body-file - <<'EOF' … EOF` 하나로 고정.**

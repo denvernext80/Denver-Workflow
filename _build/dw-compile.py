@@ -230,14 +230,10 @@ def validate(notes: list[Note], diag: Diagnostics) -> None:
                 # 존재하지 않는 에이전트 지목 = 경고(--strict 에서 에러로 승격)
                 diag.warn(f"{n.path}: enforced-by '{eb}' 가 agents/ 에 없음")
 
-    # skill-manifest 는 있는데 컴파일 대상 노트가 없는 scope = 경고
-    for sc in manifests:
-        emitted = any(
-            n.meta.get("compiles-to") == "skill" and n.scope == sc and n.status == "stable"
-            for n in notes
-        )
-        if not emitted:
-            diag.warn(f"scope '{sc}': skill-manifest 는 있으나 컴파일될 stable 규칙이 없음")
+    # 규칙 없는 skill-manifest 는 경고하지 않는다 — 매니페스트는 그 scope 의 memory·spec 이
+    # orphan 으로 engineering 세션 digest 에 새는 것을 막는 울타리로도 세운다. 규칙이 아직 없는
+    # scope 를 경고하면 --strict 에서 빌드가 막혀, 울타리를 지워야만 빌드되는 역설이 된다.
+    # emit_skills 는 규칙 없는 scope 의 skill 디렉토리를 만들지 않으므로 산출물엔 영향이 없다.
 
 
 # ---------------------------------------------------------------------------

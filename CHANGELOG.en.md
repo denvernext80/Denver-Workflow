@@ -2,6 +2,17 @@
 
 # Changelog (English)
 
+## 2.25.2 — 2026-10-13
+
+**`dw-compile`: a skill-manifest with no rules is no longer a warning.** Manifests also act as a fence
+that keeps a scope's memory/spec from leaking as orphans into every `engineering` session digest.
+Warning on a scope with no stable rules yet made `--strict` (`dry-run`, `/dw-build`) block the build,
+so the only way to build was to delete the fence (and accept the digest leak).
+
+- **`_build/dw-compile.py`**: removed the "skill-manifest exists but no stable rules to compile" warning
+  from `validate()`. `emit_skills` already skips scopes with no rules, so output is unchanged. A typo'd
+  rule scope is still caught by the existing orphan-note error.
+
 ## 2.25.1 — 2026-10-01
 
 **`dw-pr-review.yml` template: pin the reviewer's verdict-comment posting to a single form, `gh pr comment <PR> --body-file - <<'EOF' … EOF`.**
